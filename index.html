@@ -320,9 +320,12 @@ let cache={products:[],inventory:[],stockLog:[],orders:[],accounts:[],balance:{}
 let invFilter='all',histFilter='all',orderFilter='all',accFilter='all';
 let imgFiles=[];
 
-firebase.initializeApp({apiKey:'AIzaSyD8DTzmzyuDFkrBMjGNZkJoN9fcY9_8mb4',projectId:'happiness-smart-card-pro-7389a',storageBucket:'happiness-smart-card-pro-7389a.firebasestorage.app'});
-const fbStorage=firebase.storage();
-firebase.auth().signInAnonymously().catch(()=>{});
+let fbStorage=null;
+try{
+  firebase.initializeApp({apiKey:'AIzaSyD8DTzmzyuDFkrBMjGNZkJoN9fcY9_8mb4',projectId:'happiness-smart-card-pro-7389a',storageBucket:'happiness-smart-card-pro-7389a.firebasestorage.app'});
+  fbStorage=firebase.storage();
+  firebase.auth().signInAnonymously().catch(()=>{});
+}catch(e){console.warn('Firebase 未初始化，圖片上傳功能停用',e);}
 
 function hashStr(s){let h=0;for(let i=0;i<s.length;i++)h=(Math.imul(31,h)+s.charCodeAt(i))|0;return h.toString(36)}
 
@@ -427,7 +430,7 @@ async function compressImage(file,maxPx,quality){
   });
 }
 async function uploadPhotos(productId){
-  if(!imgFiles.length)return null;
+  if(!imgFiles.length||!fbStorage)return null;
   const urls=[];const ts=Date.now();
   for(let i=0;i<imgFiles.length;i++){
     const blob=await compressImage(imgFiles[i],1024,0.82);
@@ -444,7 +447,14 @@ function refreshDatalist(){
   document.getElementById('dl-products').innerHTML=opts;
   document.getElementById('dl-products-out').innerHTML=opts;
 }
-function getPidByName(name){const p=cache.products.find(x=>x.name===name);return p?p.product_id:null;}
+function getPidByName(name){
+  const n=name.trim();
+  const exact=cache.products.find(x=>x.name===n);
+  if(exact)return exact.product_id;
+  const lower=n.toLowerCase();
+  const partial=cache.products.find(x=>x.name.toLowerCase().includes(lower)||lower.includes(x.name.toLowerCase()));
+  return partial?partial.product_id:null;
+}
 
 async function submitIn(){
   const name=document.getElementById('in-name').value.trim();
