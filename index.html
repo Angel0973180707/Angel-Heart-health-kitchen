@@ -231,7 +231,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       <div class="photo-grid" id="in-photo-grid"></div>
       <div style="font-size:11px;color:var(--muted);margin-top:4px">圖片上傳後自動壓縮</div>
     </div>
-    <button class="btn btn-in" onclick="submitIn()">✅ 確認入庫</button>
+    <button class="btn btn-in" id="btn-in" onclick="submitIn(this)">✅ 確認入庫</button>
   </div>
 </div>
 
@@ -247,7 +247,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="field"><label>零售價（NT$）</label><input type="number" id="out-price" placeholder="0"></div>
     <div class="field"><label>客戶</label><input type="text" id="out-customer" placeholder="客戶名稱"></div>
     <div class="field"><label>備註</label><textarea id="out-note" placeholder="訂單號、備注..."></textarea></div>
-    <button class="btn btn-out" onclick="submitOut()">📤 確認出庫</button>
+    <button class="btn btn-out" id="btn-out" onclick="submitOut(this)">📤 確認出庫</button>
   </div>
 </div>
 
@@ -466,25 +466,27 @@ function getPidByName(name){
   return partial?partial.product_id:null;
 }
 
-async function submitIn(){
+async function submitIn(btn){
+  if(btn.disabled)return;
   const name=document.getElementById('in-name').value.trim();
   const qty=parseInt(document.getElementById('in-qty').value);
   if(!name||!qty||qty<1){showToast('請填寫商品名稱與數量','error');return;}
   const pid=document.getElementById('in-pid').value.trim()||getPidByName(name);
   if(!pid){showToast('找不到商品ID，請確認名稱或手動填入','error');return;}
-  showToast('⟳ 送出中...','info');
-  let imageUrl='';
-  if(imgFiles.length){
-    showToast('⟳ 上傳圖片中...','info');
-    try{
-      const urls=await uploadPhotos(pid);
-      if(urls&&urls.length){
-        const imageUrlStr=urls.length>1?JSON.stringify(urls):urls[0];
-        await api({action:'updateProduct',key:ADMIN_KEY,product_id:pid,image_url:imageUrlStr});
-      }
-    }catch(e){showToast('⚠️ 圖片上傳失敗，繼續入庫','error');await new Promise(r=>setTimeout(r,1500));}
-  }
+  const orig=btn.textContent;
+  btn.disabled=true;btn.textContent='⟳ 送出中...';btn.style.opacity='0.65';
   try{
+    if(imgFiles.length){
+      btn.textContent='⟳ 上傳圖片...';
+      try{
+        const urls=await uploadPhotos(pid);
+        if(urls&&urls.length){
+          const imageUrlStr=urls.length>1?JSON.stringify(urls):urls[0];
+          await api({action:'updateProduct',key:ADMIN_KEY,product_id:pid,image_url:imageUrlStr});
+        }
+      }catch(e){showToast('⚠️ 圖片上傳失敗，繼續入庫','error');await new Promise(r=>setTimeout(r,1200));}
+      btn.textContent='⟳ 送出中...';
+    }
     const r=await api({action:'stockIn',key:ADMIN_KEY,product_id:pid,qty,
       price:document.getElementById('in-price').value||'',
       threshold:document.getElementById('in-threshold').value||10,
@@ -492,24 +494,26 @@ async function submitIn(){
       note:document.getElementById('in-note').value.trim()});
     if(r.ok){showToast(`✅ 入庫成功：${name} × ${qty}`,'success');resetForm('in');syncAll();}
     else showToast('❌ '+(r.error||'入庫失敗'),'error');
-  }catch(e){showToast('⚠️ 網路中斷，請確認連線','error');}
+  }finally{btn.disabled=false;btn.textContent=orig;btn.style.opacity='';}
 }
 
-async function submitOut(){
+async function submitOut(btn){
+  if(btn.disabled)return;
   const name=document.getElementById('out-name').value.trim();
   const qty=parseInt(document.getElementById('out-qty').value);
   if(!name||!qty||qty<1){showToast('請填寫商品名稱與數量','error');return;}
   const pid=document.getElementById('out-pid').value.trim()||getPidByName(name);
   if(!pid){showToast('找不到商品ID，請確認名稱或手動填入','error');return;}
-  showToast('⟳ 送出中...','info');
+  const orig=btn.textContent;
+  btn.disabled=true;btn.textContent='⟳ 送出中...';btn.style.opacity='0.65';
   try{
-    const r=await apiPost({action:'stockOut',key:ADMIN_KEY,product_id:pid,qty,
+    const r=await api({action:'stockOut',key:ADMIN_KEY,product_id:pid,qty,
       price:document.getElementById('out-price').value||'',
       partner:document.getElementById('out-customer').value.trim(),
       note:document.getElementById('out-note').value.trim()});
     if(r.ok){showToast(`📤 出庫成功：${name} × ${qty}`,'success');resetForm('out');syncAll();}
     else showToast('❌ '+(r.error||'出庫失敗'),'error');
-  }catch(e){showToast('⚠️ 網路中斷，請確認連線','error');}
+  }finally{btn.disabled=false;btn.textContent=orig;btn.style.opacity='';}
 }
 
 function resetForm(type){
