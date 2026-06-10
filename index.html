@@ -328,38 +328,41 @@ function enterApp(){
 }
 
 async function api(params){
-  const r=await fetch(GAS_URL+'?'+new URLSearchParams(params).toString());
-  return await r.json();
+  try{
+    const r=await fetch(GAS_URL+'?'+new URLSearchParams(params).toString());
+    const text=await r.text();
+    try{return JSON.parse(text);}catch(e){return {ok:false,error:'GAS 回應格式錯誤'};}
+  }catch(e){return {ok:false,error:'網路無法連線'};}
 }
 async function apiPost(params){
-  // GAS doPost works best with form-encoded or GET params
-  const url=GAS_URL+'?'+new URLSearchParams(params).toString();
-  const r=await fetch(url);
-  return await r.json();
+  return api(params);
 }
 
 async function syncAll(){
   const btn=document.getElementById('sync-btn');
   btn.textContent='⟳ 同步中';btn.classList.add('syncing');
-  try{
-    const [p,inv,log,ord,acc,bal]=await Promise.all([
-      api({action:'getProducts'}),
-      api({action:'getInventory'}),
-      api({action:'getStockLog',limit:100}),
-      api({action:'getOrders',key:ADMIN_KEY}),
-      api({action:'getAccounts',key:ADMIN_KEY}),
-      api({action:'getBalance',key:ADMIN_KEY})
-    ]);
-    if(p.ok)   cache.products =p.data;
-    if(inv.ok) cache.inventory=inv.data;
-    if(log.ok) cache.stockLog =log.data;
-    if(ord.ok) cache.orders   =ord.data;
-    if(acc.ok) cache.accounts =acc.data;
-    if(bal.ok) cache.balance  =bal.data;
+  const [p,inv,log,ord,acc,bal]=await Promise.all([
+    api({action:'getProducts'}),
+    api({action:'getInventory'}),
+    api({action:'getStockLog',limit:100}),
+    api({action:'getOrders',key:ADMIN_KEY}),
+    api({action:'getAccounts',key:ADMIN_KEY}),
+    api({action:'getBalance',key:ADMIN_KEY})
+  ]);
+  let anyOk=false;
+  if(p.ok)   {cache.products =p.data;anyOk=true;}
+  if(inv.ok) {cache.inventory=inv.data;anyOk=true;}
+  if(log.ok) {cache.stockLog =log.data;anyOk=true;}
+  if(ord.ok) {cache.orders   =ord.data;anyOk=true;}
+  if(acc.ok) {cache.accounts =acc.data;anyOk=true;}
+  if(bal.ok) {cache.balance  =bal.data;anyOk=true;}
+  if(anyOk){
     localStorage.setItem('yc_cache',JSON.stringify(cache));
     refreshDatalist();renderAll();
     showToast('✅ 同步完成','success');
-  }catch(e){showToast('⚠️ 同步失敗，使用本機資料','error');}
+  }else{
+    showToast('⚠️ 同步失敗，使用本機資料','error');
+  }
   btn.textContent='⟳ 同步';btn.classList.remove('syncing');
 }
 
@@ -408,8 +411,8 @@ async function submitIn(){
       partner:document.getElementById('in-supplier').value.trim()||'養清廚房總部',
       note:document.getElementById('in-note').value.trim()});
     if(r.ok){showToast(`✅ 入庫成功：${name} × ${qty}`,'success');resetForm('in');syncAll();}
-    else showToast('❌ '+r.error,'error');
-  }catch(e){showToast('⚠️ 網路錯誤','error');}
+    else showToast('❌ '+(r.error||'入庫失敗'),'error');
+  }catch(e){showToast('⚠️ 網路中斷，請確認連線','error');}
 }
 
 async function submitOut(){
@@ -425,8 +428,8 @@ async function submitOut(){
       partner:document.getElementById('out-customer').value.trim(),
       note:document.getElementById('out-note').value.trim()});
     if(r.ok){showToast(`📤 出庫成功：${name} × ${qty}`,'success');resetForm('out');syncAll();}
-    else showToast('❌ '+r.error,'error');
-  }catch(e){showToast('⚠️ 網路錯誤','error');}
+    else showToast('❌ '+(r.error||'出庫失敗'),'error');
+  }catch(e){showToast('⚠️ 網路中斷，請確認連線','error');}
 }
 
 function resetForm(type){
