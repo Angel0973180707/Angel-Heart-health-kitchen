@@ -433,14 +433,15 @@ async function compressImage(file,maxPx,quality){
   });
 }
 async function uploadPhotos(productId){
-  if(!imgFiles.length||!fbStorage)return null;
+  if(!imgFiles.length)throw new Error('no_files');
+  if(!fbStorage)throw new Error('Firebase 未載入，請重新整理頁面再試');
   const urls=[];const ts=Date.now();
   for(let i=0;i<imgFiles.length;i++){
     const blob=await compressImage(imgFiles[i],1024,0.82);
-    const path=`warehouse/${productId}/photo${i+1}_${ts}.jpg`;
-    const ref=fbStorage.ref(path);
-    await ref.put(blob,{contentType:'image/jpeg'});
-    urls.push(await ref.getDownloadURL());
+    const path=`cards/warehouse/${productId}/photo${i+1}_${ts}.jpg`;
+    const storageRef=fbStorage.ref(path);
+    await storageRef.put(blob,{contentType:'image/jpeg'});
+    urls.push(await storageRef.getDownloadURL());
   }
   return urls;
 }
@@ -484,7 +485,12 @@ async function submitIn(btn){
           const imageUrlStr=urls.length>1?JSON.stringify(urls):urls[0];
           await api({action:'updateProduct',key:ADMIN_KEY,product_id:pid,image_url:imageUrlStr});
         }
-      }catch(e){showToast('⚠️ 圖片上傳失敗，繼續入庫','error');await new Promise(r=>setTimeout(r,1200));}
+      }catch(e){
+        const msg=e.code||e.message||'未知錯誤';
+        showToast('⚠️ 圖片上傳失敗：'+msg,'error');
+        console.error('圖片上傳錯誤',e);
+        await new Promise(r=>setTimeout(r,2000));
+      }
       btn.textContent='⟳ 送出中...';
     }
     const r=await api({action:'stockIn',key:ADMIN_KEY,product_id:pid,qty,
