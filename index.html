@@ -7,6 +7,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>養清倉管</title>
 <link rel="manifest" href="manifest.json">
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 <style>
 :root{--bg:#1B3A2A;--surface:#234D38;--surface2:#2D5C42;--border:#3D7055;--gold:#4A7C59;--green:#5BAA7A;--red:#E05757;--blue:#4A9EFF;--text:#FFFFFF;--dim:#8FB5A0;--muted:#5A8A6A;--font:'Segoe UI','PingFang TC','Microsoft JhengHei',sans-serif;--r:12px;--rs:8px}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -150,6 +153,14 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .empty-icon{font-size:36px;margin-bottom:10px}
 .empty-text{font-size:14px}
 .loading{text-align:center;padding:30px;color:var(--dim);font-size:14px}
+.photo-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:4px}
+.photo-slot{aspect-ratio:1;border-radius:var(--rs);overflow:hidden;position:relative;background:var(--surface2)}
+.photo-slot.add-btn{border:2px dashed var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--muted);font-size:20px;cursor:pointer;transition:border-color .2s}
+.photo-slot.add-btn:hover{border-color:var(--gold)}
+.photo-slot.add-btn span{font-size:10px;margin-top:3px}
+.photo-slot img{width:100%;height:100%;object-fit:cover}
+.main-badge{position:absolute;top:4px;left:4px;background:var(--gold);color:#0F1117;font-size:9px;font-weight:800;padding:2px 5px;border-radius:4px;pointer-events:none}
+.rm-btn{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.65);border:none;color:#fff;width:22px;height:22px;border-radius:50%;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
 @media(min-width:600px){.page,.tabs{max-width:480px;margin-left:auto;margin-right:auto}.topbar{left:50%;transform:translateX(-50%);position:sticky;width:100%;max-width:480px}}
 </style>
 </head>
@@ -212,12 +223,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     </div>
     <div class="field"><label>供應商</label><input type="text" id="in-supplier" placeholder="養清廚房總部"></div>
     <div class="field"><label>備註</label><textarea id="in-note" placeholder="批次號、備注..."></textarea></div>
-    <div class="field"><label>商品圖片</label>
-      <div class="img-upload" id="in-img-zone">
-        <input type="file" accept="image/*" id="in-img-file" onchange="handleImg('in')">
-        <div id="in-img-ph"><div class="img-upload-icon">📷</div><div class="img-upload-text">點擊上傳圖片</div></div>
-        <div id="in-img-prev" style="display:none" class="img-preview-wrap"><img class="img-preview" id="in-img-show"><button class="img-remove" onclick="removeImg('in',event)">✕</button></div>
-      </div>
+    <div class="field"><label>商品圖片（最多5張，第一張為主圖）</label>
+      <input type="file" accept="image/*" multiple id="in-img-file" style="display:none" onchange="handleImgs(event)">
+      <div class="photo-grid" id="in-photo-grid"></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">圖片上傳後自動壓縮</div>
     </div>
     <button class="btn btn-in" onclick="submitIn()">✅ 確認入庫</button>
   </div>
@@ -309,7 +318,11 @@ const GAS_URL='https://script.google.com/macros/s/AKfycbz4-pJ5jWtu9nevKDl98LxRqf
 const ADMIN_KEY='YANGCHING2025';
 let cache={products:[],inventory:[],stockLog:[],orders:[],accounts:[],balance:{}};
 let invFilter='all',histFilter='all',orderFilter='all',accFilter='all';
-let imgData={in:null};
+let imgFiles=[];
+
+firebase.initializeApp({apiKey:'AIzaSyD8DTzmzyuDFkrBMjGNZkJoN9fcY9_8mb4',projectId:'happiness-smart-card-pro-7389a',storageBucket:'happiness-smart-card-pro-7389a.firebasestorage.app'});
+const fbStorage=firebase.storage();
+firebase.auth().signInAnonymously().catch(()=>{});
 
 function hashStr(s){let h=0;for(let i=0;i<s.length;i++)h=(Math.imul(31,h)+s.charCodeAt(i))|0;return h.toString(36)}
 
@@ -372,6 +385,7 @@ function init(){
   document.getElementById('topbar-date').textContent=new Date().toLocaleDateString('zh-TW',{weekday:'short',month:'long',day:'numeric'});
   const saved=localStorage.getItem('yc_cache');
   if(saved){try{cache=JSON.parse(saved);}catch(e){}}
+  renderPhotoGrid();
   refreshDatalist();renderAll();syncAll();
 }
 
@@ -382,13 +396,48 @@ function switchTab(tab){
   document.getElementById('page-'+tab).classList.add('active');
 }
 
-function handleImg(type){
-  const file=document.getElementById(type+'-img-file').files[0];if(!file)return;
-  const r=new FileReader();
-  r.onload=e=>{imgData[type]=e.target.result;document.getElementById(type+'-img-ph').style.display='none';document.getElementById(type+'-img-prev').style.display='block';document.getElementById(type+'-img-show').src=e.target.result;};
-  r.readAsDataURL(file);
+function renderPhotoGrid(){
+  const grid=document.getElementById('in-photo-grid');
+  let html=imgFiles.map((f,i)=>{
+    const url=URL.createObjectURL(f);
+    return `<div class="photo-slot"><img src="${url}">${i===0?'<span class="main-badge">主圖</span>':''}<button class="rm-btn" onclick="removePhoto(${i},event)">✕</button></div>`;
+  }).join('');
+  if(imgFiles.length<5)html+=`<div class="photo-slot add-btn" onclick="document.getElementById('in-img-file').click()"><span>📷</span><span>新增</span></div>`;
+  grid.innerHTML=html;
 }
-function removeImg(type,e){if(e)e.stopPropagation();imgData[type]=null;document.getElementById(type+'-img-file').value='';document.getElementById(type+'-img-ph').style.display='block';document.getElementById(type+'-img-prev').style.display='none';}
+function handleImgs(e){
+  Array.from(e.target.files).forEach(f=>{if(imgFiles.length<5)imgFiles.push(f);});
+  e.target.value='';
+  renderPhotoGrid();
+}
+function removePhoto(i,e){if(e)e.stopPropagation();imgFiles.splice(i,1);renderPhotoGrid();}
+
+async function compressImage(file,maxPx,quality){
+  return new Promise(resolve=>{
+    const img=new Image();const url=URL.createObjectURL(file);
+    img.onload=()=>{
+      let w=img.width,h=img.height;
+      if(w>maxPx||h>maxPx){if(w>h){h=Math.round(h/w*maxPx);w=maxPx;}else{w=Math.round(w/h*maxPx);h=maxPx;}}
+      const c=document.createElement('canvas');c.width=w;c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);
+      URL.revokeObjectURL(url);
+      c.toBlob(b=>resolve(b),'image/jpeg',quality);
+    };
+    img.src=url;
+  });
+}
+async function uploadPhotos(productId){
+  if(!imgFiles.length)return null;
+  const urls=[];const ts=Date.now();
+  for(let i=0;i<imgFiles.length;i++){
+    const blob=await compressImage(imgFiles[i],1024,0.82);
+    const path=`warehouse/${productId}/photo${i+1}_${ts}.jpg`;
+    const ref=fbStorage.ref(path);
+    await ref.put(blob,{contentType:'image/jpeg'});
+    urls.push(await ref.getDownloadURL());
+  }
+  return urls;
+}
 
 function refreshDatalist(){
   const opts=cache.products.map(p=>`<option value="${p.name}">`).join('');
@@ -404,8 +453,16 @@ async function submitIn(){
   const pid=document.getElementById('in-pid').value.trim()||getPidByName(name);
   if(!pid){showToast('找不到商品ID，請確認名稱或手動填入','error');return;}
   showToast('⟳ 送出中...','info');
+  let imageUrl='';
+  if(imgFiles.length){
+    showToast('⟳ 上傳圖片中...','info');
+    try{
+      const urls=await uploadPhotos(pid);
+      if(urls&&urls.length){imageUrl=urls[0];await api({action:'updateProduct',key:ADMIN_KEY,product_id:pid,image_url:imageUrl});}
+    }catch(e){showToast('⚠️ 圖片上傳失敗，繼續入庫','error');await new Promise(r=>setTimeout(r,1500));}
+  }
   try{
-    const r=await apiPost({action:'stockIn',key:ADMIN_KEY,product_id:pid,qty,
+    const r=await api({action:'stockIn',key:ADMIN_KEY,product_id:pid,qty,
       price:document.getElementById('in-price').value||'',
       threshold:document.getElementById('in-threshold').value||10,
       partner:document.getElementById('in-supplier').value.trim()||'養清廚房總部',
@@ -434,7 +491,7 @@ async function submitOut(){
 
 function resetForm(type){
   ['name','pid','qty','price','note'].forEach(f=>{const el=document.getElementById(type+'-'+f);if(el)el.value='';});
-  if(type==='in'){document.getElementById('in-supplier').value='';document.getElementById('in-threshold').value='';removeImg('in',null);}
+  if(type==='in'){document.getElementById('in-supplier').value='';document.getElementById('in-threshold').value='';imgFiles=[];renderPhotoGrid();}
   else document.getElementById('out-customer').value='';
 }
 
