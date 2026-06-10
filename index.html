@@ -161,6 +161,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .photo-slot img{width:100%;height:100%;object-fit:cover}
 .main-badge{position:absolute;top:4px;left:4px;background:var(--gold);color:#0F1117;font-size:9px;font-weight:800;padding:2px 5px;border-radius:4px;pointer-events:none}
 .rm-btn{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.65);border:none;color:#fff;width:22px;height:22px;border-radius:50%;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+.img-gallery{display:flex;gap:8px;overflow-x:auto;margin-bottom:14px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.img-gallery::-webkit-scrollbar{display:none}
+.img-gallery img{width:150px;height:130px;object-fit:cover;border-radius:var(--rs);flex-shrink:0;cursor:pointer}
 @media(min-width:600px){.page,.tabs{max-width:480px;margin-left:auto;margin-right:auto}.topbar{left:50%;transform:translateX(-50%);position:sticky;width:100%;max-width:480px}}
 </style>
 </head>
@@ -447,6 +450,13 @@ function refreshDatalist(){
   document.getElementById('dl-products').innerHTML=opts;
   document.getElementById('dl-products-out').innerHTML=opts;
 }
+function getImgUrls(raw){
+  if(!raw)return[];
+  if(raw.trim().startsWith('[')){try{return JSON.parse(raw);}catch(e){}}
+  return raw.split(',').map(s=>s.trim()).filter(Boolean);
+}
+function firstImg(raw){const u=getImgUrls(raw);return u.length?u[0]:'';}
+
 function getPidByName(name){
   const n=name.trim();
   const exact=cache.products.find(x=>x.name===n);
@@ -468,7 +478,10 @@ async function submitIn(){
     showToast('⟳ 上傳圖片中...','info');
     try{
       const urls=await uploadPhotos(pid);
-      if(urls&&urls.length){imageUrl=urls[0];await api({action:'updateProduct',key:ADMIN_KEY,product_id:pid,image_url:imageUrl});}
+      if(urls&&urls.length){
+        const imageUrlStr=urls.length>1?JSON.stringify(urls):urls[0];
+        await api({action:'updateProduct',key:ADMIN_KEY,product_id:pid,image_url:imageUrlStr});
+      }
     }catch(e){showToast('⚠️ 圖片上傳失敗，繼續入庫','error');await new Promise(r=>setTimeout(r,1500));}
   }
   try{
@@ -514,7 +527,7 @@ function renderDashboard(){
   document.getElementById('s-profit').textContent='NT$ '+(bal['本月淨利']?Number(bal['本月淨利']).toLocaleString():'0');
   const badge=document.getElementById('alert-count');const ac=low.length+zero.length;badge.style.display=ac>0?'inline':'none';badge.textContent=ac;
   const al=document.getElementById('alert-list');const items=[...low,...zero];
-  al.innerHTML=items.length?items.slice(0,5).map(p=>`<div class="alert-item"><div class="alert-img">${p.image_url?`<img src="${p.image_url}">`:'📦'}</div><div><div class="alert-name">${p.name}</div><div class="alert-qty">${p.qty===0?'❌ 已無庫存':`⚠️ 剩 ${p.qty} 件（警示：${p.threshold}）`}</div></div></div>`).join(''):`<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">庫存充足</div></div>`;
+  al.innerHTML=items.length?items.slice(0,5).map(p=>`<div class="alert-item"><div class="alert-img">${firstImg(p.image_url)?`<img src="${firstImg(p.image_url)}">`:'📦'}</div><div><div class="alert-name">${p.name}</div><div class="alert-qty">${p.qty===0?'❌ 已無庫存':`⚠️ 剩 ${p.qty} 件（警示：${p.threshold}）`}</div></div></div>`).join(''):`<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">庫存充足</div></div>`;
   const rl=document.getElementById('recent-list');const recent=cache.stockLog.slice(0,5);
   rl.innerHTML=recent.length?recent.map(h=>histHTML(h)).join(''):`<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-text">尚無記錄</div></div>`;
 }
@@ -528,13 +541,17 @@ function renderInventory(){
   else if(invFilter!=='all')list=list.filter(p=>p.category===invFilter);
   if(q)list=list.filter(p=>p.name.toLowerCase().includes(q)||(p.product_id||'').toLowerCase().includes(q));
   const el=document.getElementById('inv-list');
-  el.innerHTML=list.length?list.map(p=>`<div class="inv-card ${p.qty<=p.threshold&&p.qty>0?'low':''}" onclick="showProductModal('${p.product_id}')"><div class="inv-card-img">${p.image_url?`<img src="${p.image_url}">`:'📦'}</div><div class="inv-card-info"><div class="inv-card-name">${p.name}</div><div class="inv-card-code">${p.product_id}${p.category?' · '+p.category:''}</div><div class="inv-card-meta"><span class="inv-qty ${p.qty===0?'red':p.qty<=p.threshold?'red':'green'}">${p.qty}</span><span class="inv-qty-label">件</span><span class="inv-price">${p.retail_price?'NT$ '+Number(p.retail_price).toLocaleString():''}</span></div></div></div>`).join(''):`<div class="empty-state"><div class="empty-icon">🗃️</div><div class="empty-text">沒有符合商品</div></div>`;
+  el.innerHTML=list.length?list.map(p=>`<div class="inv-card ${p.qty<=p.threshold&&p.qty>0?'low':''}" onclick="showProductModal('${p.product_id}')"><div class="inv-card-img">${firstImg(p.image_url)?`<img src="${firstImg(p.image_url)}">`:'📦'}</div><div class="inv-card-info"><div class="inv-card-name">${p.name}</div><div class="inv-card-code">${p.product_id}${p.category?' · '+p.category:''}</div><div class="inv-card-meta"><span class="inv-qty ${p.qty===0?'red':p.qty<=p.threshold?'red':'green'}">${p.qty}</span><span class="inv-qty-label">件</span><span class="inv-price">${p.retail_price?'NT$ '+Number(p.retail_price).toLocaleString():''}</span></div></div></div>`).join(''):`<div class="empty-state"><div class="empty-icon">🗃️</div><div class="empty-text">沒有符合商品</div></div>`;
 }
 
 function showProductModal(pid){
   const p=cache.inventory.find(x=>x.product_id===pid);if(!p)return;
   document.getElementById('modal-title').textContent=p.name;
-  document.getElementById('modal-body').innerHTML=`${p.image_url?`<img class="modal-img" src="${p.image_url}">`:''}
+  const imgs=getImgUrls(p.image_url);
+  const galleryHtml=imgs.length>1
+    ?`<div class="img-gallery">${imgs.map(u=>`<img src="${u}" onclick="this.requestFullscreen&&this.requestFullscreen()">`).join('')}</div>`
+    :imgs.length===1?`<img class="modal-img" src="${imgs[0]}">`:'';
+  document.getElementById('modal-body').innerHTML=`${galleryHtml}
     <div class="modal-row"><span class="modal-key">商品ID</span><span class="modal-val">${p.product_id}</span></div>
     <div class="modal-row"><span class="modal-key">分類</span><span class="modal-val">${p.category||'—'}</span></div>
     <div class="modal-row"><span class="modal-key">目前庫存</span><span class="modal-val" style="color:${p.qty<=p.threshold?'var(--red)':'var(--green)'}">${p.qty} 件</span></div>
