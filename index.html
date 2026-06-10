@@ -332,7 +332,9 @@ async function api(params){
   return await r.json();
 }
 async function apiPost(params){
-  const r=await fetch(GAS_URL,{method:'POST',body:JSON.stringify(params),headers:{'Content-Type':'application/json'}});
+  // GAS doPost works best with form-encoded or GET params
+  const url=GAS_URL+'?'+new URLSearchParams(params).toString();
+  const r=await fetch(url);
   return await r.json();
 }
 
