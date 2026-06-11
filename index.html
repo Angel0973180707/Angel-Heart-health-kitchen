@@ -697,33 +697,6 @@ async function uploadInImages(productId){
   return urls;
 }
 
-// ── 報名管理 ──
-let regFilter='all';
-function setRegFilter(f,el){
-  regFilter=f;
-  document.querySelectorAll('#page-registrations .chip').forEach(c=>c.classList.remove('active'));
-  el.classList.add('active');
-  renderRegs();
-}
-
-function renderRegs(){
-  let list=regFilter==='all'?cache.registrations:(cache.registrations||[]).filter(r=>r.fee_status===regFilter);
-  const el=document.getElementById('reg-list');
-  if(!list||!list.length){
-    el.innerHTML='<div class="empty-state"><div class="empty-icon">📝</div><div class="empty-text">尚無報名記錄</div></div>';
-    return;
-  }
-  el.innerHTML=list.map(r=>`
-    <div class="reg-card" onclick="showRegModal('${r.reg_id}')">
-      <div class="reg-card-header">
-        <span class="reg-card-name">${r.name}</span>
-        <span class="reg-status rs-${r.fee_status}">${r.fee_status}</span>
-      </div>
-      <div class="reg-card-meta">📞 ${r.phone} · ${r.event_name}</div>
-      <div class="reg-card-meta">💳 ${r.fee_type} · NT$ ${Number(r.fee_amount).toLocaleString()}</div>
-      <div class="reg-card-meta" style="margin-top:3px;font-size:11px;color:var(--muted)">${r.created_at?r.created_at.slice(0,10):''}</div>
-    </div>`).join('');
-}
 
 function showRegModal(rid){
   const r=(cache.registrations||[]).find(x=>x.reg_id===rid);if(!r)return;
