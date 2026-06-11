@@ -182,7 +182,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       <div class="fee-cards" id="fee-cards"></div>
       <div style="background:#fff8ec;border:1.5px solid #e8d5a0;border-radius:8px;padding:12px;margin-top:12px">
         <div style="font-size:12px;color:#8B6914;line-height:1.8">
-          💡 <strong>繳費說明：</strong>報名後請加入 LINE 官方帳號，我們會告知繳費方式及相關細節。
+          💡 <strong>報名說明：</strong>送出申請後請加入 LINE 官方帳號，審核通過後我們會通知您繳費及活動細節。
         </div>
       </div>
     </div>
@@ -227,7 +227,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   </div>
 
   <div class="submit-bar">
-    <button class="submit-btn" id="submit-btn" onclick="submitReg()">確認報名</button>
+    <button class="submit-btn" id="submit-btn" onclick="submitReg()">送出報名申請</button>
   </div>
 </div>
 
@@ -235,7 +235,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 <div class="success-screen" id="success-screen">
   <div class="success-icon">🎉</div>
   <div class="success-title">報名成功！</div>
-  <div class="success-sub">感謝您報名參加<br>我們將透過 LINE 與您聯繫繳費及活動細節</div>
+  <div class="success-sub">感謝您送出報名申請<br>我們審核後會透過 LINE 通知錄取結果</div>
 
   <div class="info-box" id="success-info"></div>
 
@@ -243,7 +243,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     💬 加入 LINE 官方帳號
   </a>
   <div style="font-size:12px;color:var(--text-dim);margin-bottom:20px;max-width:360px;text-align:center">
-    加入後我們會主動與您聯繫繳費方式及活動詳情 🌿
+    審核通過後我們會透過 LINE 通知您，請務必加入 🌿
   </div>
   <button class="back-list-btn" onclick="backToListFromSuccess()">查看其他活動</button>
 </div>
@@ -441,7 +441,7 @@ async function submitReg(){
   }catch(e){
     showToast('網路錯誤，請重試','error');
   }
-  btn.disabled=false;btn.textContent='確認報名';
+  btn.disabled=false;btn.textContent='送出報名申請';
 }
 
 // ── 頁面切換 ──
