@@ -194,9 +194,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-hei
 <!-- HEADER -->
 <div class="header">
   <div class="header-top">
-    <div class="brand">
-      <div class="brand-name">🌿 吉祥人間・養清廚房</div>
-      <div class="brand-sub">南部經銷 · 健康生活好夥伴</div>
+    <div class="brand" style="display:flex;align-items:center;gap:10px">
+      <img src="logo.png" alt="幸福緣養清廚房" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,.3)">
+      <div>
+        <div class="brand-name">幸福緣養清廚房</div>
+        <div class="brand-sub">南部經銷 · 健康生活好夥伴</div>
+      </div>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
       <button class="cart-btn" style="background:rgba(255,255,255,.08);font-size:12px;padding:6px 10px" onclick="openQueryScreen()">查詢訂單</button>
@@ -301,7 +304,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-hei
         <div class="atm-row"><span class="atm-key">銀行</span><span class="atm-val">中華郵政（700）</span></div>
         <div class="atm-row"><span class="atm-key">帳號</span><span class="atm-val">0041336-0597692</span></div>
         <div class="atm-row"><span class="atm-key">戶名</span><span class="atm-val">李秀芳</span></div>
-        <div class="atm-row" style="border:none;padding-top:8px"><span class="atm-key" style="color:var(--red);font-size:11px">⚠️ 請於下單後 3 天內完成匯款，並點下方按鈕回報末5碼</span></div>
+        <div class="atm-row" style="border:none;padding-top:8px"><span class="atm-key" style="color:var(--text-mid);font-size:11px">✅ 下單後請先加入 LINE OA，待我們確認運費後再匯款</span></div>
       </div>
     </div>
 
@@ -326,21 +329,33 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-hei
     <div class="atm-row" style="border:none"><span class="atm-key">金額</span><span class="atm-val" id="success-amount"></span></div>
   </div>
 
-  <!-- 步驟說明 -->
-  <div id="success-steps" style="display:none;width:100%;max-width:360px;background:#f0f7f2;border-radius:12px;padding:16px;margin-bottom:20px;text-align:left">
-    <div style="font-size:13px;font-weight:800;color:var(--green-dark);margin-bottom:10px">📌 匯款後如何回報？</div>
-    <div style="font-size:13px;color:var(--text-mid);line-height:2">
-      1️⃣ 完成 ATM 匯款<br>
-      2️⃣ 點下方「查詢我的訂單」<br>
-      3️⃣ 輸入您的手機號碼找到訂單<br>
-      4️⃣ 填入匯款末5碼，一鍵傳給我們<br>
-      <span style="color:var(--green-soft);font-size:12px">✅ 我們收到後會盡快確認您的訂單</span>
+  <!-- LINE OA 加入提示 -->
+  <div style="width:100%;max-width:360px;background:#f0f7f2;border-radius:12px;padding:16px;margin-bottom:16px;text-align:left">
+    <div style="font-size:13px;font-weight:800;color:var(--green-dark);margin-bottom:8px">📌 接下來請這樣做：</div>
+    <div style="font-size:13px;color:var(--text-mid);line-height:2.2">
+      1️⃣ 加入我們的 LINE 官方帳號<br>
+      2️⃣ 我們會透過 LINE 與您確認<span style="font-weight:700;color:var(--green-dark)">運費及出貨時間</span><br>
+      3️⃣ 確認後再完成 ATM 匯款<br>
+      4️⃣ 匯款後回來查詢訂單回報末5碼<br>
+      <span style="color:var(--green-soft);font-size:12px">✅ 我們收到確認後會盡快為您出貨 🌿</span>
+    </div>
+  </div>
+
+  <!-- 步驟說明（ATM才顯示）-->
+  <div id="success-steps" style="display:none;width:100%;max-width:360px;background:#fff8ec;border:1.5px solid #e8d5a0;border-radius:12px;padding:14px;margin-bottom:16px;text-align:left">
+    <div style="font-size:12px;font-weight:800;color:#8B6914;margin-bottom:6px">💡 ATM 匯款後如何回報？</div>
+    <div style="font-size:12px;color:#7A5C2A;line-height:1.9">
+      回到此頁 → 點「查詢我的訂單」→ 輸入手機號碼 → 填入末5碼 → 一鍵傳送 LINE
     </div>
   </div>
 
   <div style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:360px">
-    <button class="back-shop-btn" style="background:var(--green-dark)" onclick="openQueryScreen()">📱 查詢我的訂單</button>
-    <button class="back-shop-btn" style="background:transparent;border:1.5px solid var(--green-dark);color:var(--green-dark)" onclick="backToShop()">繼續選購</button>
+    <a href="https://lin.ee/tMag2XG" target="_blank"
+      style="display:block;padding:15px;background:#06C755;border-radius:12px;color:#fff;font-size:16px;font-weight:800;text-align:center;text-decoration:none">
+      💬 加入 LINE 官方帳號
+    </a>
+    <button class="back-shop-btn" style="background:var(--green-dark)" onclick="openQueryScreen()">📱 查詢訂單 / 回報末5碼</button>
+    <button class="back-shop-btn" style="background:transparent;border:1.5px solid var(--border);color:var(--text-mid)" onclick="backToShop()">繼續選購</button>
   </div>
 </div>
 
