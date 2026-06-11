@@ -441,7 +441,7 @@ async function syncAll(){
     if(p.ok)   cache.products =p.data;
     if(inv.ok) cache.inventory=inv.data;
     if(log.ok) cache.stockLog =log.data;
-    try{const regs=await api({action:'getRegistrations',key:ADMIN_KEY});if(regs.ok)cache.regs=regs.data;}catch(e){}
+    try{const regs=await api({action:'getRegistrations',key:ADMIN_KEY});if(regs.ok)cache.registrations=regs.data;}catch(e){}
     // 選擇性資料，失敗不影響主流程
     try{const ord=await api({action:'getOrders',key:ADMIN_KEY});if(ord.ok)cache.orders=ord.data;}catch(e){}
     try{const acc=await api({action:'getAccounts',key:ADMIN_KEY});if(acc.ok)cache.accounts=acc.data;}catch(e){}
@@ -454,7 +454,7 @@ async function syncAll(){
   btn.textContent='⟳ 同步';btn.classList.remove('syncing');
 }
 
-function renderAll(){renderDashboard();renderInventory();renderHistory();renderOrders();renderAccounts();renderRegs();}
+function renderAll(){renderDashboard();renderInventory();renderHistory();renderOrders();renderAccounts();renderRegistrations();}
 
 function init(){
   document.getElementById('topbar-date').textContent=new Date().toLocaleDateString('zh-TW',{weekday:'short',month:'long',day:'numeric'});
@@ -468,7 +468,7 @@ function switchTab(tab){
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',tabs[i]===tab));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById('page-'+tab).classList.add('active');
-  if(tab==='regs')renderRegs();
+  
 }
 
 function handleImg(type){
@@ -701,13 +701,13 @@ async function uploadInImages(productId){
 let regFilter='all';
 function setRegFilter(f,el){
   regFilter=f;
-  document.querySelectorAll('#page-regs .chip').forEach(c=>c.classList.remove('active'));
+  document.querySelectorAll('#page-registrations .chip').forEach(c=>c.classList.remove('active'));
   el.classList.add('active');
   renderRegs();
 }
 
 function renderRegs(){
-  let list=regFilter==='all'?cache.regs:(cache.regs||[]).filter(r=>r.fee_status===regFilter);
+  let list=regFilter==='all'?cache.registrations:(cache.registrations||[]).filter(r=>r.fee_status===regFilter);
   const el=document.getElementById('reg-list');
   if(!list||!list.length){
     el.innerHTML='<div class="empty-state"><div class="empty-icon">📝</div><div class="empty-text">尚無報名記錄</div></div>';
@@ -726,7 +726,7 @@ function renderRegs(){
 }
 
 function showRegModal(rid){
-  const r=(cache.regs||[]).find(x=>x.reg_id===rid);if(!r)return;
+  const r=(cache.registrations||[]).find(x=>x.reg_id===rid);if(!r)return;
   document.getElementById('modal-title').textContent=r.name+' 的報名';
 
   const lineAccept=encodeURIComponent(`您好 ${r.name}！\n\n恭喜您通過「${r.event_name}」報名審核 🎉\n\n請依以下方式完成繳費：\n\n🏦 中華郵政（700）\n帳號：0041336-0597692\n戶名：李秀芳\n金額：NT$ ${Number(r.fee_amount).toLocaleString()}（${r.fee_type}）\n\n請於收到此訊息後 3 天內完成匯款，並回傳末5碼。\n\n期待與您相見 🌿`);
@@ -887,14 +887,6 @@ function showRegModal(rid){
     </div>
   `;
   document.getElementById('modal-overlay').classList.add('open');
-}
-
-async function updateReg(rid, status){
-  closeModal();
-  showToast('⟳ 更新中...','info');
-  const r=await apiPost({action:'updateRegistration',key:ADMIN_KEY,reg_id:rid,fee_status:status});
-  if(r.ok){showToast('✅ 狀態已更新','success');syncAll();}
-  else showToast('❌ '+r.error,'error');
 }
 
 // ── 新增活動 ──
