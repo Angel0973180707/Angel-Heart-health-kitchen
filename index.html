@@ -7,9 +7,6 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>養清倉管</title>
 <link rel="manifest" href="manifest.json">
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 <style>
 :root{--bg:#1B3A2A;--surface:#234D38;--surface2:#2D5C42;--border:#3D7055;--gold:#4A7C59;--green:#5BAA7A;--red:#E05757;--blue:#4A9EFF;--text:#FFFFFF;--dim:#8FB5A0;--muted:#5A8A6A;--font:'Segoe UI','PingFang TC','Microsoft JhengHei',sans-serif;--r:12px;--rs:8px}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -96,8 +93,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .inv-qty-label{font-size:11px;color:var(--dim)}
 .inv-price{margin-left:auto;font-size:12px;color:var(--dim)}
 .history-list{display:flex;flex-direction:column;gap:8px}
-.history-item{background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);padding:12px 13px;display:flex;gap:10px;align-items:center;cursor:pointer;transition:border-color .15s}
-.history-item:active{border-color:var(--gold)}
+.history-item{background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);padding:12px 13px;display:flex;gap:10px;align-items:center}
 .history-type{width:34px;height:34px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
 .history-type.in{background:rgba(39,201,130,.15)}
 .history-type.out{background:rgba(224,87,87,.15)}
@@ -132,6 +128,19 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .order-name{font-size:15px;font-weight:600}
 .order-meta{font-size:12px;color:var(--dim);margin-top:4px}
 .order-total{font-size:16px;font-weight:800;color:var(--gold);margin-top:5px}
+.reg-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-bottom:10px;cursor:pointer}
+.reg-card:active{border-color:var(--gold)}
+.reg-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.reg-card-name{font-size:15px;font-weight:700}
+.reg-status{font-size:11px;font-weight:700;padding:3px 8px;border-radius:99px}
+.rs-待審核{background:rgba(245,166,35,.15);color:var(--gold)}
+.rs-已錄取{background:rgba(39,201,130,.15);color:var(--green)}
+.rs-已拒絕{background:rgba(224,87,87,.15);color:var(--red)}
+.rs-已繳費{background:rgba(74,158,255,.15);color:var(--blue)}
+.reg-card-meta{font-size:12px;color:var(--dim);margin-top:3px}
+.reg-card-fee{font-size:13px;font-weight:700;color:var(--gold);margin-top:5px}
+.line-copy{background:#06C755;color:#fff;border:none;border-radius:var(--rs);padding:11px;width:100%;font-size:14px;font-weight:700;cursor:pointer;font-family:var(--font);margin-top:8px}
+.line-copy:active{background:#059444}
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;display:none;align-items:flex-end}
 .modal-overlay.open{display:flex}
 .modal{background:var(--surface);border-radius:var(--r) var(--r) 0 0;width:100%;max-height:88dvh;overflow-y:auto;padding:18px 18px 40px;animation:slideup .25s ease}
@@ -154,17 +163,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .empty-icon{font-size:36px;margin-bottom:10px}
 .empty-text{font-size:14px}
 .loading{text-align:center;padding:30px;color:var(--dim);font-size:14px}
-.photo-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:4px}
-.photo-slot{aspect-ratio:1;border-radius:var(--rs);overflow:hidden;position:relative;background:var(--surface2)}
-.photo-slot.add-btn{border:2px dashed var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--muted);font-size:20px;cursor:pointer;transition:border-color .2s}
-.photo-slot.add-btn:hover{border-color:var(--gold)}
-.photo-slot.add-btn span{font-size:10px;margin-top:3px}
-.photo-slot img{width:100%;height:100%;object-fit:cover}
-.main-badge{position:absolute;top:4px;left:4px;background:var(--gold);color:#0F1117;font-size:9px;font-weight:800;padding:2px 5px;border-radius:4px;pointer-events:none}
-.rm-btn{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.65);border:none;color:#fff;width:22px;height:22px;border-radius:50%;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
-.img-gallery{display:flex;gap:8px;overflow-x:auto;margin-bottom:14px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
-.img-gallery::-webkit-scrollbar{display:none}
-.img-gallery img{width:150px;height:130px;object-fit:cover;border-radius:var(--rs);flex-shrink:0;cursor:pointer}
 @media(min-width:600px){.page,.tabs{max-width:480px;margin-left:auto;margin-right:auto}.topbar{left:50%;transform:translateX(-50%);position:sticky;width:100%;max-width:480px}}
 </style>
 </head>
@@ -195,6 +193,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab" onclick="switchTab('history')"><span class="tab-icon">📋</span>記錄</div>
   <div class="tab" onclick="switchTab('orders')"><span class="tab-icon">🛒</span>訂單</div>
   <div class="tab" onclick="switchTab('accounts')"><span class="tab-icon">💰</span>帳本</div>
+  <div class="tab" onclick="switchTab('regs')"><span class="tab-icon">📝</span>報名</div>
 </div>
 
 <!-- 總覽 -->
@@ -227,12 +226,16 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     </div>
     <div class="field"><label>供應商</label><input type="text" id="in-supplier" placeholder="養清廚房總部"></div>
     <div class="field"><label>備註</label><textarea id="in-note" placeholder="批次號、備注..."></textarea></div>
-    <div class="field"><label>商品圖片（最多5張，第一張為主圖）</label>
-      <input type="file" accept="image/*" multiple id="in-img-file" style="display:none" onchange="handleImgs(event)">
-      <div class="photo-grid" id="in-photo-grid"></div>
-      <div style="font-size:11px;color:var(--muted);margin-top:4px">圖片上傳後自動壓縮</div>
+    <div class="field"><label>商品圖片（最多5張）</label>
+      <div class="img-upload" id="in-img-zone">
+        <input type="file" accept="image/*" id="in-img-file" multiple onchange="handleImgMulti()">
+        <div class="img-upload-icon">📷</div>
+        <div class="img-upload-text">點擊上傳圖片（可多選）</div>
+        <div id="in-img-count" style="font-size:12px;color:var(--gold);margin-top:4px"></div>
+      </div>
+      <div id="in-img-previews" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px"></div>
     </div>
-    <button class="btn btn-in" id="btn-in" onclick="submitIn(this)">✅ 確認入庫</button>
+    <button class="btn btn-in" onclick="submitIn()">✅ 確認入庫</button>
   </div>
 </div>
 
@@ -248,7 +251,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="field"><label>零售價（NT$）</label><input type="number" id="out-price" placeholder="0"></div>
     <div class="field"><label>客戶</label><input type="text" id="out-customer" placeholder="客戶名稱"></div>
     <div class="field"><label>備註</label><textarea id="out-note" placeholder="訂單號、備注..."></textarea></div>
-    <button class="btn btn-out" id="btn-out" onclick="submitOut(this)">📤 確認出庫</button>
+    <button class="btn btn-out" onclick="submitOut()">📤 確認出庫</button>
   </div>
 </div>
 
@@ -270,20 +273,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 
 <!-- 記錄 -->
 <div class="page" id="page-history">
-  <div class="form-card" style="padding:12px 14px;margin-bottom:12px">
-    <div style="display:flex;gap:8px;align-items:center">
-      <input type="date" id="hist-date" style="flex:1;min-width:0;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);font-size:14px;padding:9px 11px;font-family:var(--font);outline:none" oninput="renderHistory()">
-      <button class="chip" style="flex-shrink:0" onclick="setHistDate(0)">今天</button>
-      <button class="chip" style="flex-shrink:0" onclick="setHistDate(-1)">昨天</button>
-    </div>
-  </div>
-  <div id="hist-summary" style="display:none;margin-bottom:12px">
-    <div class="stats-grid">
-      <div class="stat-card"><div class="stat-label">入庫筆數</div><div class="stat-value green" id="hs-in-count">0</div><div class="stat-sub" id="hs-in-qty">共 0 件</div></div>
-      <div class="stat-card"><div class="stat-label">出庫筆數</div><div class="stat-value red" id="hs-out-count">0</div><div class="stat-sub" id="hs-out-qty">共 0 件</div></div>
-      <div class="stat-card wide"><div class="stat-label">當日進出貨金額合計</div><div class="stat-value gold" id="hs-amount">NT$ 0</div></div>
-    </div>
-  </div>
   <div class="filter-row">
     <div class="chip active" onclick="setHistFilter('all',this)">全部</div>
     <div class="chip" onclick="setHistFilter('入庫',this)">📥 入庫</div>
@@ -307,47 +296,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 <!-- 帳本 -->
 <div class="page" id="page-accounts">
   <div class="stats-grid" id="balance-grid"><div class="loading" style="grid-column:1/-1">載入中...</div></div>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin:16px 0 10px">
-    <div class="section-title" style="margin:0">收支明細</div>
-    <button class="btn btn-gold" style="width:auto;padding:8px 16px;font-size:13px" onclick="toggleAddAccount(this)">＋ 新增帳目</button>
-  </div>
-  <div id="add-account-wrap" style="display:none;margin-bottom:14px">
-    <div class="form-card">
-      <div class="form-title"><span class="dot dot-gold"></span>新增帳目</div>
-      <div class="field-row">
-        <div class="field"><label>類型 *</label>
-          <select id="acc-type" onchange="onAccTypeChange()">
-            <option value="銷售收款">銷售收款</option>
-            <option value="進貨付款">進貨付款</option>
-            <option value="其他收入">其他收入</option>
-            <option value="其他支出">其他支出</option>
-          </select></div>
-        <div class="field"><label>日期 *</label><input type="date" id="acc-date"></div>
-      </div>
-      <div class="field"><label>對象（客戶 / 供應商）</label><input type="text" id="acc-partner" placeholder="姓名或公司"></div>
-      <div class="field"><label>品項</label><input type="text" id="acc-items" placeholder="椰中油 ×2、酵素 ×1…"></div>
-      <div class="field-row">
-        <div class="field"><label id="acc-amt-label">金額（NT$） *</label><input type="number" id="acc-amount" placeholder="0" min="0"></div>
-        <div class="field"><label>付款方式</label>
-          <select id="acc-payment">
-            <option value="現金">現金</option>
-            <option value="ATM轉帳">ATM轉帳</option>
-            <option value="Line Pay">Line Pay</option>
-            <option value="貨到付款">貨到付款</option>
-            <option value="其他">其他</option>
-          </select></div>
-      </div>
-      <div class="field"><label>狀態</label>
-        <select id="acc-status">
-          <option value="已收款">已收款</option>
-          <option value="待收款">待收款</option>
-          <option value="已付款">已付款</option>
-          <option value="待付款">待付款</option>
-        </select></div>
-      <div class="field"><label>備註</label><textarea id="acc-note" placeholder="備注..."></textarea></div>
-      <button class="btn btn-gold" id="btn-add-acc" onclick="submitAccount(this)">✅ 儲存帳目</button>
-    </div>
-  </div>
+  <div class="section-title">收支明細</div>
   <div class="filter-row">
     <div class="chip active" onclick="setAccFilter('all',this)">全部</div>
     <div class="chip" onclick="setAccFilter('銷售收款',this)">💚 銷售</div>
@@ -357,6 +306,18 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   </div>
   <div id="account-list"><div class="loading">載入中...</div></div>
 </div>
+</div>
+
+<!-- 報名管理 -->
+<div class="page" id="page-registrations">
+  <div class="filter-row">
+    <div class="chip active" onclick="setRegFilter('all',this)">全部</div>
+    <div class="chip" onclick="setRegFilter('待審核',this)">⏳ 待審核</div>
+    <div class="chip" onclick="setRegFilter('已錄取',this)">✅ 已錄取</div>
+    <div class="chip" onclick="setRegFilter('已拒絕',this)">❌ 已拒絕</div>
+    <div class="chip" onclick="setRegFilter('已繳費',this)">💰 已繳費</div>
+  </div>
+  <div id="reg-list"><div class="loading">載入中...</div></div>
 </div>
 
 <!-- MODAL -->
@@ -374,16 +335,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 <script>
 const GAS_URL='https://script.google.com/macros/s/AKfycbz4-pJ5jWtu9nevKDl98LxRqfwyVdGApEqEzcKKR9LDxanUM5BCneCZttkH3rkxLlUtYA/exec';
 const ADMIN_KEY='YANGCHING2025';
-let cache={products:[],inventory:[],stockLog:[],orders:[],accounts:[],balance:{}};
-let invFilter='all',histFilter='all',orderFilter='all',accFilter='all';
-let imgFiles=[];
-
-let fbStorage=null;
-try{
-  firebase.initializeApp({apiKey:'AIzaSyD8DTzmzyuDFkrBMjGNZkJoN9fcY9_8mb4',projectId:'happiness-smart-card-pro-7389a',storageBucket:'happiness-smart-card-pro-7389a.firebasestorage.app'});
-  fbStorage=firebase.storage();
-  firebase.auth().signInAnonymously().catch(()=>{});
-}catch(e){console.warn('Firebase 未初始化，圖片上傳功能停用',e);}
+let cache={products:[],inventory:[],stockLog:[],orders:[],accounts:[],balance:{},regs:[]};
+let invFilter='all',histFilter='all',orderFilter='all',accFilter='all',regFilter='all';
+let imgData={in:null};
 
 function hashStr(s){let h=0;for(let i=0;i<s.length;i++)h=(Math.imul(31,h)+s.charCodeAt(i))|0;return h.toString(36)}
 
@@ -402,184 +356,117 @@ function enterApp(){
 }
 
 async function api(params){
-  try{
-    const r=await fetch(GAS_URL+'?'+new URLSearchParams(params).toString());
-    const text=await r.text();
-    try{return JSON.parse(text);}catch(e){return {ok:false,error:'GAS 回應格式錯誤'};}
-  }catch(e){return {ok:false,error:'網路無法連線'};}
+  const r=await fetch(GAS_URL+'?'+new URLSearchParams(params).toString());
+  return await r.json();
 }
 async function apiPost(params){
-  return api(params);
+  // GAS doPost works best with form-encoded or GET params
+  const url=GAS_URL+'?'+new URLSearchParams(params).toString();
+  const r=await fetch(url);
+  return await r.json();
 }
 
 async function syncAll(){
   const btn=document.getElementById('sync-btn');
   btn.textContent='⟳ 同步中';btn.classList.add('syncing');
-  const [p,inv,log,ord,acc,bal]=await Promise.all([
-    api({action:'getProducts'}),
-    api({action:'getInventory'}),
-    api({action:'getStockLog',limit:100}),
-    api({action:'getOrders',key:ADMIN_KEY}),
-    api({action:'getAccounts',key:ADMIN_KEY}),
-    api({action:'getBalance',key:ADMIN_KEY})
-  ]);
-  let anyOk=false;
-  if(p.ok)   {cache.products =p.data;anyOk=true;}
-  if(inv.ok) {cache.inventory=inv.data;anyOk=true;}
-  if(log.ok) {cache.stockLog =log.data;anyOk=true;}
-  if(ord.ok) {cache.orders   =ord.data;anyOk=true;}
-  if(acc.ok) {cache.accounts =acc.data;anyOk=true;}
-  if(bal.ok) {cache.balance  =bal.data;anyOk=true;}
-  if(anyOk){
+  try{
+    // 核心資料必須成功
+    const [p,inv,log]=await Promise.all([
+      api({action:'getProducts'}),
+      api({action:'getInventory'}),
+      api({action:'getStockLog',limit:100})
+    ]);
+    if(p.ok)   cache.products =p.data;
+    if(inv.ok) cache.inventory=inv.data;
+    if(log.ok) cache.stockLog =log.data;
+    try{const regs=await api({action:'getRegistrations',key:ADMIN_KEY});if(regs.ok)cache.regs=regs.data;}catch(e){}
+    // 選擇性資料，失敗不影響主流程
+    try{const ord=await api({action:'getOrders',key:ADMIN_KEY});if(ord.ok)cache.orders=ord.data;}catch(e){}
+    try{const acc=await api({action:'getAccounts',key:ADMIN_KEY});if(acc.ok)cache.accounts=acc.data;}catch(e){}
+    try{const bal=await api({action:'getBalance',key:ADMIN_KEY});if(bal.ok)cache.balance=bal.data;}catch(e){}
+    try{const reg=await api({action:'getRegistrations',key:ADMIN_KEY});if(reg.ok)cache.registrations=reg.data;}catch(e){}
     localStorage.setItem('yc_cache',JSON.stringify(cache));
     refreshDatalist();renderAll();
     showToast('✅ 同步完成','success');
-  }else{
-    showToast('⚠️ 同步失敗，使用本機資料','error');
-  }
+  }catch(e){showToast('⚠️ 同步失敗，使用本機資料','error');console.error(e);}
   btn.textContent='⟳ 同步';btn.classList.remove('syncing');
 }
 
-function renderAll(){renderDashboard();renderInventory();renderHistory();renderOrders();renderAccounts();}
+function renderAll(){renderDashboard();renderInventory();renderHistory();renderOrders();renderAccounts();renderRegs();}
 
 function init(){
   document.getElementById('topbar-date').textContent=new Date().toLocaleDateString('zh-TW',{weekday:'short',month:'long',day:'numeric'});
   const saved=localStorage.getItem('yc_cache');
   if(saved){try{cache=JSON.parse(saved);}catch(e){}}
-  renderPhotoGrid();
   refreshDatalist();renderAll();syncAll();
 }
 
 function switchTab(tab){
-  const tabs=['dashboard','in','out','inventory','history','orders','accounts'];
+  const tabs=['dashboard','in','out','inventory','history','orders','accounts','registrations'];
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',tabs[i]===tab));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById('page-'+tab).classList.add('active');
+  if(tab==='regs')renderRegs();
 }
 
-function renderPhotoGrid(){
-  const grid=document.getElementById('in-photo-grid');
-  let html=imgFiles.map((f,i)=>{
-    const url=URL.createObjectURL(f);
-    return `<div class="photo-slot"><img src="${url}">${i===0?'<span class="main-badge">主圖</span>':''}<button class="rm-btn" onclick="removePhoto(${i},event)">✕</button></div>`;
-  }).join('');
-  if(imgFiles.length<5)html+=`<div class="photo-slot add-btn" onclick="document.getElementById('in-img-file').click()"><span>📷</span><span>新增</span></div>`;
-  grid.innerHTML=html;
+function handleImg(type){
+  const file=document.getElementById(type+'-img-file').files[0];if(!file)return;
+  const r=new FileReader();
+  r.onload=e=>{imgData[type]=e.target.result;document.getElementById(type+'-img-ph').style.display='none';document.getElementById(type+'-img-prev').style.display='block';document.getElementById(type+'-img-show').src=e.target.result;};
+  r.readAsDataURL(file);
 }
-function handleImgs(e){
-  Array.from(e.target.files).forEach(f=>{if(imgFiles.length<5)imgFiles.push(f);});
-  e.target.value='';
-  renderPhotoGrid();
-}
-function removePhoto(i,e){if(e)e.stopPropagation();imgFiles.splice(i,1);renderPhotoGrid();}
-
-async function compressImage(file,maxPx,quality){
-  return new Promise(resolve=>{
-    const img=new Image();const url=URL.createObjectURL(file);
-    img.onload=()=>{
-      let w=img.width,h=img.height;
-      if(w>maxPx||h>maxPx){if(w>h){h=Math.round(h/w*maxPx);w=maxPx;}else{w=Math.round(w/h*maxPx);h=maxPx;}}
-      const c=document.createElement('canvas');c.width=w;c.height=h;
-      c.getContext('2d').drawImage(img,0,0,w,h);
-      URL.revokeObjectURL(url);
-      c.toBlob(b=>resolve(b),'image/jpeg',quality);
-    };
-    img.src=url;
-  });
-}
-async function uploadPhotos(productId){
-  if(!imgFiles.length)throw new Error('no_files');
-  if(!fbStorage)throw new Error('Firebase 未載入，請重新整理頁面再試');
-  const urls=[];const ts=Date.now();
-  for(let i=0;i<imgFiles.length;i++){
-    const blob=await compressImage(imgFiles[i],1024,0.82);
-    const path=`cards/warehouse/${productId}/photo${i+1}_${ts}.jpg`;
-    const storageRef=fbStorage.ref(path);
-    await storageRef.put(blob,{contentType:'image/jpeg'});
-    urls.push(await storageRef.getDownloadURL());
-  }
-  return urls;
-}
+function removeImg(type,e){if(e)e.stopPropagation();imgData[type]=null;document.getElementById(type+'-img-file').value='';document.getElementById(type+'-img-ph').style.display='block';document.getElementById(type+'-img-prev').style.display='none';}
 
 function refreshDatalist(){
   const opts=cache.products.map(p=>`<option value="${p.name}">`).join('');
   document.getElementById('dl-products').innerHTML=opts;
   document.getElementById('dl-products-out').innerHTML=opts;
 }
-function getImgUrls(raw){
-  if(!raw)return[];
-  if(raw.trim().startsWith('[')){try{return JSON.parse(raw);}catch(e){}}
-  return raw.split(',').map(s=>s.trim()).filter(Boolean);
-}
-function firstImg(raw){const u=getImgUrls(raw);return u.length?u[0]:'';}
+function getPidByName(name){const p=cache.products.find(x=>x.name===name);return p?p.product_id:null;}
 
-function getPidByName(name){
-  const n=name.trim();
-  const exact=cache.products.find(x=>x.name===n);
-  if(exact)return exact.product_id;
-  const lower=n.toLowerCase();
-  const partial=cache.products.find(x=>x.name.toLowerCase().includes(lower)||lower.includes(x.name.toLowerCase()));
-  return partial?partial.product_id:null;
-}
-
-async function submitIn(btn){
-  if(btn.disabled)return;
+async function submitIn(){
   const name=document.getElementById('in-name').value.trim();
   const qty=parseInt(document.getElementById('in-qty').value);
   if(!name||!qty||qty<1){showToast('請填寫商品名稱與數量','error');return;}
   const pid=document.getElementById('in-pid').value.trim()||getPidByName(name);
   if(!pid){showToast('找不到商品ID，請確認名稱或手動填入','error');return;}
-  const orig=btn.textContent;
-  btn.disabled=true;btn.textContent='⟳ 送出中...';btn.style.opacity='0.65';
+  showToast('⟳ 上傳圖片中...','info');
+  let imgUrls=[];
+  try{imgUrls=await uploadInImages(pid);}catch(e){}
+  showToast('⟳ 送出中...','info');
   try{
-    if(imgFiles.length){
-      btn.textContent='⟳ 上傳圖片...';
-      try{
-        const urls=await uploadPhotos(pid);
-        if(urls&&urls.length){
-          const imageUrlStr=urls.length>1?JSON.stringify(urls):urls[0];
-          await api({action:'updateProduct',key:ADMIN_KEY,product_id:pid,image_url:imageUrlStr});
-        }
-      }catch(e){
-        const msg=e.code||e.message||'未知錯誤';
-        showToast('⚠️ 圖片上傳失敗：'+msg,'error');
-        console.error('圖片上傳錯誤',e);
-        await new Promise(r=>setTimeout(r,2000));
-      }
-      btn.textContent='⟳ 送出中...';
-    }
-    const r=await api({action:'stockIn',key:ADMIN_KEY,product_id:pid,qty,
+    const params={action:'stockIn',key:ADMIN_KEY,product_id:pid,qty,
       price:document.getElementById('in-price').value||'',
       threshold:document.getElementById('in-threshold').value||10,
       partner:document.getElementById('in-supplier').value.trim()||'養清廚房總部',
-      note:document.getElementById('in-note').value.trim()});
-    if(r.ok){showToast(`✅ 入庫成功：${name} × ${qty}`,'success');resetForm('in');syncAll();}
-    else showToast('❌ '+(r.error||'入庫失敗'),'error');
-  }finally{btn.disabled=false;btn.textContent=orig;btn.style.opacity='';}
+      note:document.getElementById('in-note').value.trim()};
+    if(imgUrls.length)params.image_url=imgUrls[0]; // 第一張存商品主圖
+    const r=await apiPost(params);
+    if(r.ok){showToast(`✅ 入庫成功：${name} × ${qty}${imgUrls.length?' 📷'+imgUrls.length+'張':''}`,'success');resetForm('in');inImgFiles=[];renderImgPreviews();syncAll();}
+    else showToast('❌ '+r.error,'error');
+  }catch(e){showToast('⚠️ 網路錯誤：'+e.message,'error');console.error(e);}
 }
 
-async function submitOut(btn){
-  if(btn.disabled)return;
+async function submitOut(){
   const name=document.getElementById('out-name').value.trim();
   const qty=parseInt(document.getElementById('out-qty').value);
   if(!name||!qty||qty<1){showToast('請填寫商品名稱與數量','error');return;}
   const pid=document.getElementById('out-pid').value.trim()||getPidByName(name);
   if(!pid){showToast('找不到商品ID，請確認名稱或手動填入','error');return;}
-  const orig=btn.textContent;
-  btn.disabled=true;btn.textContent='⟳ 送出中...';btn.style.opacity='0.65';
+  showToast('⟳ 送出中...','info');
   try{
-    const r=await api({action:'stockOut',key:ADMIN_KEY,product_id:pid,qty,
+    const r=await apiPost({action:'stockOut',key:ADMIN_KEY,product_id:pid,qty,
       price:document.getElementById('out-price').value||'',
       partner:document.getElementById('out-customer').value.trim(),
       note:document.getElementById('out-note').value.trim()});
     if(r.ok){showToast(`📤 出庫成功：${name} × ${qty}`,'success');resetForm('out');syncAll();}
-    else showToast('❌ '+(r.error||'出庫失敗'),'error');
-  }finally{btn.disabled=false;btn.textContent=orig;btn.style.opacity='';}
+    else showToast('❌ '+r.error,'error');
+  }catch(e){showToast('⚠️ 網路錯誤','error');}
 }
 
 function resetForm(type){
   ['name','pid','qty','price','note'].forEach(f=>{const el=document.getElementById(type+'-'+f);if(el)el.value='';});
-  if(type==='in'){document.getElementById('in-supplier').value='';document.getElementById('in-threshold').value='';imgFiles=[];renderPhotoGrid();}
+  if(type==='in'){document.getElementById('in-supplier').value='';document.getElementById('in-threshold').value='';removeImg('in',null);}
   else document.getElementById('out-customer').value='';
 }
 
@@ -592,7 +479,7 @@ function renderDashboard(){
   document.getElementById('s-profit').textContent='NT$ '+(bal['本月淨利']?Number(bal['本月淨利']).toLocaleString():'0');
   const badge=document.getElementById('alert-count');const ac=low.length+zero.length;badge.style.display=ac>0?'inline':'none';badge.textContent=ac;
   const al=document.getElementById('alert-list');const items=[...low,...zero];
-  al.innerHTML=items.length?items.slice(0,5).map(p=>`<div class="alert-item"><div class="alert-img">${firstImg(p.image_url)?`<img src="${firstImg(p.image_url)}">`:'📦'}</div><div><div class="alert-name">${p.name}</div><div class="alert-qty">${p.qty===0?'❌ 已無庫存':`⚠️ 剩 ${p.qty} 件（警示：${p.threshold}）`}</div></div></div>`).join(''):`<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">庫存充足</div></div>`;
+  al.innerHTML=items.length?items.slice(0,5).map(p=>`<div class="alert-item"><div class="alert-img">${p.image_url?`<img src="${p.image_url}">`:'📦'}</div><div><div class="alert-name">${p.name}</div><div class="alert-qty">${p.qty===0?'❌ 已無庫存':`⚠️ 剩 ${p.qty} 件（警示：${p.threshold}）`}</div></div></div>`).join(''):`<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">庫存充足</div></div>`;
   const rl=document.getElementById('recent-list');const recent=cache.stockLog.slice(0,5);
   rl.innerHTML=recent.length?recent.map(h=>histHTML(h)).join(''):`<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-text">尚無記錄</div></div>`;
 }
@@ -606,17 +493,13 @@ function renderInventory(){
   else if(invFilter!=='all')list=list.filter(p=>p.category===invFilter);
   if(q)list=list.filter(p=>p.name.toLowerCase().includes(q)||(p.product_id||'').toLowerCase().includes(q));
   const el=document.getElementById('inv-list');
-  el.innerHTML=list.length?list.map(p=>`<div class="inv-card ${p.qty<=p.threshold&&p.qty>0?'low':''}" onclick="showProductModal('${p.product_id}')"><div class="inv-card-img">${firstImg(p.image_url)?`<img src="${firstImg(p.image_url)}">`:'📦'}</div><div class="inv-card-info"><div class="inv-card-name">${p.name}</div><div class="inv-card-code">${p.product_id}${p.category?' · '+p.category:''}</div><div class="inv-card-meta"><span class="inv-qty ${p.qty===0?'red':p.qty<=p.threshold?'red':'green'}">${p.qty}</span><span class="inv-qty-label">件</span><span class="inv-price">${p.retail_price?'NT$ '+Number(p.retail_price).toLocaleString():''}</span></div></div></div>`).join(''):`<div class="empty-state"><div class="empty-icon">🗃️</div><div class="empty-text">沒有符合商品</div></div>`;
+  el.innerHTML=list.length?list.map(p=>`<div class="inv-card ${p.qty<=p.threshold&&p.qty>0?'low':''}" onclick="showProductModal('${p.product_id}')"><div class="inv-card-img">${p.image_url?`<img src="${p.image_url}">`:'📦'}</div><div class="inv-card-info"><div class="inv-card-name">${p.name}</div><div class="inv-card-code">${p.product_id}${p.category?' · '+p.category:''}</div><div class="inv-card-meta"><span class="inv-qty ${p.qty===0?'red':p.qty<=p.threshold?'red':'green'}">${p.qty}</span><span class="inv-qty-label">件</span><span class="inv-price">${p.retail_price?'NT$ '+Number(p.retail_price).toLocaleString():''}</span></div></div></div>`).join(''):`<div class="empty-state"><div class="empty-icon">🗃️</div><div class="empty-text">沒有符合商品</div></div>`;
 }
 
 function showProductModal(pid){
   const p=cache.inventory.find(x=>x.product_id===pid);if(!p)return;
   document.getElementById('modal-title').textContent=p.name;
-  const imgs=getImgUrls(p.image_url);
-  const galleryHtml=imgs.length>1
-    ?`<div class="img-gallery">${imgs.map(u=>`<img src="${u}" onclick="this.requestFullscreen&&this.requestFullscreen()">`).join('')}</div>`
-    :imgs.length===1?`<img class="modal-img" src="${imgs[0]}">`:'';
-  document.getElementById('modal-body').innerHTML=`${galleryHtml}
+  document.getElementById('modal-body').innerHTML=`${p.image_url?`<img class="modal-img" src="${p.image_url}">`:''}
     <div class="modal-row"><span class="modal-key">商品ID</span><span class="modal-val">${p.product_id}</span></div>
     <div class="modal-row"><span class="modal-key">分類</span><span class="modal-val">${p.category||'—'}</span></div>
     <div class="modal-row"><span class="modal-key">目前庫存</span><span class="modal-val" style="color:${p.qty<=p.threshold?'var(--red)':'var(--green)'}">${p.qty} 件</span></div>
@@ -628,65 +511,15 @@ function showProductModal(pid){
   document.getElementById('modal-overlay').classList.add('open');
 }
 
-function setHistDate(offset){
-  const d=new Date();d.setDate(d.getDate()+offset);
-  document.getElementById('hist-date').value=d.toISOString().split('T')[0];
-  renderHistory();
-}
-function isSameLocalDate(isoStr,dateVal){
-  if(!isoStr||!dateVal)return false;
-  const d=new Date(isoStr);
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`===dateVal;
-}
 function setHistFilter(f,el){histFilter=f;document.querySelectorAll('#page-history .chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');renderHistory();}
 function histHTML(h){
   const t=h.created_at?new Date(h.created_at):null;
   const ts=t?`${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`:h.created_at||'';
-  const lid=h.log_id?`"${h.log_id}"`:'null';
-  return `<div class="history-item" onclick="showHistModal(${lid})"><div class="history-type ${h.type==='入庫'?'in':'out'}">${h.type==='入庫'?'📥':'📤'}</div><div class="history-info"><div class="history-name">${h.name}</div><div class="history-meta">${h.partner||h.type}${h.note?' · '+h.note:''}</div></div><div class="history-qty"><div class="history-qty-val ${h.type==='入庫'?'in':'out'}">${h.type==='入庫'?'+':'-'}${h.qty}</div><div class="history-time">${ts}</div></div></div>`;
-}
-function showHistModal(logId){
-  const h=logId?cache.stockLog.find(x=>x.log_id===logId):null;
-  if(!h)return;
-  const t=h.created_at?new Date(h.created_at):null;
-  const ts=t?t.toLocaleString('zh-TW',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):h.created_at||'—';
-  const subtotal=Number(h.qty||0)*Number(h.price||0);
-  document.getElementById('modal-title').textContent=h.type==='入庫'?'📥 入庫明細':'📤 出庫明細';
-  document.getElementById('modal-body').innerHTML=`
-    <div class="modal-row"><span class="modal-key">商品名稱</span><span class="modal-val">${h.name}</span></div>
-    <div class="modal-row"><span class="modal-key">商品ID</span><span class="modal-val">${h.product_id||'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">類型</span><span class="modal-val" style="color:${h.type==='入庫'?'var(--green)':'var(--red)'};font-weight:700">${h.type}</span></div>
-    <div class="modal-row"><span class="modal-key">數量</span><span class="modal-val" style="color:${h.type==='入庫'?'var(--green)':'var(--red)'};font-weight:700">${h.type==='入庫'?'+':'-'}${h.qty} 件</span></div>
-    <div class="modal-row"><span class="modal-key">${h.type==='入庫'?'進價':'零售價'}</span><span class="modal-val">${h.price?'NT$ '+Number(h.price).toLocaleString():'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">小計</span><span class="modal-val gold">${subtotal?'NT$ '+subtotal.toLocaleString():'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">${h.type==='入庫'?'供應商':'客戶'}</span><span class="modal-val">${h.partner||'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">備註</span><span class="modal-val">${h.note||'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">時間</span><span class="modal-val">${ts}</span></div>
-    <div class="modal-row"><span class="modal-key">記錄ID</span><span class="modal-val" style="font-size:11px;color:var(--muted)">${h.log_id||'—'}</span></div>`;
-  document.getElementById('modal-overlay').classList.add('open');
+  return `<div class="history-item"><div class="history-type ${h.type==='入庫'?'in':'out'}">${h.type==='入庫'?'📥':'📤'}</div><div class="history-info"><div class="history-name">${h.name}</div><div class="history-meta">${h.partner||h.type}${h.note?' · '+h.note:''}</div></div><div class="history-qty"><div class="history-qty-val ${h.type==='入庫'?'in':'out'}">${h.type==='入庫'?'+':'-'}${h.qty}</div><div class="history-time">${ts}</div></div></div>`;
 }
 function renderHistory(){
-  const dateVal=document.getElementById('hist-date')?document.getElementById('hist-date').value:'';
-  let all=cache.stockLog;
-  if(dateVal)all=all.filter(h=>isSameLocalDate(h.created_at,dateVal));
-  // summary
-  const summaryEl=document.getElementById('hist-summary');
-  if(summaryEl){
-    if(dateVal){
-      const inItems=all.filter(h=>h.type==='入庫'),outItems=all.filter(h=>h.type==='出庫');
-      const inQty=inItems.reduce((s,h)=>s+Number(h.qty||0),0);
-      const outQty=outItems.reduce((s,h)=>s+Number(h.qty||0),0);
-      const amt=all.reduce((s,h)=>s+Number(h.qty||0)*Number(h.price||0),0);
-      document.getElementById('hs-in-count').textContent=inItems.length;
-      document.getElementById('hs-in-qty').textContent='共 '+inQty+' 件';
-      document.getElementById('hs-out-count').textContent=outItems.length;
-      document.getElementById('hs-out-qty').textContent='共 '+outQty+' 件';
-      document.getElementById('hs-amount').textContent='NT$ '+amt.toLocaleString();
-      summaryEl.style.display='';
-    }else{summaryEl.style.display='none';}
-  }
-  let list=histFilter==='all'?all:all.filter(h=>h.type===histFilter);
-  document.getElementById('history-list').innerHTML=list.length?list.map(h=>histHTML(h)).join(''):`<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-text">${dateVal?'當日無記錄':'尚無記錄'}</div></div>`;
+  let list=histFilter==='all'?cache.stockLog:cache.stockLog.filter(h=>h.type===histFilter);
+  document.getElementById('history-list').innerHTML=list.length?list.map(h=>histHTML(h)).join(''):`<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-text">尚無記錄</div></div>`;
 }
 
 function setOrderFilter(f,el){orderFilter=f;document.querySelectorAll('#page-orders .chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');renderOrders();}
@@ -727,49 +560,6 @@ async function updOrder(oid,status){
   if(r.ok){showToast('✅ 狀態已更新','success');syncAll();}else showToast('❌ '+r.error,'error');
 }
 
-function toggleAddAccount(btn){
-  const wrap=document.getElementById('add-account-wrap');
-  const open=wrap.style.display==='none';
-  wrap.style.display=open?'':'none';
-  btn.textContent=open?'✕ 收起':'＋ 新增帳目';
-  if(open){
-    const today=new Date().toISOString().split('T')[0];
-    document.getElementById('acc-date').value=today;
-    onAccTypeChange();
-  }
-}
-function onAccTypeChange(){
-  const t=document.getElementById('acc-type').value;
-  const isIncome=t==='銷售收款'||t==='其他收入';
-  document.getElementById('acc-amt-label').textContent=isIncome?'收入金額（NT$） *':'支出金額（NT$） *';
-  document.getElementById('acc-status').value=isIncome?'已收款':'已付款';
-}
-async function submitAccount(btn){
-  if(btn.disabled)return;
-  const type=document.getElementById('acc-type').value;
-  const date=document.getElementById('acc-date').value;
-  const amount=Number(document.getElementById('acc-amount').value);
-  if(!date||!amount||amount<=0){showToast('請填寫日期與金額','error');return;}
-  const isIncome=type==='銷售收款'||type==='其他收入';
-  const orig=btn.textContent;
-  btn.disabled=true;btn.textContent='⟳ 儲存中...';btn.style.opacity='0.65';
-  try{
-    const r=await api({action:'addAccount',key:ADMIN_KEY,
-      type,date,
-      partner:document.getElementById('acc-partner').value.trim(),
-      items:document.getElementById('acc-items').value.trim(),
-      income:isIncome?amount:0,
-      expense:isIncome?0:amount,
-      payment:document.getElementById('acc-payment').value,
-      status:document.getElementById('acc-status').value,
-      note:document.getElementById('acc-note').value.trim()});
-    if(r.ok){
-      showToast('✅ 帳目已儲存','success');
-      ['acc-partner','acc-items','acc-amount','acc-note'].forEach(id=>document.getElementById(id).value='');
-      syncAll();
-    }else showToast('❌ '+(r.error||'儲存失敗'),'error');
-  }finally{btn.disabled=false;btn.textContent=orig;btn.style.opacity='';}
-}
 function setAccFilter(f,el){accFilter=f;document.querySelectorAll('#page-accounts .chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');renderAccounts();}
 function renderAccounts(){
   const bal=cache.balance;
@@ -782,34 +572,264 @@ function renderAccounts(){
   let list=accFilter==='all'?cache.accounts:cache.accounts.filter(a=>a.type===accFilter);
   const el=document.getElementById('account-list');
   if(!list.length){el.innerHTML=`<div class="empty-state"><div class="empty-icon">💰</div><div class="empty-text">尚無帳目記錄</div></div>`;return;}
-  el.innerHTML=list.map(a=>{
-    const inc=a.income&&Number(a.income)>0;
-    return `<div class="account-item" onclick="showAccModal('${a.account_id}')" style="cursor:pointer">
-      <div class="account-type ${inc?'income':'expense'}">${inc?'💚':'🔴'}</div>
-      <div class="account-info"><div class="account-partner">${a.partner||a.type}</div><div class="account-items">${a.items||'—'} · ${a.date||''}</div></div>
-      <div class="account-right"><div class="account-amount ${inc?'green':'red'}">${inc?'+NT$ '+Number(a.income).toLocaleString():'-NT$ '+Number(a.expense).toLocaleString()}</div><div class="account-status">${a.status||''}</div></div>
-    </div>`;
-  }).join('');
-}
-function showAccModal(aid){
-  const a=cache.accounts.find(x=>x.account_id===aid);if(!a)return;
-  const inc=a.income&&Number(a.income)>0;
-  document.getElementById('modal-title').textContent=inc?'💚 收入明細':'🔴 支出明細';
-  document.getElementById('modal-body').innerHTML=`
-    <div class="modal-row"><span class="modal-key">類型</span><span class="modal-val">${a.type}</span></div>
-    <div class="modal-row"><span class="modal-key">日期</span><span class="modal-val">${a.date||'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">對象</span><span class="modal-val">${a.partner||'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">品項</span><span class="modal-val">${a.items||'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">${inc?'收入':'支出'}</span><span class="modal-val ${inc?'green':'red'}" style="font-weight:700">${inc?'+NT$ '+Number(a.income).toLocaleString():'-NT$ '+Number(a.expense).toLocaleString()}</span></div>
-    <div class="modal-row"><span class="modal-key">付款方式</span><span class="modal-val">${a.payment||'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">狀態</span><span class="modal-val">${a.status||'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">備註</span><span class="modal-val">${a.note||'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">帳目ID</span><span class="modal-val" style="font-size:11px;color:var(--muted)">${a.account_id||'—'}</span></div>`;
-  document.getElementById('modal-overlay').classList.add('open');
+  el.innerHTML=list.map(a=>{const inc=a.income&&Number(a.income)>0;return `<div class="account-item"><div class="account-type ${inc?'income':'expense'}">${inc?'💚':'🔴'}</div><div class="account-info"><div class="account-partner">${a.partner||a.type}</div><div class="account-items">${a.items||'—'} · ${a.date||''}</div></div><div class="account-right"><div class="account-amount ${inc?'green':'red'}">${inc?'+NT$ '+Number(a.income).toLocaleString():'-NT$ '+Number(a.expense).toLocaleString()}</div><div class="account-status">${a.status||''}</div></div></div>`;}).join('');
 }
 
 function closeModal(e){if(!e||e.target===document.getElementById('modal-overlay'))document.getElementById('modal-overlay').classList.remove('open');}
 function showToast(msg,type='success'){const t=document.getElementById('toast');t.textContent=msg;t.className='toast '+type;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
+
+
+// ── Firebase 圖片上傳 ──
+const FB_CONFIG={apiKey:"AIzaSyD8DTzmzyuDFkrBMjGNZkJoN9fcY9_8mb4",authDomain:"happiness-smart-card-pro-7389a.firebaseapp.com",projectId:"happiness-smart-card-pro-7389a",storageBucket:"happiness-smart-card-pro-7389a.firebasestorage.app",messagingSenderId:"143313936007",appId:"1:143313936007:web:7c948563c51e8a47d3a222"};
+
+let fbApp=null,fbStorage=null,fbAuth=null;
+async function initFB(){
+  if(fbApp)return;
+  const {initializeApp}=await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js');
+  const {getStorage}=await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js');
+  const {getAuth,signInAnonymously}=await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
+  fbApp=initializeApp(FB_CONFIG,'yc-app');
+  fbStorage=getStorage(fbApp);
+  fbAuth=getAuth(fbApp);
+  await signInAnonymously(fbAuth);
+}
+
+async function uploadToFirebase(file, path){
+  await initFB();
+  const {ref,uploadBytes,getDownloadURL}=await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js');
+  const storageRef=ref(fbStorage,path);
+  await uploadBytes(storageRef,file,{contentType:file.type||'image/jpeg',cacheControl:'public,max-age=31536000'});
+  return await getDownloadURL(storageRef);
+}
+
+// 多張圖片預覽
+let inImgFiles=[];
+function handleImgMulti(){
+  const files=Array.from(document.getElementById('in-img-file').files);
+  files.forEach(f=>{
+    if(inImgFiles.length>=5)return;
+    inImgFiles.push(f);
+  });
+  renderImgPreviews();
+}
+function renderImgPreviews(){
+  const wrap=document.getElementById('in-img-previews');
+  wrap.innerHTML=inImgFiles.map((f,i)=>{
+    const url=URL.createObjectURL(f);
+    return `<div style="position:relative;display:inline-block;margin:4px"><img src="${url}" style="width:80px;height:80px;object-fit:cover;border-radius:8px"><button onclick="removeImgFile(${i})" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,.7);border:none;color:#fff;border-radius:50%;width:20px;height:20px;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">✕</button></div>`;
+  }).join('');
+  document.getElementById('in-img-count').textContent=inImgFiles.length>0?`已選 ${inImgFiles.length} 張`:'';
+}
+function removeImgFile(i){inImgFiles.splice(i,1);renderImgPreviews();}
+
+async function uploadInImages(productId){
+  if(!inImgFiles.length)return[];
+  const urls=[];
+  for(let i=0;i<inImgFiles.length;i++){
+    const path=`warehouse/${productId}/photo${i+1}_${Date.now()}.jpg`;
+    try{
+      const url=await uploadToFirebase(inImgFiles[i],path);
+      urls.push(url);
+    }catch(e){console.error('圖片上傳失敗',e);}
+  }
+  return urls;
+}
+
+// ── 報名管理 ──
+let regFilter='all';
+function setRegFilter(f,el){
+  regFilter=f;
+  document.querySelectorAll('#page-regs .chip').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  renderRegs();
+}
+
+function renderRegs(){
+  let list=regFilter==='all'?cache.regs:(cache.regs||[]).filter(r=>r.fee_status===regFilter);
+  const el=document.getElementById('reg-list');
+  if(!list||!list.length){
+    el.innerHTML='<div class="empty-state"><div class="empty-icon">📝</div><div class="empty-text">尚無報名記錄</div></div>';
+    return;
+  }
+  el.innerHTML=list.map(r=>`
+    <div class="reg-card" onclick="showRegModal('${r.reg_id}')">
+      <div class="reg-card-header">
+        <span class="reg-card-name">${r.name}</span>
+        <span class="reg-status rs-${r.fee_status}">${r.fee_status}</span>
+      </div>
+      <div class="reg-card-meta">📞 ${r.phone} · ${r.event_name}</div>
+      <div class="reg-card-meta">💳 ${r.fee_type} · NT$ ${Number(r.fee_amount).toLocaleString()}</div>
+      <div class="reg-card-meta" style="margin-top:3px;font-size:11px;color:var(--muted)">${r.created_at?r.created_at.slice(0,10):''}</div>
+    </div>`).join('');
+}
+
+function showRegModal(rid){
+  const r=(cache.regs||[]).find(x=>x.reg_id===rid);if(!r)return;
+  document.getElementById('modal-title').textContent=r.name+' 的報名';
+
+  const lineAccept=encodeURIComponent(`您好 ${r.name}！\n\n恭喜您通過「${r.event_name}」報名審核 🎉\n\n請依以下方式完成繳費：\n\n🏦 中華郵政（700）\n帳號：0041336-0597692\n戶名：李秀芳\n金額：NT$ ${Number(r.fee_amount).toLocaleString()}（${r.fee_type}）\n\n請於收到此訊息後 3 天內完成匯款，並回傳末5碼。\n\n期待與您相見 🌿`);
+  const lineReject=encodeURIComponent(`您好 ${r.name}，\n\n感謝您報名「${r.event_name}」。\n很遺憾這次名額有限，您的報名未能錄取。\n\n歡迎繼續關注後續活動，期待下次與您相聚 🌿`);
+
+  document.getElementById('modal-body').innerHTML=`
+    <div class="modal-row"><span class="modal-key">活動</span><span class="modal-val">${r.event_name}</span></div>
+    <div class="modal-row"><span class="modal-key">姓名</span><span class="modal-val">${r.name}</span></div>
+    <div class="modal-row"><span class="modal-key">電話</span><span class="modal-val">${r.phone}</span></div>
+    <div class="modal-row"><span class="modal-key">地址</span><span class="modal-val">${r.address||'—'}</span></div>
+    <div class="modal-row"><span class="modal-key">繳費方式</span><span class="modal-val">${r.fee_type}</span></div>
+    <div class="modal-row"><span class="modal-key">費用</span><span class="modal-val gold">NT$ ${Number(r.fee_amount).toLocaleString()}</span></div>
+    <div class="modal-row"><span class="modal-key">繳費狀態</span><span class="modal-val">${r.fee_status}</span></div>
+    <div class="modal-row"><span class="modal-key">健康狀況</span><span class="modal-val">${r.health||'—'}</span></div>
+    <div class="modal-row"><span class="modal-key">宗教信仰</span><span class="modal-val">${r.religion||'—'}</span></div>
+    <div class="modal-row"><span class="modal-key">專長技能</span><span class="modal-val">${r.skills||'—'}</span></div>
+    <div class="modal-row"><span class="modal-key">緊急聯絡人</span><span class="modal-val">${r.emergency_name} ${r.emergency_phone}</span></div>
+    <div class="modal-row"><span class="modal-key">備註</span><span class="modal-val">${r.note||'—'}</span></div>
+    <div class="modal-actions">
+      ${r.fee_status==='待審核'?`
+        <button class="btn btn-in" onclick="updateReg('${r.reg_id}','已錄取')">✅ 錄取</button>
+        <button class="btn btn-out" style="background:transparent;border:1px solid var(--red);color:var(--red)" onclick="updateReg('${r.reg_id}','已拒絕')">❌ 拒絕</button>
+      `:''}
+      ${r.fee_status==='已錄取'?`
+        <button class="btn btn-gold" onclick="updateReg('${r.reg_id}','已繳費')">💰 標記已繳費</button>
+      `:''}
+      ${r.fee_status==='已錄取'?`
+        <a href="https://lin.ee/tMag2XG" target="_blank" class="line-copy" onclick="copyLineMsg('accept-${r.reg_id}')">
+          📋 複製錄取通知 → 傳 LINE
+        </a>
+        <textarea id="accept-${r.reg_id}" style="position:absolute;opacity:0;pointer-events:none">${decodeURIComponent(lineAccept)}</textarea>
+      `:''}
+      ${r.fee_status==='已拒絕'?`
+        <a href="https://lin.ee/tMag2XG" target="_blank" class="line-copy" style="background:var(--dim)" onclick="copyLineMsg('reject-${r.reg_id}')">
+          📋 複製拒絕通知 → 傳 LINE
+        </a>
+        <textarea id="reject-${r.reg_id}" style="position:absolute;opacity:0;pointer-events:none">${decodeURIComponent(lineReject)}</textarea>
+      `:''}
+    </div>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function copyLineMsg(id){
+  const el=document.getElementById(id);
+  if(!el)return;
+  navigator.clipboard.writeText(el.value).then(()=>showToast('✅ 文案已複製','success')).catch(()=>{
+    el.style.opacity='1';el.select();document.execCommand('copy');el.style.opacity='0';
+    showToast('✅ 文案已複製','success');
+  });
+}
+
+async function updateReg(rid,status){
+  closeModal();
+  showToast('⟳ 更新中...','info');
+  const r=await apiPost({action:'updateRegistration',key:ADMIN_KEY,reg_id:rid,fee_status:status});
+  if(r.ok){showToast('✅ 已更新為：'+status,'success');syncAll();}
+  else showToast('❌ '+r.error,'error');
+}
+
+// ── 報名管理 ──
+function setRegFilter(f,el){
+  regFilter=f;
+  document.querySelectorAll('#page-registrations .chip').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  renderRegistrations();
+}
+
+function renderRegistrations(){
+  let list=regFilter==='all'?cache.registrations:cache.registrations.filter(r=>r.fee_status===regFilter);
+  const el=document.getElementById('reg-list');
+  if(!list.length){
+    el.innerHTML=`<div class="empty-state"><div class="empty-icon">🎫</div><div class="empty-text">尚無報名記錄</div></div>`;
+    return;
+  }
+  el.innerHTML=`<div style="display:flex;flex-direction:column;gap:10px">`+list.map(r=>{
+    const statusColor={'待審核':'var(--gold)','已錄取':'var(--green)','已拒絕':'var(--red)','已繳費':'var(--blue)'};
+    const col=statusColor[r.fee_status]||'var(--dim)';
+    return `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px;cursor:pointer" onclick="showRegModal('${r.reg_id}')">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:11px;color:var(--muted)">${r.reg_id}</span>
+        <span style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:99px;background:${col}18;color:${col}">${r.fee_status}</span>
+      </div>
+      <div style="font-size:15px;font-weight:700">${r.name}</div>
+      <div style="font-size:12px;color:var(--dim);margin-top:3px">📞 ${r.phone} · ${r.event_name||'活動'}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+        <span style="font-size:13px;color:var(--dim)">${r.fee_type} · NT$ ${Number(r.fee_amount).toLocaleString()}</span>
+        <span style="font-size:11px;color:var(--muted)">${r.created_at?String(r.created_at).slice(0,10):''}</span>
+      </div>
+    </div>`;
+  }).join('')+`</div>`;
+}
+
+function showRegModal(rid){
+  const r=cache.registrations.find(x=>x.reg_id===rid);
+  if(!r)return;
+  const lineAccept=`https://lin.ee/tMag2XG?msg=${encodeURIComponent(`親愛的 ${r.name} 您好！
+
+🎉 恭喜您已通過「${r.event_name}」報名審核！
+
+繳費方式：${r.fee_type}
+費用：NT$ ${Number(r.fee_amount).toLocaleString()}
+
+📮 匯款資訊：
+銀行：中華郵政（700）
+帳號：0041336-0597692
+戶名：李秀芳
+
+請於收到此訊息後 3 天內完成匯款，並回傳末5碼，我們會盡快確認。
+
+感謝您的參與，期待與您相見 🌿`)}`;
+  const lineReject=`https://lin.ee/tMag2XG?msg=${encodeURIComponent(`親愛的 ${r.name} 您好！
+
+感謝您報名「${r.event_name}」。
+
+很遺憾本次名額已額滿，無法錄取您的報名。
+
+我們會在下次活動優先通知您，敬請期待 🌿`)}`;
+
+  document.getElementById('modal-title').textContent=r.name+' 的報名';
+  document.getElementById('modal-body').innerHTML=`
+    <div class="modal-row"><span class="modal-key">報名編號</span><span class="modal-val" style="font-size:11px">${r.reg_id}</span></div>
+    <div class="modal-row"><span class="modal-key">活動</span><span class="modal-val">${r.event_name||'—'}</span></div>
+    <div class="modal-row"><span class="modal-key">姓名</span><span class="modal-val">${r.name}</span></div>
+    <div class="modal-row"><span class="modal-key">電話</span><span class="modal-val">${r.phone}</span></div>
+    <div class="modal-row"><span class="modal-key">地址</span><span class="modal-val">${r.address||'—'}</span></div>
+    <div class="modal-row"><span class="modal-key">繳費方式</span><span class="modal-val">${r.fee_type}</span></div>
+    <div class="modal-row"><span class="modal-key">費用</span><span class="modal-val">NT$ ${Number(r.fee_amount).toLocaleString()}</span></div>
+    <div class="modal-row"><span class="modal-key">狀態</span><span class="modal-val">${r.fee_status}</span></div>
+    <div class="modal-row"><span class="modal-key">健康狀況</span><span class="modal-val">${r.health||'—'}</span></div>
+    <div class="modal-row"><span class="modal-key">宗教信仰</span><span class="modal-val">${r.religion||'—'}</span></div>
+    <div class="modal-row"><span class="modal-key">專長技能</span><span class="modal-val">${r.skills||'—'}</span></div>
+    <div class="modal-row"><span class="modal-key">緊急聯絡人</span><span class="modal-val">${r.emergency_name||'—'} ${r.emergency_phone||''}</span></div>
+    <div class="modal-row"><span class="modal-key">備註</span><span class="modal-val">${r.note||'—'}</span></div>
+    <div class="modal-actions">
+      ${r.fee_status==='待審核'?`
+        <button class="btn btn-in" onclick="updateReg('${rid}','已錄取')">✅ 錄取</button>
+        <button class="btn btn-out" style="background:transparent;border:1px solid var(--red);color:var(--red)" onclick="updateReg('${rid}','已拒絕')">❌ 拒絕</button>
+      `:''}
+      ${r.fee_status==='已錄取'?`
+        <button class="btn btn-gold" onclick="updateReg('${rid}','已繳費')">💰 標記已繳費</button>
+      `:''}
+      ${r.fee_status==='已錄取'||r.fee_status==='待審核'?`
+        <a href="${lineAccept}" target="_blank" class="btn" style="background:#06C755;color:#fff;text-decoration:none;text-align:center;display:block;padding:14px;border-radius:var(--rs);font-size:16px;font-weight:700">
+          💬 傳送錄取通知
+        </a>
+      `:''}
+      ${r.fee_status==='已拒絕'?`
+        <a href="${lineReject}" target="_blank" class="btn" style="background:var(--surface2);color:var(--text);text-decoration:none;text-align:center;display:block;padding:14px;border-radius:var(--rs);font-size:16px;font-weight:700">
+          💬 傳送婉拒通知
+        </a>
+      `:''}
+    </div>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+async function updateReg(rid, status){
+  closeModal();
+  showToast('⟳ 更新中...','info');
+  const r=await apiPost({action:'updateRegistration',key:ADMIN_KEY,reg_id:rid,fee_status:status});
+  if(r.ok){showToast('✅ 狀態已更新','success');syncAll();}
+  else showToast('❌ '+r.error,'error');
+}
 
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
 </script>
