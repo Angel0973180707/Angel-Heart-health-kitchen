@@ -127,6 +127,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .empty-text{font-size:14px;line-height:1.6}
 .loading{text-align:center;padding:40px;color:var(--text-dim);font-size:14px}
 
+/* ── LOADING OVERLAY ── */
+.loading-overlay{position:fixed;inset:0;background:rgba(27,58,42,.85);z-index:600;display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px}
+.loading-overlay.show{display:flex}
+.loading-spinner{width:48px;height:48px;border:4px solid rgba(255,255,255,.2);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{color:#fff;font-size:15px;font-weight:600}
+
 /* ── TOAST ── */
 .toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--green-dark);color:var(--white);border-radius:99px;padding:10px 20px;font-size:13px;font-weight:600;z-index:500;opacity:0;transition:all .3s;white-space:nowrap;pointer-events:none}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -182,7 +189,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       <div class="fee-cards" id="fee-cards"></div>
       <div style="background:#fff8ec;border:1.5px solid #e8d5a0;border-radius:8px;padding:12px;margin-top:12px">
         <div style="font-size:12px;color:#8B6914;line-height:1.8">
-          💡 <strong>報名說明：</strong>送出申請後請加入 LINE 官方帳號，審核通過後我們會通知您繳費及活動細節。
+          💡 <strong>報名流程：</strong>① 送出申請 → ② 等候審核通知 → ③ 收到通知後繳費 → ④ 完成報名
         </div>
       </div>
     </div>
@@ -201,6 +208,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
         </div>
       </div>
       <div class="field"><label>地址</label><input type="text" id="f-address" placeholder="縣市 + 詳細地址"></div>
+      <div class="field"><label>住宿需求 <span class="req">*</span></label>
+        <select id="f-accommodation">
+          <option value="不住宿">不住宿（6名額）</option>
+          <option value="住宿">住宿（9名額）</option>
+        </select>
+      </div>
     </div>
 
     <div class="section-card">
@@ -248,6 +261,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <button class="back-list-btn" onclick="backToListFromSuccess()">查看其他活動</button>
 </div>
 
+<div class="loading-overlay" id="loading-overlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-text">送出中，請稍候...</div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -377,6 +394,8 @@ function showEvent(eid){
   });
   const gender=document.getElementById('f-gender');
   if(gender)gender.value='';
+  const accom=document.getElementById('f-accommodation');
+  if(accom)accom.value='不住宿';
 
   switchPage('detail');
   window.scrollTo(0,0);
@@ -404,6 +423,7 @@ async function submitReg(){
 
   const btn=document.getElementById('submit-btn');
   btn.disabled=true;btn.textContent='送出中...';
+  showLoading();
 
   try{
     const params=new URLSearchParams({
@@ -411,6 +431,7 @@ async function submitReg(){
       event_id:currentEvent.event_id,
       name,phone,
       address:document.getElementById('f-address').value.trim(),
+      accommodation:document.getElementById('f-accommodation').value,
       fee_type:selectedFeeType,
       fee_amount:Number(feeAmount),
       health:document.getElementById('f-health').value.trim(),
@@ -441,6 +462,7 @@ async function submitReg(){
   }catch(e){
     showToast('網路錯誤，請重試','error');
   }
+  hideLoading();
   btn.disabled=false;btn.textContent='送出報名申請';
 }
 
@@ -457,6 +479,9 @@ function backToListFromSuccess(){
 }
 
 // ── TOAST ──
+function showLoading(){document.getElementById('loading-overlay').classList.add('show');}
+function hideLoading(){document.getElementById('loading-overlay').classList.remove('show');}
+
 function showToast(msg,type=''){
   const t=document.getElementById('toast');
   t.textContent=msg;t.className='toast'+(type?' '+type:'');
