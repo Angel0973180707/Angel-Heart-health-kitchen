@@ -193,7 +193,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab" onclick="switchTab('history')"><span class="tab-icon">📋</span>記錄</div>
   <div class="tab" onclick="switchTab('orders')"><span class="tab-icon">🛒</span>訂單</div>
   <div class="tab" onclick="switchTab('accounts')"><span class="tab-icon">💰</span>帳本</div>
-  <div class="tab" onclick="switchTab('registrations')"><span class="tab-icon">📝</span>報名</div>
+  <div class="tab" onclick="switchTab('regs')"><span class="tab-icon">📝</span>報名</div>
 </div>
 
 <!-- 總覽 -->
@@ -569,7 +569,13 @@ function showProductModal(pid){
     <div class="modal-row"><span class="modal-key">進價</span><span class="modal-val">${p.cost_price?'NT$ '+Number(p.cost_price).toLocaleString():'待補'}</span></div>
     <div class="modal-row"><span class="modal-key">警示值</span><span class="modal-val">${p.threshold} 件</span></div>
     <div class="modal-row"><span class="modal-key">庫存總值</span><span class="modal-val">NT$ ${(p.qty*(p.retail_price||0)).toLocaleString()}</span></div>
-    <div class="modal-row"><span class="modal-key">最後更新</span><span class="modal-val">${p.updated_at||'—'}</span></div>`;
+    <div class="modal-row"><span class="modal-key">最後更新</span><span class="modal-val">${p.updated_at||'—'}</span></div>
+    <div class="modal-actions">
+      <label class="btn btn-gold" style="display:block;text-align:center;padding:14px;border-radius:var(--rs);cursor:pointer">
+        📷 更新商品圖片
+        <input type="file" accept="image/*" style="display:none" onchange="uploadProductImg('${p.product_id}', this)">
+      </label>
+    </div>`;
   document.getElementById('modal-overlay').classList.add('open');
 }
 
@@ -697,6 +703,33 @@ async function uploadInImages(productId){
   return urls;
 }
 
+// ── 報名管理 ──
+let regFilter='all';
+function setRegFilter(f,el){
+  regFilter=f;
+  document.querySelectorAll('#page-registrations .chip').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  renderRegs();
+}
+
+function renderRegs(){
+  let list=regFilter==='all'?cache.registrations:(cache.registrations||[]).filter(r=>r.fee_status===regFilter);
+  const el=document.getElementById('reg-list');
+  if(!list||!list.length){
+    el.innerHTML='<div class="empty-state"><div class="empty-icon">📝</div><div class="empty-text">尚無報名記錄</div></div>';
+    return;
+  }
+  el.innerHTML=list.map(r=>`
+    <div class="reg-card" onclick="showRegModal('${r.reg_id}')">
+      <div class="reg-card-header">
+        <span class="reg-card-name">${r.name}</span>
+        <span class="reg-status rs-${r.fee_status}">${r.fee_status}</span>
+      </div>
+      <div class="reg-card-meta">📞 ${r.phone} · ${r.event_name}</div>
+      <div class="reg-card-meta">💳 ${r.fee_type} · NT$ ${Number(r.fee_amount).toLocaleString()}</div>
+      <div class="reg-card-meta" style="margin-top:3px;font-size:11px;color:var(--muted)">${r.created_at?r.created_at.slice(0,10):''}</div>
+    </div>`).join('');
+}
 
 function showRegModal(rid){
   const r=(cache.registrations||[]).find(x=>x.reg_id===rid);if(!r)return;
@@ -964,6 +997,35 @@ async function submitEvent(){
       syncAll();
     }else showToast('❌ '+r.error,'error');
   }catch(e){showToast('⚠️ 網路錯誤','error');}
+}
+
+// ── 更新商品圖片 ──
+async function uploadProductImg(productId, input){
+  const file = input.files[0];
+  if(!file) return;
+  showToast('⟳ 上傳圖片中...', 'info');
+  try{
+    await initFB();
+    const path = `warehouse/${productId}/photo1_${Date.now()}.jpg`;
+    const url = await uploadToFirebase(file, path);
+    // 更新 GAS 商品主檔 image_url
+    const r = await apiPost({
+      action: 'updateProduct',
+      key: ADMIN_KEY,
+      product_id: productId,
+      image_url: url
+    });
+    if(r.ok){
+      showToast('✅ 圖片更新成功！', 'success');
+      closeModal();
+      syncAll();
+    } else {
+      showToast('❌ ' + r.error, 'error');
+    }
+  } catch(e){
+    showToast('⚠️ 上傳失敗：' + e.message, 'error');
+    console.error(e);
+  }
 }
 
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
