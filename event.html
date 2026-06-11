@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#FFFFFF">
+<title>養清廚房 · 活動報名</title>
+<style>
+:root {
+  --green-dark: #1B3A2A;
+  --green-mid:  #2D5C42;
+  --green-soft: #4A7C59;
+  --green-pale: #EAF3EC;
+  --gold:       #C8962A;
+  --text:       #1A2A1E;
+  --text-mid:   #4A5C4E;
+  --text-dim:   #8A9E8E;
+  --border:     #D8E8DA;
+  --bg:         #FAFCFA;
+  --white:      #FFFFFF;
+  --red:        #C94A3A;
+  --font:       'PingFang TC','Microsoft JhengHei','Noto Sans TC',sans-serif;
+  --r: 12px; --rs: 8px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100dvh}
+
+/* ── HEADER ── */
+.header{background:var(--green-dark);padding:16px 18px 14px;position:sticky;top:0;z-index:100}
+.header-top{display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:10px;color:var(--white)}
+.brand-name{font-size:17px;font-weight:800}
+.brand-sub{font-size:11px;color:rgba(255,255,255,.6);margin-top:2px}
+
+/* ── EVENT LIST PAGE ── */
+.page{display:none}
+.page.active{display:block}
+
+.events-header{padding:20px 18px 12px;background:var(--white);border-bottom:1px solid var(--border)}
+.events-title{font-size:22px;font-weight:800;color:var(--green-dark);margin-bottom:4px}
+.events-sub{font-size:13px;color:var(--text-dim)}
+
+.events-list{padding:16px 14px 60px}
+.event-card{background:var(--white);border:1.5px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:14px;cursor:pointer;transition:border-color .2s;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+.event-card:active{border-color:var(--green-soft)}
+.event-card.full{opacity:.7}
+.event-banner{width:100%;height:160px;background:var(--green-pale);display:flex;align-items:center;justify-content:center;font-size:52px;overflow:hidden;position:relative}
+.event-banner img{width:100%;height:100%;object-fit:cover}
+.event-status-badge{position:absolute;top:10px;right:10px;padding:4px 10px;border-radius:99px;font-size:11px;font-weight:700}
+.badge-open{background:#06C755;color:#fff}
+.badge-full{background:#888;color:#fff}
+.badge-ended{background:#C94A3A;color:#fff}
+.event-body{padding:14px 16px 16px}
+.event-date{font-size:11px;color:var(--green-soft);font-weight:700;margin-bottom:5px;display:flex;align-items:center;gap:4px}
+.event-name{font-size:17px;font-weight:800;margin-bottom:6px;line-height:1.3}
+.event-location{font-size:12px;color:var(--text-dim);margin-bottom:10px;display:flex;align-items:center;gap:4px}
+.event-desc{font-size:13px;color:var(--text-mid);line-height:1.6;margin-bottom:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.event-footer{display:flex;align-items:center;justify-content:space-between}
+.event-fee-wrap{display:flex;flex-direction:column;gap:2px}
+.event-fee-label{font-size:10px;color:var(--text-dim)}
+.event-fee{font-size:14px;font-weight:800;color:var(--green-dark)}
+.event-capacity{font-size:11px;color:var(--text-dim)}
+.register-btn{padding:10px 18px;background:var(--green-dark);border:none;border-radius:99px;color:var(--white);font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);transition:background .15s;white-space:nowrap}
+.register-btn:active{background:var(--green-mid)}
+.register-btn.full{background:var(--text-dim);cursor:not-allowed}
+
+/* ── EVENT DETAIL PAGE ── */
+.detail-header{background:var(--green-dark);padding:14px 18px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10}
+.back-btn{background:rgba(255,255,255,.15);border:none;color:var(--white);width:34px;height:34px;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.detail-header-title{font-size:16px;font-weight:800;color:var(--white);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.detail-banner{width:100%;height:200px;background:var(--green-pale);display:flex;align-items:center;justify-content:center;font-size:64px;overflow:hidden}
+.detail-banner img{width:100%;height:100%;object-fit:cover}
+
+.detail-body{padding:20px 18px 120px}
+.detail-name{font-size:22px;font-weight:800;margin-bottom:8px;line-height:1.3}
+.detail-meta{display:flex;flex-direction:column;gap:7px;margin-bottom:16px}
+.detail-meta-row{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-mid)}
+.detail-meta-icon{font-size:15px;width:20px;text-align:center}
+.detail-desc{font-size:14px;color:var(--text-mid);line-height:1.8;margin-bottom:20px;white-space:pre-wrap}
+
+.fee-cards{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:20px}
+.fee-card{background:var(--green-pale);border:1.5px solid var(--border);border-radius:var(--rs);padding:12px 8px;text-align:center;cursor:pointer;transition:all .2s}
+.fee-card.selected{background:var(--green-dark);border-color:var(--green-dark);color:var(--white)}
+.fee-card-label{font-size:11px;margin-bottom:4px;opacity:.8}
+.fee-card-amount{font-size:15px;font-weight:800}
+.fee-card-note{font-size:10px;margin-top:3px;opacity:.7}
+
+/* ── FORM ── */
+.section-card{background:var(--white);border:1.5px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:14px}
+.section-label{font-size:13px;font-weight:800;color:var(--green-dark);margin-bottom:14px;display:flex;align-items:center;gap:6px}
+.field{margin-bottom:12px}
+.field:last-child{margin-bottom:0}
+.field label{display:block;font-size:12px;font-weight:700;color:var(--text-mid);margin-bottom:5px}
+.field label .req{color:var(--red)}
+.field input,.field select,.field textarea{width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--rs);color:var(--text);font-size:15px;padding:11px 13px;font-family:var(--font);outline:none;-webkit-appearance:none;transition:border-color .2s}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--green-soft)}
+.field textarea{resize:none;height:80px}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+/* ── SUBMIT BAR ── */
+.submit-bar{position:fixed;bottom:0;left:0;right:0;padding:14px 18px;background:var(--white);border-top:1px solid var(--border);z-index:10}
+.submit-btn{width:100%;padding:15px;background:var(--green-dark);border:none;border-radius:var(--rs);color:var(--white);font-size:16px;font-weight:800;cursor:pointer;font-family:var(--font);transition:background .15s}
+.submit-btn:active{background:var(--green-mid)}
+.submit-btn:disabled{background:var(--text-dim);cursor:not-allowed}
+
+/* ── SUCCESS ── */
+.success-screen{display:none;position:fixed;inset:0;background:var(--white);z-index:400;flex-direction:column;align-items:center;justify-content:center;padding:40px 24px;text-align:center;overflow-y:auto}
+.success-screen.open{display:flex}
+.success-icon{font-size:64px;margin-bottom:16px}
+.success-title{font-size:22px;font-weight:800;color:var(--green-dark);margin-bottom:8px}
+.success-sub{font-size:14px;color:var(--text-mid);line-height:1.6;margin-bottom:20px}
+
+.info-box{width:100%;max-width:360px;background:var(--green-pale);border:1.5px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:20px;text-align:left}
+.info-box-title{font-size:12px;font-weight:800;color:var(--green-dark);margin-bottom:10px}
+.info-row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)}
+.info-row:last-child{border:none}
+.info-key{font-size:12px;color:var(--text-mid)}
+.info-val{font-size:13px;font-weight:700;color:var(--text);text-align:right;max-width:60%}
+
+.line-btn{display:block;width:100%;max-width:360px;padding:15px;background:#06C755;border-radius:var(--rs);color:#fff;font-size:16px;font-weight:800;text-align:center;text-decoration:none;margin-bottom:10px}
+.back-list-btn{padding:13px 28px;background:transparent;border:1.5px solid var(--green-dark);border-radius:var(--rs);color:var(--green-dark);font-size:15px;font-weight:700;cursor:pointer;font-family:var(--font)}
+
+/* ── EMPTY / LOADING ── */
+.empty-state{text-align:center;padding:50px 20px;color:var(--text-dim)}
+.empty-icon{font-size:40px;margin-bottom:12px}
+.empty-text{font-size:14px;line-height:1.6}
+.loading{text-align:center;padding:40px;color:var(--text-dim);font-size:14px}
+
+/* ── TOAST ── */
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--green-dark);color:var(--white);border-radius:99px;padding:10px 20px;font-size:13px;font-weight:600;z-index:500;opacity:0;transition:all .3s;white-space:nowrap;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.error{background:var(--red)}
+
+@media(min-width:600px){
+  .events-list,.detail-body,.detail-banner,.events-header{max-width:560px;margin-left:auto;margin-right:auto}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-top">
+    <div class="brand">
+      <img src="logo.png" alt="養清廚房" style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,.3)">
+      <div>
+        <div class="brand-name">養清廚房</div>
+        <div class="brand-sub">活動報名</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 活動列表頁 -->
+<div class="page active" id="page-list">
+  <div class="events-header">
+    <div class="events-title">🌿 近期活動</div>
+    <div class="events-sub">點擊活動了解詳情及報名</div>
+  </div>
+  <div class="events-list" id="events-list">
+    <div class="loading">載入活動中...</div>
+  </div>
+</div>
+
+<!-- 活動詳情 + 報名頁 -->
+<div class="page" id="page-detail">
+  <div class="detail-header">
+    <button class="back-btn" onclick="backToList()">←</button>
+    <div class="detail-header-title" id="detail-header-title">活動詳情</div>
+  </div>
+
+  <div class="detail-banner" id="detail-banner">🌿</div>
+
+  <div class="detail-body">
+    <!-- 活動資訊 -->
+    <div id="detail-info"></div>
+
+    <!-- 繳費方式 -->
+    <div class="section-card" id="fee-section">
+      <div class="section-label">💳 選擇繳費方式</div>
+      <div class="fee-cards" id="fee-cards"></div>
+      <div style="background:#fff8ec;border:1.5px solid #e8d5a0;border-radius:8px;padding:12px;margin-top:12px">
+        <div style="font-size:12px;color:#8B6914;line-height:1.8">
+          💡 <strong>繳費說明：</strong>報名後請加入 LINE 官方帳號，我們會告知繳費方式及相關細節。
+        </div>
+      </div>
+    </div>
+
+    <!-- 報名資料 -->
+    <div class="section-card">
+      <div class="section-label">👤 基本資料</div>
+      <div class="field"><label>姓名 <span class="req">*</span></label><input type="text" id="f-name" placeholder="請輸入真實姓名"></div>
+      <div class="field-row">
+        <div class="field"><label>電話 <span class="req">*</span></label><input type="tel" id="f-phone" placeholder="手機號碼"></div>
+        <div class="field"><label>性別</label>
+          <select id="f-gender">
+            <option value="">請選擇</option>
+            <option>男</option><option>女</option>
+          </select>
+        </div>
+      </div>
+      <div class="field"><label>地址</label><input type="text" id="f-address" placeholder="縣市 + 詳細地址"></div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-label">🏥 健康與生活資料</div>
+      <div class="field"><label>健康狀況</label><textarea id="f-health" placeholder="慢性病、過敏、飲食限制等（素食請註明）..."></textarea></div>
+      <div class="field-row">
+        <div class="field"><label>宗教信仰</label><input type="text" id="f-religion" placeholder="例：佛教、無"></div>
+        <div class="field"><label>專長技能</label><input type="text" id="f-skills" placeholder="例：烹飪、音樂"></div>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-label">🆘 緊急聯絡人</div>
+      <div class="field-row">
+        <div class="field"><label>姓名 <span class="req">*</span></label><input type="text" id="f-ename" placeholder="緊急聯絡人姓名"></div>
+        <div class="field"><label>電話 <span class="req">*</span></label><input type="tel" id="f-ephone" placeholder="聯絡電話"></div>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-label">📝 其他需求</div>
+      <div class="field"><label>備註</label><textarea id="f-note" placeholder="住宿需求、特殊需求、其他說明..."></textarea></div>
+    </div>
+  </div>
+
+  <div class="submit-bar">
+    <button class="submit-btn" id="submit-btn" onclick="submitReg()">確認報名</button>
+  </div>
+</div>
+
+<!-- 報名成功頁 -->
+<div class="success-screen" id="success-screen">
+  <div class="success-icon">🎉</div>
+  <div class="success-title">報名成功！</div>
+  <div class="success-sub">感謝您報名參加<br>我們將透過 LINE 與您聯繫繳費及活動細節</div>
+
+  <div class="info-box" id="success-info"></div>
+
+  <a href="https://lin.ee/tMag2XG" target="_blank" class="line-btn">
+    💬 加入 LINE 官方帳號
+  </a>
+  <div style="font-size:12px;color:var(--text-dim);margin-bottom:20px;max-width:360px;text-align:center">
+    加入後我們會主動與您聯繫繳費方式及活動詳情 🌿
+  </div>
+  <button class="back-list-btn" onclick="backToListFromSuccess()">查看其他活動</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const GAS_URL='https://script.google.com/macros/s/AKfycbz4-pJ5jWtu9nevKDl98LxRqfwyVdGApEqEzcKKR9LDxanUM5BCneCZttkH3rkxLlUtYA/exec';
+
+let events=[];
+let currentEvent=null;
+let selectedFeeType='單次';
+
+// ── 載入活動 ──
+async function loadEvents(){
+  try{
+    const r=await fetch(GAS_URL+'?action=getEvents&status=報名中');
+    const data=await r.json();
+    if(data.ok){
+      events=data.data;
+      renderEvents();
+    } else {
+      showDemoEvents();
+    }
+  }catch(e){
+    showDemoEvents();
+  }
+}
+
+// 示範活動（GAS 無資料時顯示）
+function showDemoEvents(){
+  events=[{
+    event_id:'DEMO001',
+    name:'心文明健康旅療營',
+    date:'2026-07-01',
+    location:'台南',
+    description:'三天兩夜養生淨食課程\n重新找回生活真正的速度\n\n• 養生淨食體驗\n• 身心靈療癒課程\n• 大自然健行',
+    capacity:30,
+    registered:12,
+    fee_single:12000,
+    fee_yearly:120000,
+    fee_half:132000,
+    status:'報名中'
+  }];
+  renderEvents();
+}
+
+function renderEvents(){
+  const el=document.getElementById('events-list');
+  if(!events.length){
+    el.innerHTML=`<div class="empty-state"><div class="empty-icon">📅</div><div class="empty-text">目前沒有開放報名的活動<br>請加入 LINE 官方帳號獲得最新消息</div><a href="https://lin.ee/tMag2XG" target="_blank" style="display:inline-block;margin-top:16px;padding:12px 24px;background:#06C755;border-radius:99px;color:#fff;font-size:14px;font-weight:700;text-decoration:none">💬 加入 LINE OA</a></div>`;
+    return;
+  }
+  el.innerHTML=events.map(e=>eventCard(e)).join('');
+}
+
+function eventCard(e){
+  const isFull=e.status==='已額滿'||e.status==='已結束';
+  const statusLabel=e.status==='報名中'?'報名中':e.status==='已額滿'?'已額滿':'已結束';
+  const statusClass=e.status==='報名中'?'badge-open':e.status==='已額滿'?'badge-full':'badge-ended';
+  const remain=e.capacity>0?`名額剩 ${e.capacity-e.registered} / ${e.capacity}`:'';
+  return `
+  <div class="event-card${isFull?' full':''}" onclick="showEvent('${e.event_id}')">
+    <div class="event-banner">
+      ${e.image_url?`<img src="${e.image_url}" alt="${e.name}">`:'🌿'}
+      <span class="event-status-badge ${statusClass}">${statusLabel}</span>
+    </div>
+    <div class="event-body">
+      <div class="event-date">📅 ${e.date||'日期待定'}</div>
+      <div class="event-name">${e.name}</div>
+      ${e.location?`<div class="event-location">📍 ${e.location}</div>`:''}
+      ${e.description?`<div class="event-desc">${e.description.replace(/\n/g,' ')}</div>`:''}
+      <div class="event-footer">
+        <div class="event-fee-wrap">
+          <div class="event-fee-label">單次費用</div>
+          <div class="event-fee">NT$ ${Number(e.fee_single).toLocaleString()}</div>
+          ${remain?`<div class="event-capacity">${remain}</div>`:''}
+        </div>
+        <button class="register-btn${isFull?' full':''}" onclick="event.stopPropagation();showEvent('${e.event_id}')">
+          ${isFull?'已額滿':'立即報名'}
+        </button>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── 活動詳情 ──
+function showEvent(eid){
+  const e=events.find(x=>x.event_id===eid);
+  if(!e)return;
+  currentEvent=e;
+  selectedFeeType='單次';
+
+  document.getElementById('detail-header-title').textContent=e.name;
+  document.getElementById('detail-banner').innerHTML=
+    e.image_url?`<img src="${e.image_url}" alt="${e.name}">`:'🌿';
+
+  const remain=e.capacity>0?`${e.capacity-e.registered} / ${e.capacity} 名`:'不限名額';
+  document.getElementById('detail-info').innerHTML=`
+    <div class="detail-name">${e.name}</div>
+    <div class="detail-meta">
+      ${e.date?`<div class="detail-meta-row"><span class="detail-meta-icon">📅</span>${e.date}</div>`:''}
+      ${e.location?`<div class="detail-meta-row"><span class="detail-meta-icon">📍</span>${e.location}</div>`:''}
+      <div class="detail-meta-row"><span class="detail-meta-icon">👥</span>名額：${remain}</div>
+      <div class="detail-meta-row"><span class="detail-meta-icon">📋</span>狀態：${e.status}</div>
+    </div>
+    ${e.description?`<div class="detail-desc">${e.description}</div>`:''}
+  `;
+
+  // 繳費選項
+  document.getElementById('fee-cards').innerHTML=`
+    <div class="fee-card selected" id="fee-single" onclick="selectFee('單次',this)">
+      <div class="fee-card-label">單次</div>
+      <div class="fee-card-amount">NT$ ${Number(e.fee_single).toLocaleString()}</div>
+    </div>
+    <div class="fee-card" id="fee-yearly" onclick="selectFee('年繳',this)">
+      <div class="fee-card-label">年繳</div>
+      <div class="fee-card-amount">NT$ ${Number(e.fee_yearly).toLocaleString()}</div>
+      <div class="fee-card-note">省 NT$ ${(Number(e.fee_half)-Number(e.fee_yearly)).toLocaleString()}</div>
+    </div>
+    <div class="fee-card" id="fee-half" onclick="selectFee('半年繳',this)">
+      <div class="fee-card-label">半年繳</div>
+      <div class="fee-card-amount">NT$ ${Number(e.fee_half).toLocaleString()}</div>
+    </div>
+  `;
+
+  // 清空表單
+  ['f-name','f-phone','f-address','f-health','f-religion','f-skills','f-ename','f-ephone','f-note'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el)el.value='';
+  });
+  const gender=document.getElementById('f-gender');
+  if(gender)gender.value='';
+
+  switchPage('detail');
+  window.scrollTo(0,0);
+}
+
+function selectFee(type, el){
+  selectedFeeType=type;
+  document.querySelectorAll('.fee-card').forEach(c=>c.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+// ── 送出報名 ──
+async function submitReg(){
+  const name=document.getElementById('f-name').value.trim();
+  const phone=document.getElementById('f-phone').value.trim();
+  const ename=document.getElementById('f-ename').value.trim();
+  const ephone=document.getElementById('f-ephone').value.trim();
+  if(!name||!phone){showToast('請填寫姓名和電話','error');return;}
+  if(!ename||!ephone){showToast('請填寫緊急聯絡人資料','error');return;}
+  if(!currentEvent){showToast('活動資料錯誤','error');return;}
+
+  const feeAmount=selectedFeeType==='年繳'?currentEvent.fee_yearly:
+                  selectedFeeType==='半年繳'?currentEvent.fee_half:
+                  currentEvent.fee_single;
+
+  const btn=document.getElementById('submit-btn');
+  btn.disabled=true;btn.textContent='送出中...';
+
+  try{
+    const params=new URLSearchParams({
+      action:'addRegistration',
+      event_id:currentEvent.event_id,
+      name,phone,
+      address:document.getElementById('f-address').value.trim(),
+      fee_type:selectedFeeType,
+      fee_amount:feeAmount,
+      health:document.getElementById('f-health').value.trim(),
+      religion:document.getElementById('f-religion').value.trim(),
+      skills:document.getElementById('f-skills').value.trim(),
+      emergency_name:ename,
+      emergency_phone:ephone,
+      note:document.getElementById('f-note').value.trim()
+    });
+    const r=await fetch(GAS_URL+'?'+params.toString());
+    const data=await r.json();
+
+    if(data.ok){
+      // 成功頁
+      document.getElementById('success-info').innerHTML=`
+        <div class="info-box-title">📋 報名資料確認</div>
+        <div class="info-row"><span class="info-key">活動</span><span class="info-val">${currentEvent.name}</span></div>
+        <div class="info-row"><span class="info-key">姓名</span><span class="info-val">${name}</span></div>
+        <div class="info-row"><span class="info-key">電話</span><span class="info-val">${phone}</span></div>
+        <div class="info-row"><span class="info-key">繳費方式</span><span class="info-val">${selectedFeeType}</span></div>
+        <div class="info-row"><span class="info-key">費用</span><span class="info-val" style="color:var(--green-dark)">NT$ ${Number(feeAmount).toLocaleString()}</span></div>
+        <div class="info-row" style="border:none"><span class="info-key">報名編號</span><span class="info-val" style="font-size:11px">${data.reg_id||'—'}</span></div>
+      `;
+      document.getElementById('success-screen').classList.add('open');
+    }else{
+      showToast('報名失敗：'+(data.error||'請重試'),'error');
+    }
+  }catch(e){
+    showToast('網路錯誤，請重試','error');
+  }
+  btn.disabled=false;btn.textContent='確認報名';
+}
+
+// ── 頁面切換 ──
+function switchPage(page){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page-'+page).classList.add('active');
+}
+function backToList(){switchPage('list');window.scrollTo(0,0);}
+function backToListFromSuccess(){
+  document.getElementById('success-screen').classList.remove('open');
+  switchPage('list');
+  window.scrollTo(0,0);
+}
+
+// ── TOAST ──
+function showToast(msg,type=''){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.className='toast'+(type?' '+type:'');
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2500);
+}
+
+loadEvents();
+</script>
+</body>
+</html>
