@@ -310,14 +310,76 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 
 <!-- 報名管理 -->
 <div class="page" id="page-registrations">
+  <button class="btn btn-gold" onclick="openEventModal()" style="margin-bottom:14px;padding:12px">➕ 新增活動</button>
   <div class="filter-row">
     <div class="chip active" onclick="setRegFilter('all',this)">全部</div>
     <div class="chip" onclick="setRegFilter('待審核',this)">⏳ 待審核</div>
     <div class="chip" onclick="setRegFilter('已錄取',this)">✅ 已錄取</div>
     <div class="chip" onclick="setRegFilter('已拒絕',this)">❌ 已拒絕</div>
     <div class="chip" onclick="setRegFilter('已繳費',this)">💰 已繳費</div>
+    <div class="chip" onclick="setRegFilter('住宿',this)">🏠 住宿</div>
+    <div class="chip" onclick="setRegFilter('不住宿',this)">🚶 不住宿</div>
   </div>
   <div id="reg-list"><div class="loading">載入中...</div></div>
+</div>
+
+<!-- 新增活動 Modal -->
+<div class="modal-overlay" id="event-modal-overlay" onclick="closeEventModal(event)">
+  <div class="modal" style="max-height:92dvh">
+    <div class="modal-header">
+      <div class="modal-title">➕ 新增活動</div>
+      <button class="modal-close" onclick="closeEventModal()">✕</button>
+    </div>
+    <div id="event-form-wrap">
+      <!-- Step 1: 填基本資料 -->
+      <div id="event-step1">
+        <div class="field"><label>活動名稱 *</label><input type="text" id="ev-name" placeholder="例：心文明健康旅療營 第二梯"></div>
+        <div class="field-row">
+          <div class="field"><label>開始日期 *</label><input type="date" id="ev-date"></div>
+          <div class="field"><label>結束日期</label><input type="date" id="ev-date-end"></div>
+        </div>
+        <div class="field"><label>地點 *</label><input type="text" id="ev-location" placeholder="縣市+地址"></div>
+        <div class="field"><label>活動特色關鍵字</label><input type="text" id="ev-keywords" placeholder="例：養生淨食、身心靈療癒、大自然"></div>
+        <div class="field-row">
+          <div class="field"><label>住宿名額</label><input type="number" id="ev-accom" placeholder="9" value="9"></div>
+          <div class="field"><label>不住宿名額</label><input type="number" id="ev-noaccom" placeholder="6" value="6"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>單次費用</label><input type="number" id="ev-fee1" placeholder="12000" value="12000"></div>
+          <div class="field"><label>狀態</label>
+            <select id="ev-status">
+              <option value="報名中">報名中</option>
+              <option value="即將開放">即將開放</option>
+              <option value="已結束">已結束</option>
+            </select>
+          </div>
+        </div>
+        <div class="field"><label>活動說明（可留空讓 AI 生成）</label><textarea id="ev-desc" placeholder="留空後點「產生 AI 協作指令」，貼給 Claude 生成說明，再回填"></textarea></div>
+
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
+          <button class="btn btn-gold" onclick="genAIPrompt()">📋 產生 AI 協作指令</button>
+          <button class="btn btn-in" onclick="submitEvent()">✅ 直接送出建立活動</button>
+        </div>
+      </div>
+
+      <!-- Step 2: AI 協作指令 -->
+      <div id="event-step2" style="display:none">
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:12px;margin-bottom:12px">
+          <div style="font-size:12px;color:var(--dim);margin-bottom:8px">📋 複製以下指令貼給 Claude：</div>
+          <div id="ai-prompt-text" style="font-size:13px;line-height:1.7;white-space:pre-wrap;color:var(--text)"></div>
+        </div>
+        <button class="btn btn-gold" onclick="copyPrompt()" style="margin-bottom:8px">📋 複製指令</button>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:12px;margin-bottom:12px">
+          <div style="font-size:12px;color:var(--dim);margin-bottom:8px">📥 貼入 Claude 回覆的說明文案：</div>
+          <textarea id="ai-result" style="width:100%;background:transparent;border:none;color:var(--text);font-size:13px;height:120px;resize:none;outline:none;font-family:var(--font)" placeholder="把 Claude 生成的說明文案貼在這裡..."></textarea>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost" onclick="backToStep1()" style="flex:1">← 返回修改</button>
+          <button class="btn btn-in" onclick="applyAIResult()" style="flex:2">✅ 回填並送出</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- MODAL -->
@@ -734,7 +796,10 @@ function setRegFilter(f,el){
 }
 
 function renderRegistrations(){
-  let list=regFilter==='all'?cache.registrations:cache.registrations.filter(r=>r.fee_status===regFilter);
+  const accomFilters=['住宿','不住宿'];
+  let list=regFilter==='all'?cache.registrations:
+    accomFilters.includes(regFilter)?cache.registrations.filter(r=>r.accommodation===regFilter):
+    cache.registrations.filter(r=>r.fee_status===regFilter);
   const el=document.getElementById('reg-list');
   if(!list.length){
     el.innerHTML=`<div class="empty-state"><div class="empty-icon">🎫</div><div class="empty-text">尚無報名記錄</div></div>`;
@@ -750,7 +815,7 @@ function renderRegistrations(){
         <span style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:99px;background:${col}18;color:${col}">${r.fee_status}</span>
       </div>
       <div style="font-size:15px;font-weight:700">${r.name}</div>
-      <div style="font-size:12px;color:var(--dim);margin-top:3px">📞 ${r.phone} · ${r.event_name||'活動'}</div>
+      <div style="font-size:12px;color:var(--dim);margin-top:3px">📞 ${r.phone} · ${r.accommodation||''} · ${r.event_name||'活動'}</div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
         <span style="font-size:13px;color:var(--dim)">${r.fee_type} · NT$ ${Number(r.fee_amount).toLocaleString()}</span>
         <span style="font-size:11px;color:var(--muted)">${r.created_at?String(r.created_at).slice(0,10):''}</span>
@@ -798,6 +863,7 @@ function showRegModal(rid){
     <div class="modal-row"><span class="modal-key">健康狀況</span><span class="modal-val">${r.health||'—'}</span></div>
     <div class="modal-row"><span class="modal-key">宗教信仰</span><span class="modal-val">${r.religion||'—'}</span></div>
     <div class="modal-row"><span class="modal-key">專長技能</span><span class="modal-val">${r.skills||'—'}</span></div>
+    <div class="modal-row"><span class="modal-key">住宿需求</span><span class="modal-val">${r.accommodation||'—'}</span></div>
     <div class="modal-row"><span class="modal-key">緊急聯絡人</span><span class="modal-val">${r.emergency_name||'—'} ${r.emergency_phone||''}</span></div>
     <div class="modal-row"><span class="modal-key">備註</span><span class="modal-val">${r.note||'—'}</span></div>
     <div class="modal-actions">
@@ -829,6 +895,110 @@ async function updateReg(rid, status){
   const r=await apiPost({action:'updateRegistration',key:ADMIN_KEY,reg_id:rid,fee_status:status});
   if(r.ok){showToast('✅ 狀態已更新','success');syncAll();}
   else showToast('❌ '+r.error,'error');
+}
+
+// ── 新增活動 ──
+function openEventModal(){
+  document.getElementById('event-modal-overlay').classList.add('open');
+  document.getElementById('event-step1').style.display='block';
+  document.getElementById('event-step2').style.display='none';
+  // 清空表單
+  ['ev-name','ev-location','ev-keywords','ev-desc','ai-result'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value='';
+  });
+  document.getElementById('ev-accom').value='9';
+  document.getElementById('ev-noaccom').value='6';
+  document.getElementById('ev-fee1').value='12000';
+  document.getElementById('ev-status').value='報名中';
+}
+function closeEventModal(e){
+  if(!e||e.target===document.getElementById('event-modal-overlay'))
+    document.getElementById('event-modal-overlay').classList.remove('open');
+}
+function backToStep1(){
+  document.getElementById('event-step1').style.display='block';
+  document.getElementById('event-step2').style.display='none';
+}
+
+function genAIPrompt(){
+  const name=document.getElementById('ev-name').value.trim();
+  const date=document.getElementById('ev-date').value;
+  const dateEnd=document.getElementById('ev-date-end').value;
+  const location=document.getElementById('ev-location').value.trim();
+  const keywords=document.getElementById('ev-keywords').value.trim();
+  const accom=document.getElementById('ev-accom').value||9;
+  const noaccom=document.getElementById('ev-noaccom').value||6;
+  const fee=document.getElementById('ev-fee1').value||12000;
+  if(!name||!date||!location){showToast('請先填寫活動名稱、日期、地點','error');return;}
+
+  const dateStr=dateEnd?`${date} 至 ${dateEnd}`:date;
+  const prompt=`請幫我為以下活動撰寫吸引人的說明文案（約100-150字），風格溫暖、有生命力，適合健康養生族群。
+
+活動名稱：${name}
+日期：${dateStr}
+地點：${location}
+特色關鍵字：${keywords||'養生、身心靈、淨食'}
+住宿名額：${accom}人 / 不住宿名額：${noaccom}人
+單次費用：NT$ ${Number(fee).toLocaleString()}
+
+請只回覆說明文案內容，不要加任何前言或說明。`;
+
+  document.getElementById('ai-prompt-text').textContent=prompt;
+  document.getElementById('event-step1').style.display='none';
+  document.getElementById('event-step2').style.display='block';
+}
+
+function copyPrompt(){
+  const text=document.getElementById('ai-prompt-text').textContent;
+  navigator.clipboard.writeText(text).then(()=>showToast('✅ 已複製指令','success')).catch(()=>{
+    // fallback
+    const ta=document.createElement('textarea');
+    ta.value=text;document.body.appendChild(ta);ta.select();
+    document.execCommand('copy');document.body.removeChild(ta);
+    showToast('✅ 已複製指令','success');
+  });
+}
+
+function applyAIResult(){
+  const result=document.getElementById('ai-result').value.trim();
+  if(!result){showToast('請先貼入 Claude 生成的文案','error');return;}
+  document.getElementById('ev-desc').value=result;
+  submitEvent();
+}
+
+async function submitEvent(){
+  const name=document.getElementById('ev-name').value.trim();
+  const date=document.getElementById('ev-date').value;
+  const location=document.getElementById('ev-location').value.trim();
+  if(!name||!date||!location){showToast('請填寫活動名稱、日期、地點','error');return;}
+
+  const accom=parseInt(document.getElementById('ev-accom').value)||0;
+  const noaccom=parseInt(document.getElementById('ev-noaccom').value)||0;
+  const fee1=parseInt(document.getElementById('ev-fee1').value)||12000;
+  const desc=document.getElementById('ev-desc').value.trim();
+  const dateEnd=document.getElementById('ev-date-end').value;
+  const fullDesc=dateEnd?`${desc}\n日期：${date} 至 ${dateEnd}`:desc;
+
+  showToast('⟳ 建立中...','info');
+  try{
+    const r=await apiPost({
+      action:'addEvent',key:ADMIN_KEY,
+      name,date,location,
+      description:fullDesc||name,
+      capacity:accom+noaccom,
+      accom_quota:accom,
+      no_accom_quota:noaccom,
+      fee_single:fee1,
+      fee_yearly:fee1*10,
+      fee_half:fee1*11,
+      status:document.getElementById('ev-status').value
+    });
+    if(r.ok){
+      showToast('✅ 活動建立成功！','success');
+      closeEventModal();
+      syncAll();
+    }else showToast('❌ '+r.error,'error');
+  }catch(e){showToast('⚠️ 網路錯誤','error');}
 }
 
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
