@@ -398,9 +398,9 @@ async function submitReg(){
   if(!ename||!ephone){showToast('請填寫緊急聯絡人資料','error');return;}
   if(!currentEvent){showToast('活動資料錯誤','error');return;}
 
-  const feeAmount=selectedFeeType==='年繳'?currentEvent.fee_yearly:
+  const feeAmount=Number(selectedFeeType==='年繳'?currentEvent.fee_yearly:
                   selectedFeeType==='半年繳'?currentEvent.fee_half:
-                  currentEvent.fee_single;
+                  currentEvent.fee_single)||12000;
 
   const btn=document.getElementById('submit-btn');
   btn.disabled=true;btn.textContent='送出中...';
@@ -412,7 +412,7 @@ async function submitReg(){
       name,phone,
       address:document.getElementById('f-address').value.trim(),
       fee_type:selectedFeeType,
-      fee_amount:feeAmount,
+      fee_amount:Number(feeAmount),
       health:document.getElementById('f-health').value.trim(),
       religion:document.getElementById('f-religion').value.trim(),
       skills:document.getElementById('f-skills').value.trim(),
