@@ -1,230 +1,215 @@
 /**
- * 養清倉管 GAS v2 — 新增功能模組
+ * 養清倉管 GAS 修改清單
+ * 適用主程式版本：v2.0（2026-06-10）
  *
- * 使用方式：
- * 1. 開啟 GAS 編輯器，點「+」新增檔案，命名 gas_v2
- * 2. 把整個檔案內容貼進去
- * 3. 重新部署（管理部署 → 編輯 → 版本選「新版本」→ 部署）
- * 4. 需要的設定：
- *    - LINE Notify Token：GAS 編輯器 → 專案設定 → 指令碼屬性
- *      新增屬性 LINE_NOTIFY_TOKEN，值為你的 LINE Notify token
- *    - 確認試算表中有 "帳本" 工作表（欄位見下方 addAccount 說明）
- *    - 確認試算表中有 "點數記錄" 工作表（欄位見下方 getPointsLog 說明）
+ * ════════════════════════════════════════════════
+ * 操作方式：
+ * 把下面每個「要加進 / 要替換」的函式，
+ * 直接貼到 GAS 編輯器最下面（或取代對應舊函式）
+ *
+ * 改完後重新部署：管理部署 → 編輯 → 新版本 → 部署
+ * ════════════════════════════════════════════════
  */
 
-// ─────────────────────────────────────────────────
-// 工具函式（GAS 版）
-// ─────────────────────────────────────────────────
 
-function _getSheet(name) {
-  var ss = SpreadsheetApp.openById(PropertiesService.getScriptProperties().getProperty('SHEET_ID') || '你的試算表ID');
-  return ss.getSheetByName(name);
-}
+// ════════════════════════════════════════════════
+// Task 2 & 3：LINE Notify
+// 1. 把下面 sendLineNotify_ 貼到 GAS 最下面（新增）
+// 2. 把下面 addOrder 取代主程式中的同名函式
+// 3. 把下面 addRegistration 取代主程式中的同名函式
+// 4. GAS 編輯器 → 齒輪「專案設定」→「指令碼屬性」
+//    新增 LINE_NOTIFY_TOKEN，值填你的 LINE Notify token
+// ════════════════════════════════════════════════
 
-function _rowToObj(headers, row) {
-  var obj = {};
-  headers.forEach(function(h, i) { obj[h] = row[i] !== undefined ? row[i] : ''; });
-  return obj;
-}
-
-function _sendLineNotify(message) {
-  var token = PropertiesService.getScriptProperties().getProperty('LINE_NOTIFY_TOKEN');
+function sendLineNotify_(message) {
+  const token = PropertiesService.getScriptProperties().getProperty('LINE_NOTIFY_TOKEN');
   if (!token) { console.warn('LINE_NOTIFY_TOKEN 未設定'); return; }
-  UrlFetchApp.fetch('https://notify-api.line.me/api/notify', {
-    method: 'post',
-    headers: { Authorization: 'Bearer ' + token },
-    payload: { message: message }
-  });
-}
-
-// ─────────────────────────────────────────────────
-// Task 4：新增帳目
-// 試算表「帳本」工作表欄位（第一列）：
-// account_id | type | partner | items | income | expense | date | note | status | created_at
-// ─────────────────────────────────────────────────
-
-function addAccount(params) {
   try {
-    var sheet = _getSheet('帳本');
-    if (!sheet) return { ok: false, error: '找不到帳本工作表' };
-    var id = 'ACC' + Date.now();
-    var now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
-    sheet.appendRow([
-      id,
-      params.type || '其他',
-      params.partner || '',
-      params.items || '',
-      Number(params.income) || 0,
-      Number(params.expense) || 0,
-      params.date || now.slice(0, 10),
-      params.note || '',
-      params.status || '已記錄',
-      now
-    ]);
-    return { ok: true, account_id: id };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
+    UrlFetchApp.fetch('https://notify-api.line.me/api/notify', {
+      method: 'post',
+      headers: { Authorization: 'Bearer ' + token },
+      payload: { message: message },
+      muteHttpExceptions: true
+    });
+  } catch(e) { console.warn('LINE Notify 發送失敗：' + e.message); }
 }
 
-// ─────────────────────────────────────────────────
-// Task 5：stockOut 自動下架（庫存歸零時）
-// 在現有 stockOut 函式內，找到更新庫存的地方，
-// 在 newQty <= 0 之後加入以下邏輯：
-//
-//   if (newQty <= 0) {
-//     // 自動下架
-//     productSheet.getRange(productRow, statusCol).setValue('下架');
-//   }
-//
-// 以下是完整的 auto-archive 輔助函式：
-// ─────────────────────────────────────────────────
+// ── 取代主程式的 addOrder（加 LINE Notify）──
+function addOrder(p) {
+  if (p.token !== ORDER_TOKEN) {
+    return { ok: false, error: '驗證失敗' };
+  }
+  if (!p.customer_name || !p.phone || !p.items) {
+    return { ok: false, error: '缺少必要欄位' };
+  }
+  const id = 'ORD' + Date.now();
+  getSheet(SHEET.ORDERS).appendRow([
+    id, p.customer_name, p.phone, p.address||'',
+    p.items, p.total||0, p.payment||'貨到付款',
+    '待確認', p.note||'', now()
+  ]);
+  if (p.auto_deduct === 'true') {
+    try {
+      JSON.parse(p.items).forEach(function(item) {
+        stockOut({ product_id: item.product_id, qty: item.qty,
+                   price: item.price, partner: p.customer_name, note: '訂單:'+id });
+      });
+    } catch(e) {}
+  }
+  // LINE Notify
+  try {
+    sendLineNotify_(
+      '\n🛒 新訂單通知！' +
+      '\n客戶：' + p.customer_name +
+      '\n電話：' + p.phone +
+      '\n金額：NT$ ' + Number(p.total||0).toLocaleString() +
+      '\n付款：' + (p.payment||'—') +
+      '\n備註：' + (p.note||'無')
+    );
+  } catch(e) {}
+  return { ok: true, order_id: id };
+}
 
-function _autoArchiveIfZero(productId) {
-  var sheet = _getSheet('商品主檔');
-  if (!sheet) return;
-  var data = sheet.getDataRange().getValues();
-  var headers = data[1]; // 第2列是英文欄位名稱
-  var pidCol = headers.indexOf('product_id');
-  var qtyCol = headers.indexOf('qty');
-  var statusCol = headers.indexOf('status');
-  if (pidCol < 0) return;
-  for (var i = 2; i < data.length; i++) {
-    if (String(data[i][pidCol]) === String(productId)) {
-      var qty = Number(data[i][qtyCol]) || 0;
-      if (qty <= 0 && statusCol >= 0) {
-        sheet.getRange(i + 1, statusCol + 1).setValue('下架');
-        console.log('商品已自動下架：' + productId);
+// ── 取代主程式的 addRegistration（加 LINE Notify）──
+function addRegistration(p) {
+  if (p.token !== REG_TOKEN) {
+    return { ok: false, error: '驗證失敗' };
+  }
+  if (!p.event_id || !p.name || !p.phone) {
+    return { ok: false, error: '缺少必要欄位' };
+  }
+  const found = findRow(SHEET.EVENTS, COL.EVENTS.ID, p.event_id);
+  if (!found) return { ok: false, error: '找不到活動' };
+  const event = found.row;
+  const c = COL.EVENTS;
+  const capacity   = parseInt(event[c.CAPACITY])   || 0;
+  const registered = parseInt(event[c.REGISTERED]) || 0;
+  if (capacity > 0 && registered >= capacity) {
+    return { ok: false, error: '報名人數已額滿' };
+  }
+  const feeType   = p.fee_type || '單次';
+  const feeAmount = feeType === '年繳'   ? (event[c.FEE_YEARLY] || 120000) :
+                    feeType === '半年繳' ? (event[c.FEE_HALF]   || 132000) :
+                                           (event[c.FEE_SINGLE] || 12000);
+  const id = genId('R');
+  getSheet(SHEET.REGISTRATIONS).appendRow([
+    id, p.event_id, event[c.NAME],
+    p.name, p.phone, p.address||'',
+    feeType, feeAmount, '待審核',
+    p.health||'', p.religion||'', p.skills||'',
+    p.emergency_name||'', p.emergency_phone||'',
+    p.accommodation||'不住宿', p.note||'', now()
+  ]);
+  getSheet(SHEET.EVENTS).getRange(found.rowNum, c.REGISTERED+1).setValue(registered + 1);
+  // LINE Notify
+  try {
+    sendLineNotify_(
+      '\n📝 新報名通知！' +
+      '\n姓名：' + p.name +
+      '\n電話：' + p.phone +
+      '\n活動：' + event[c.NAME] +
+      '\n費用方式：' + feeType +
+      '\n費用：NT$ ' + Number(feeAmount).toLocaleString() +
+      '\n住宿：' + (p.accommodation||'不住宿')
+    );
+  } catch(e) {}
+  return { ok: true, reg_id: id, fee_amount: feeAmount };
+}
+
+
+// ════════════════════════════════════════════════
+// Task 5：出庫庫存歸零自動下架
+// 取代主程式中的 updateQty 函式
+// ════════════════════════════════════════════════
+
+function updateQty(productId, qty, type) {
+  const sheet = getSheet(SHEET.INVENTORY);
+  const found = findRow(SHEET.INVENTORY, COL.INVENTORY.ID, productId);
+  if (!found) return { ok: false, error: '找不到庫存記錄' };
+  const cur    = parseInt(found.row[COL.INVENTORY.QTY]) || 0;
+  const newQty = type === 'in' ? cur + qty : cur - qty;
+  if (newQty < 0) return { ok: false, error: '庫存不足，現有 ' + cur + ' 件' };
+  sheet.getRange(found.rowNum, COL.INVENTORY.QTY+1).setValue(newQty);
+  sheet.getRange(found.rowNum, COL.INVENTORY.UPDATED+1).setValue(now());
+  // 出庫後庫存歸零 → 自動下架
+  if (newQty === 0 && type === 'out') {
+    try {
+      const prodFound = findRow(SHEET.PRODUCTS, COL.PRODUCTS.ID, productId);
+      if (prodFound) {
+        getSheet(SHEET.PRODUCTS).getRange(prodFound.rowNum, COL.PRODUCTS.STATUS+1).setValue('下架');
+        console.log('商品自動下架：' + productId);
       }
-      break;
+    } catch(e) {}
+  }
+  return { ok: true, new_qty: newQty, name: found.row[COL.INVENTORY.NAME] };
+}
+
+
+// ════════════════════════════════════════════════
+// Task 7：點數記錄（新增，貼到 GAS 最下面）
+//
+// 需要在試算表手動新增工作表「點數記錄」，
+// 第1列：標題 / 第2列：英文欄位名 / 第3列起資料
+// 欄位（A~H）：
+//   log_id | member_phone | member_name | action
+//   points | balance | note | created_at
+//
+// 在 doGet switch 加入：
+//   case 'getPointsLog': return res(getPointsLog(p));
+// ════════════════════════════════════════════════
+
+var SHEET_POINTS_LOG = '點數記錄';
+
+function getPointsLog(p) {
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_POINTS_LOG);
+  if (!sheet) return { ok: true, data: [] };
+  var last = sheet.getLastRow();
+  if (last < DATA_ROW) return { ok: true, data: [] };
+  var rows = sheet.getRange(DATA_ROW, 1, last - DATA_ROW + 1, 8).getValues();
+  var list = rows.map(function(r) {
+    return {
+      log_id:       r[0],
+      member_phone: r[1],
+      member_name:  r[2],
+      action:       r[3],
+      points:       r[4],
+      balance:      r[5],
+      note:         r[6],
+      created_at:   r[7]
+    };
+  }).filter(function(x) { return x.log_id; });
+  if (p.phone) list = list.filter(function(x) { return String(x.member_phone) === String(p.phone); });
+  list.reverse();
+  return { ok: true, data: list.slice(0, Number(p.limit)||100) };
+}
+
+// ── 取代主程式的 addPoints（加寫 點數記錄）──
+function addPoints(p) {
+  if (!p.phone || !p.points) return { ok: false, error: '缺少必要欄位' };
+  var rows = getRows(SHEET.MEMBERS);
+  var c = COL.MEMBERS;
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i][c.PHONE]) === String(p.phone)) {
+      var sheet = getSheet(SHEET.MEMBERS);
+      var rn = DATA_ROW + i;
+      var cur   = Number(rows[i][c.POINTS]) || 0;
+      var spent = Number(rows[i][c.TOTAL_SPENT]) || 0;
+      var addPts = Number(p.points);
+      var newBalance = cur + addPts;
+      sheet.getRange(rn, c.POINTS+1).setValue(newBalance);
+      sheet.getRange(rn, c.TOTAL_SPENT+1).setValue(spent + Number(p.amount || 0));
+      // 寫點數記錄
+      var logSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_POINTS_LOG);
+      if (logSheet) {
+        logSheet.appendRow([
+          'PT' + Date.now(), p.phone, rows[i][c.NAME],
+          addPts > 0 ? '加點' : '扣點',
+          addPts, newBalance,
+          p.note || '', now()
+        ]);
+      }
+      return { ok: true, new_points: newBalance };
     }
   }
+  return { ok: false, error: '找不到會員' };
 }
-
-// ─────────────────────────────────────────────────
-// Task 2：訂單通知（addOrder 成功後呼叫此函式）
-// 在現有 addOrder 函式最後，成功寫入後加一行：
-//   _notifyNewOrder(params);
-// ─────────────────────────────────────────────────
-
-function _notifyNewOrder(params) {
-  try {
-    var msg = '\n🛒 新訂單通知！\n'
-      + '客戶：' + (params.customer_name || '—') + '\n'
-      + '電話：' + (params.phone || '—') + '\n'
-      + '金額：NT$ ' + Number(params.total).toLocaleString() + '\n'
-      + '付款：' + (params.payment || '—') + '\n'
-      + '備註：' + (params.note || '無');
-    _sendLineNotify(msg);
-  } catch (e) {
-    console.warn('LINE Notify 發送失敗：' + e.message);
-  }
-}
-
-// ─────────────────────────────────────────────────
-// Task 3：報名通知（addRegistration 成功後呼叫此函式）
-// 在現有 addRegistration 函式最後，成功寫入後加一行：
-//   _notifyNewRegistration(params);
-// ─────────────────────────────────────────────────
-
-function _notifyNewRegistration(params) {
-  try {
-    var msg = '\n📝 新報名通知！\n'
-      + '姓名：' + (params.name || '—') + '\n'
-      + '電話：' + (params.phone || '—') + '\n'
-      + '活動：' + (params.event_id || '—') + '\n'
-      + '費用方式：' + (params.fee_type || '—') + '\n'
-      + '住宿：' + (params.accommodation || '—');
-    _sendLineNotify(msg);
-  } catch (e) {
-    console.warn('LINE Notify 發送失敗：' + e.message);
-  }
-}
-
-// ─────────────────────────────────────────────────
-// Task 7：點數紀錄
-// 試算表「點數記錄」工作表欄位（第一列）：
-// record_id | member_name | phone | action | points | balance | note | created_at
-// ─────────────────────────────────────────────────
-
-function addPoints(params) {
-  try {
-    var sheet = _getSheet('點數記錄');
-    if (!sheet) return { ok: false, error: '找不到點數記錄工作表' };
-    var id = 'PT' + Date.now();
-    var now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
-    var pts = Math.abs(Number(params.points) || 0);
-    var balance = _getPointsBalance(params.phone) + pts;
-    sheet.appendRow([id, params.member_name || '', params.phone || '', '加點', pts, balance, params.note || '', now]);
-    return { ok: true, record_id: id, balance: balance };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
-}
-
-function usePoints(params) {
-  try {
-    var sheet = _getSheet('點數記錄');
-    if (!sheet) return { ok: false, error: '找不到點數記錄工作表' };
-    var pts = Math.abs(Number(params.points) || 0);
-    var currentBalance = _getPointsBalance(params.phone);
-    if (currentBalance < pts) return { ok: false, error: '點數不足（現有 ' + currentBalance + ' 點）' };
-    var id = 'PT' + Date.now();
-    var now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
-    var newBalance = currentBalance - pts;
-    sheet.appendRow([id, params.member_name || '', params.phone || '', '扣點', -pts, newBalance, params.note || '', now]);
-    return { ok: true, record_id: id, balance: newBalance };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
-}
-
-function _getPointsBalance(phone) {
-  var sheet = _getSheet('點數記錄');
-  if (!sheet) return 0;
-  var data = sheet.getDataRange().getValues();
-  if (data.length < 2) return 0;
-  var headers = data[0];
-  var phoneCol = headers.indexOf('phone');
-  var balanceCol = headers.indexOf('balance');
-  var lastBalance = 0;
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][phoneCol]) === String(phone)) {
-      lastBalance = Number(data[i][balanceCol]) || 0;
-    }
-  }
-  return lastBalance;
-}
-
-function getPointsLog(params) {
-  try {
-    var sheet = _getSheet('點數記錄');
-    if (!sheet) return { ok: true, data: [] };
-    var data = sheet.getDataRange().getValues();
-    if (data.length < 2) return { ok: true, data: [] };
-    var headers = data[0];
-    var rows = data.slice(1).map(function(r) { return _rowToObj(headers, r); });
-    if (params.phone) rows = rows.filter(function(r) { return String(r.phone) === String(params.phone); });
-    rows.reverse();
-    return { ok: true, data: rows.slice(0, Number(params.limit) || 100) };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
-}
-
-// ─────────────────────────────────────────────────
-// doGet / doPost 路由（加到現有的 switch/case 中）
-// ─────────────────────────────────────────────────
-//
-// 在現有 doGet 的 switch(action) 中加入：
-//
-//   case 'addAccount':
-//     result = addAccount(params); break;
-//   case 'addPoints':
-//     result = addPoints(params); break;
-//   case 'usePoints':
-//     result = usePoints(params); break;
-//   case 'getPointsLog':
-//     result = getPointsLog(params); break;
-//
-// ─────────────────────────────────────────────────
