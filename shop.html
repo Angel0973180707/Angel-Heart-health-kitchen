@@ -283,7 +283,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-hei
     <div class="section-card">
       <div class="section-label">👤 收件資料</div>
       <div class="field"><label>姓名 *</label><input type="text" id="f-name" placeholder="請輸入姓名"></div>
-      <div class="field"><label>電話 *</label><input type="tel" id="f-phone" placeholder="請輸入手機號碼"></div>
+      <div class="field"><label>電話 *</label><input type="text" inputmode="numeric" id="f-phone" placeholder="請輸入手機號碼"></div>
       <div class="field"><label>地址</label><input type="text" id="f-address" placeholder="（現場取貨可不填）"></div>
       <div class="field"><label>備註</label><textarea id="f-note" placeholder="特殊需求、配送說明..."></textarea></div>
     </div>
@@ -387,7 +387,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-hei
     <div class="section-card">
       <div class="section-label">📞 輸入手機號碼</div>
       <div class="field">
-        <input type="tel" id="query-phone" placeholder="例：0912345678" maxlength="10"
+        <input type="text" inputmode="numeric" id="query-phone" placeholder="例：0912345678" maxlength="10"
           style="font-size:18px;text-align:center;letter-spacing:2px">
       </div>
       <button class="checkout-btn" onclick="queryOrders()">查詢訂單</button>
