@@ -323,6 +323,35 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div id="reg-list"><div class="loading">載入中...</div></div>
 </div>
 
+<!-- 會員管理 -->
+<div class="page" id="page-members">
+  <button class="btn btn-gold" onclick="openAddMemberModal()" style="margin-bottom:14px;padding:12px">➕ 新增會員</button>
+  <div class="filter-row">
+    <div class="chip active" onclick="setMemberFilter('all',this)">全部</div>
+    <div class="chip" onclick="setMemberFilter('birthday',this)">🎂 本月壽星</div>
+    <div class="chip" onclick="setMemberFilter('points100',this)">⭐ 百點以上</div>
+  </div>
+  <div class="search-wrap"><span class="search-icon">🔍</span><input type="text" placeholder="搜尋姓名、手機..." id="member-search" oninput="renderMembers()"></div>
+  <div id="member-list"><div class="loading">載入中...</div></div>
+</div>
+
+<!-- 新增/編輯會員 Modal -->
+<div class="modal-overlay" id="member-modal-overlay" onclick="closeMemberModal(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="member-modal-title">➕ 新增會員</div>
+      <button class="modal-close" onclick="closeMemberModal()">✕</button>
+    </div>
+    <div class="field"><label>姓名 *</label><input type="text" id="mm-name" placeholder="請輸入姓名"></div>
+    <div class="field"><label>手機號碼 *</label><input type="tel" id="mm-phone" placeholder="0912345678" maxlength="10"></div>
+    <div class="field"><label>生日</label><input type="date" id="mm-birthday"></div>
+    <div class="field"><label>備註</label><input type="text" id="mm-note" placeholder="備注說明"></div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
+      <button class="btn btn-gold" id="mm-submit-btn" onclick="submitMember()">✅ 儲存</button>
+    </div>
+  </div>
+</div>
+
 <!-- 新增活動 Modal -->
 <div class="modal-overlay" id="event-modal-overlay" onclick="closeEventModal(event)">
   <div class="modal" style="max-height:92dvh">
@@ -398,7 +427,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 const GAS_URL='https://script.google.com/macros/s/AKfycbz4-pJ5jWtu9nevKDl98LxRqfwyVdGApEqEzcKKR9LDxanUM5BCneCZttkH3rkxLlUtYA/exec';
 const ADMIN_KEY='YANGCHING2025';
 let cache={products:[],inventory:[],stockLog:[],orders:[],accounts:[],balance:{},regs:[]};
-let invFilter='all',histFilter='all',orderFilter='all',accFilter='all',regFilter='all';
+let invFilter='all',histFilter='all',orderFilter='all',accFilter='all',regFilter='all',memberFilter='all';
 let imgData={in:null};
 
 function hashStr(s){let h=0;for(let i=0;i<s.length;i++)h=(Math.imul(31,h)+s.charCodeAt(i))|0;return h.toString(36)}
@@ -447,6 +476,7 @@ async function syncAll(){
     try{const acc=await api({action:'getAccounts',key:ADMIN_KEY});if(acc.ok)cache.accounts=acc.data;}catch(e){}
     try{const bal=await api({action:'getBalance',key:ADMIN_KEY});if(bal.ok)cache.balance=bal.data;}catch(e){}
     try{const reg=await api({action:'getRegistrations',key:ADMIN_KEY});if(reg.ok)cache.registrations=reg.data;}catch(e){}
+    try{const mem=await api({action:'getMember',key:ADMIN_KEY,all:'true'});if(mem.ok)cache.members=mem.data||[];}catch(e){}
     localStorage.setItem('yc_cache',JSON.stringify(cache));
     refreshDatalist();renderAll();
     showToast('✅ 同步完成','success');
@@ -454,7 +484,7 @@ async function syncAll(){
   btn.textContent='⟳ 同步';btn.classList.remove('syncing');
 }
 
-function renderAll(){renderDashboard();renderInventory();renderHistory();renderOrders();renderAccounts();renderRegistrations();}
+function renderAll(){renderDashboard();renderInventory();renderHistory();renderOrders();renderAccounts();renderRegistrations();renderMembers();}
 
 function init(){
   document.getElementById('topbar-date').textContent=new Date().toLocaleDateString('zh-TW',{weekday:'short',month:'long',day:'numeric'});
@@ -464,7 +494,7 @@ function init(){
 }
 
 function switchTab(tab){
-  const tabs=['dashboard','in','out','inventory','history','orders','accounts','registrations'];
+  const tabs=['dashboard','in','out','inventory','history','orders','accounts','registrations','members'];
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',tabs[i]===tab));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById('page-'+tab).classList.add('active');
@@ -1026,6 +1056,138 @@ async function uploadProductImg(productId, input){
     showToast('⚠️ 上傳失敗：' + e.message, 'error');
     console.error(e);
   }
+}
+
+// ── 會員管理 ──
+let editingMember = null;
+
+function setMemberFilter(f, el){
+  memberFilter=f;
+  document.querySelectorAll('#page-members .chip').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  renderMembers();
+}
+
+function renderMembers(){
+  const q=(document.getElementById('member-search').value||'').toLowerCase();
+  const thisMonth=new Date().getMonth();
+  let list=[...cache.members];
+
+  if(memberFilter==='birthday'){
+    list=list.filter(m=>{
+      if(!m.birthday)return false;
+      const b=new Date(m.birthday);
+      return b.getMonth()===thisMonth;
+    });
+  } else if(memberFilter==='points100'){
+    list=list.filter(m=>Number(m.points)>=100);
+  }
+  if(q)list=list.filter(m=>m.name?.toLowerCase().includes(q)||m.phone?.includes(q));
+
+  const el=document.getElementById('member-list');
+  if(!list.length){
+    el.innerHTML=`<div class="empty-state"><div class="empty-icon">👥</div><div class="empty-text">尚無會員資料</div></div>`;
+    return;
+  }
+  el.innerHTML=`<div style="display:flex;flex-direction:column;gap:9px">`+list.map(m=>{
+    const bday=m.birthday?new Date(m.birthday):null;
+    const isBirth=bday&&bday.getMonth()===new Date().getMonth();
+    return `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px;cursor:pointer" onclick="showMemberModal('${m.member_id}')">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:15px;font-weight:700">${m.name} ${isBirth?'🎂':''}</span>
+        <span style="font-size:12px;font-weight:700;color:var(--gold)">⭐ ${m.points||0} 點</span>
+      </div>
+      <div style="font-size:12px;color:var(--dim)">📞 ${m.phone}</div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px">
+        <span style="font-size:12px;color:var(--dim)">累積消費：NT$ ${Number(m.total_spent||0).toLocaleString()}</span>
+        <span style="font-size:11px;color:var(--muted)">${m.birthday||'生日未填'}</span>
+      </div>
+    </div>`;
+  }).join('')+`</div>`;
+}
+
+function showMemberModal(mid){
+  const m=cache.members.find(x=>x.member_id===mid);
+  if(!m)return;
+  editingMember=m;
+  document.getElementById('modal-title').textContent=m.name+' 的會員資料';
+  document.getElementById('modal-body').innerHTML=`
+    <div class="modal-row"><span class="modal-key">姓名</span><span class="modal-val">${m.name}</span></div>
+    <div class="modal-row"><span class="modal-key">手機</span><span class="modal-val">${m.phone}</span></div>
+    <div class="modal-row"><span class="modal-key">生日</span><span class="modal-val">${m.birthday||'未填'}</span></div>
+    <div class="modal-row"><span class="modal-key">累積點數</span><span class="modal-val gold">⭐ ${m.points||0} 點</span></div>
+    <div class="modal-row"><span class="modal-key">累積消費</span><span class="modal-val">NT$ ${Number(m.total_spent||0).toLocaleString()}</span></div>
+    <div class="modal-row"><span class="modal-key">加入日期</span><span class="modal-val">${m.joined_at?String(m.joined_at).slice(0,10):'—'}</span></div>
+    <div class="modal-row"><span class="modal-key">備註</span><span class="modal-val">${m.note||'—'}</span></div>
+    <div class="modal-actions">
+      <button class="btn btn-gold" onclick="openEditMember('${mid}')">✏️ 編輯資料</button>
+      <div style="display:flex;gap:8px">
+        <input type="number" id="add-points-input" placeholder="加入點數" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);padding:10px;font-size:15px;outline:none">
+        <input type="number" id="add-amount-input" placeholder="消費金額" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);padding:10px;font-size:15px;outline:none">
+      </div>
+      <button class="btn btn-in" onclick="doAddPoints('${m.phone}')">⭐ 新增點數</button>
+    </div>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+async function doAddPoints(phone){
+  const points=parseInt(document.getElementById('add-points-input').value)||0;
+  const amount=parseInt(document.getElementById('add-amount-input').value)||0;
+  if(!points&&!amount){showToast('請填入點數或消費金額','error');return;}
+  const addPts=points||(Math.floor(amount/100));
+  showToast('⟳ 更新中...','info');
+  const r=await apiPost({action:'addPoints',key:ADMIN_KEY,phone,points:addPts,amount});
+  if(r.ok){showToast(`✅ 已新增 ${addPts} 點`,'success');closeModal();syncAll();}
+  else showToast('❌ '+r.error,'error');
+}
+
+function openAddMemberModal(){
+  editingMember=null;
+  document.getElementById('member-modal-title').textContent='➕ 新增會員';
+  document.getElementById('mm-name').value='';
+  document.getElementById('mm-phone').value='';
+  document.getElementById('mm-birthday').value='';
+  document.getElementById('mm-note').value='';
+  document.getElementById('member-modal-overlay').classList.add('open');
+}
+
+function openEditMember(mid){
+  const m=cache.members.find(x=>x.member_id===mid);
+  if(!m)return;
+  editingMember=m;
+  closeModal();
+  document.getElementById('member-modal-title').textContent='✏️ 編輯會員';
+  document.getElementById('mm-name').value=m.name||'';
+  document.getElementById('mm-phone').value=m.phone||'';
+  document.getElementById('mm-birthday').value=m.birthday?String(m.birthday).slice(0,10):'';
+  document.getElementById('mm-note').value=m.note||'';
+  document.getElementById('member-modal-overlay').classList.add('open');
+}
+
+function closeMemberModal(e){
+  if(!e||e.target===document.getElementById('member-modal-overlay'))
+    document.getElementById('member-modal-overlay').classList.remove('open');
+}
+
+async function submitMember(){
+  const name=document.getElementById('mm-name').value.trim();
+  const phone=document.getElementById('mm-phone').value.trim();
+  const birthday=document.getElementById('mm-birthday').value;
+  const note=document.getElementById('mm-note').value.trim();
+  if(!name||!phone){showToast('請填寫姓名和手機號碼','error');return;}
+  showToast('⟳ 儲存中...','info');
+  let r;
+  if(editingMember){
+    r=await apiPost({action:'updateMember',key:ADMIN_KEY,phone,birthday,note});
+  } else {
+    r=await apiPost({action:'registerMember',name,phone,birthday,note});
+  }
+  if(r.ok){
+    showToast(editingMember?'✅ 已更新會員資料':'✅ 會員新增成功','success');
+    closeMemberModal();syncAll();
+  } else showToast('❌ '+r.error,'error');
 }
 
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
