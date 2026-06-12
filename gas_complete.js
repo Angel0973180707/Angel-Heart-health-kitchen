@@ -42,7 +42,8 @@ const SHEET = {
   EVENTS:        '活動主檔',
   REGISTRATIONS: '報名記錄',
   MEMBERS:       '會員',
-  POINTS_LOG:    '點數記錄'
+  POINTS_LOG:    '點數記錄',
+  RETURNS:       '退貨記錄'
 };
 
 // 欄位索引（0起算）
@@ -67,7 +68,12 @@ const COL = {
     EMERGENCY_NAME:12, EMERGENCY_PHONE:13, ACCOMMODATION:14, NOTE:15, CREATED:16
   },
   MEMBERS:    { ID:0, NAME:1, PHONE:2, BIRTHDAY:3, POINTS:4, TOTAL_SPENT:5, JOINED:6, NOTE:7 },
-  POINTS_LOG: { ID:0, PHONE:1, NAME:2, ACTION:3, POINTS:4, BALANCE:5, NOTE:6, CREATED:7 }
+  POINTS_LOG: { ID:0, PHONE:1, NAME:2, ACTION:3, POINTS:4, BALANCE:5, NOTE:6, CREATED:7 },
+  RETURNS: {
+    ID:0, ORDER_ID:1, PHONE:2, NAME:3, PRODUCT_ID:4, PRODUCT_NAME:5,
+    QTY:6, REFUND_AMOUNT:7, PAYMENT:8, REASON:9, POINTS_DEDUCTED:10,
+    STATUS:11, NOTE:12, CREATED:13
+  }
 };
 
 const DATA_ROW = 3;
@@ -92,7 +98,8 @@ function handleRequest(e) {
       'addAccount','updateAccount','refreshBalance',
       'addEvent','updateEvent','deleteEvent',
       'updateRegistration',
-      'getPointsLog','addPoints'
+      'getPointsLog','addPoints',
+      'addReturn','getReturns','updateReturn'
     ];
 
     if (adminActions.includes(action) && p.key !== ADMIN_KEY) {
@@ -136,6 +143,10 @@ function handleRequest(e) {
       case 'updateMember':       return res(updateMember(p));
       case 'addPoints':          return res(addPoints(p));
       case 'getPointsLog':       return res(getPointsLog(p));
+
+      case 'addReturn':          return res(addReturn(p));
+      case 'getReturns':         return res(getReturns(p));
+      case 'updateReturn':       return res(updateReturn(p));
 
       default:
         return res({ ok: false, error: '未知動作: ' + action });
@@ -840,4 +851,89 @@ function getPointsLog(p) {
   if (p.phone) list = list.filter(x => String(x.member_phone) === String(p.phone));
   list.reverse();
   return { ok: true, data: list.slice(0, Number(p.limit) || 100) };
+}
+
+// ================================================================
+// 退貨退款
+// ================================================================
+function addReturn(p) {
+  if (!p.name || !p.product_name || !p.qty) return { ok: false, error: '缺少必要欄位' };
+  const id = genId('RT');
+  const qty = parseInt(p.qty);
+  const refundAmount = Number(p.refund_amount) || 0;
+  const pointsDeducted = parseInt(p.points_deducted) || 0;
+
+  // 寫退貨記錄
+  getSheet(SHEET.RETURNS).appendRow([
+    id, p.order_id||'', p.phone||'', p.name,
+    p.product_id||'', p.product_name,
+    qty, refundAmount, p.payment||'現金',
+    p.reason||'', pointsDeducted,
+    '待處理', p.note||'', now()
+  ]);
+
+  // 庫存加回
+  if (p.product_id) {
+    try { updateQty(p.product_id, qty, 'in'); } catch(e) {}
+  }
+
+  // 帳本寫退款支出
+  addAccount({
+    key: ADMIN_KEY,
+    date: today(), type: '退款支出',
+    partner: p.name,
+    items: p.product_name + ' x' + qty + ' 退貨',
+    income: '', expense: refundAmount,
+    payment: p.payment||'現金', status: '待退款', note: p.reason||''
+  });
+
+  // 扣回點數
+  if (pointsDeducted > 0 && p.phone) {
+    try {
+      addPoints({ phone: p.phone, points: -pointsDeducted, note: '退貨扣點：' + p.product_name });
+    } catch(e) {}
+  }
+
+  // LINE 通知
+  sendLineMsg(`↩️ 退貨申請\n客人：${p.name}${p.phone?' · '+p.phone:''}\n商品：${p.product_name} × ${qty}\n退款：NT$ ${refundAmount.toLocaleString()}\n原因：${p.reason||'—'}\n時間：${now()}`);
+
+  return { ok: true, return_id: id };
+}
+
+function getReturns(p) {
+  const rows = getRows(SHEET.RETURNS);
+  const c = COL.RETURNS;
+  let list = rows.map(r => ({
+    return_id:       r[c.ID],
+    order_id:        r[c.ORDER_ID],
+    phone:           r[c.PHONE],
+    name:            r[c.NAME],
+    product_id:      r[c.PRODUCT_ID],
+    product_name:    r[c.PRODUCT_NAME],
+    qty:             r[c.QTY],
+    refund_amount:   r[c.REFUND_AMOUNT],
+    payment:         r[c.PAYMENT],
+    reason:          r[c.REASON],
+    points_deducted: r[c.POINTS_DEDUCTED],
+    status:          r[c.STATUS],
+    note:            r[c.NOTE],
+    created_at:      r[c.CREATED]
+  })).filter(x => x.return_id);
+  if (p.status) list = list.filter(x => x.status === p.status);
+  list.reverse();
+  return { ok: true, data: list };
+}
+
+function updateReturn(p) {
+  if (!p.return_id) return { ok: false, error: '缺少 return_id' };
+  const found = findRow(SHEET.RETURNS, COL.RETURNS.ID, p.return_id);
+  if (!found) return { ok: false, error: '找不到退貨記錄' };
+  const sheet = getSheet(SHEET.RETURNS);
+  const c = COL.RETURNS;
+  const rn = found.rowNum;
+  if (p.status !== undefined) sheet.getRange(rn, c.STATUS+1).setValue(p.status);
+  if (p.note   !== undefined) sheet.getRange(rn, c.NOTE+1).setValue(p.note);
+  // 確認已退款 → 更新帳本狀態
+  if (p.status === '已退款') refreshBalance();
+  return { ok: true };
 }
