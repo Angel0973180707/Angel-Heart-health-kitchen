@@ -213,3 +213,35 @@ function addPoints(p) {
   }
   return { ok: false, error: '找不到會員' };
 }
+
+
+// ════════════════════════════════════════════════
+// Task 6：活動封面圖
+//
+// 步驟：
+// 1. 在試算表「活動主檔」最右邊新增一欄：封面圖片
+//    （第 15 欄，index 14）
+//
+// 2. 找到 GAS 主程式中的 COL 設定（大概長這樣）
+//    EVENTS: { ID:0, NAME:1, ..., CREATED:13 }
+//    在 CREATED:13 後面加逗號，再加：
+//    IMAGE: 14
+//
+// 3. 把下面 addEvent 取代主程式中的同名函式
+// ════════════════════════════════════════════════
+
+function addEvent(p) {
+  if (!p.name || !p.date || !p.location) {
+    return { ok: false, error: '缺少必要欄位' };
+  }
+  const id = genId('E');
+  getSheet(SHEET.EVENTS).appendRow([
+    id, p.name, p.date, p.location,
+    p.description || '', p.capacity || 0, 0,
+    p.accom_quota || 0, p.no_accom_quota || 0,
+    p.fee_single || 12000, p.fee_yearly || 120000, p.fee_half || 132000,
+    p.status || '報名中', now(),
+    p.image_url || ''
+  ]);
+  return { ok: true, event_id: id };
+}

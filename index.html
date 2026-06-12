@@ -447,6 +447,14 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
           </div>
         </div>
         <div class="field"><label>活動說明（可留空讓 AI 生成）</label><textarea id="ev-desc" placeholder="留空後點「產生 AI 協作指令」，貼給 Claude 生成說明，再回填"></textarea></div>
+        <div class="field" style="margin-top:8px">
+          <label>封面圖片（選填）</label>
+          <label class="img-upload" style="display:block;padding:12px;text-align:center;cursor:pointer">
+            <span id="ev-cover-label">📷 點此選擇封面圖</span>
+            <input type="file" id="ev-cover" accept="image/*" style="display:none" onchange="previewEventCover(this)">
+          </label>
+          <img id="ev-cover-preview" style="display:none;width:100%;border-radius:var(--rs);margin-top:8px;max-height:160px;object-fit:cover">
+        </div>
 
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
           <button class="btn btn-gold" onclick="genAIPrompt()">📋 產生 AI 協作指令</button>
@@ -1028,6 +1036,9 @@ function openEventModal(){
   document.getElementById('ev-noaccom').value='6';
   document.getElementById('ev-fee1').value='12000';
   document.getElementById('ev-status').value='報名中';
+  document.getElementById('ev-cover').value='';
+  document.getElementById('ev-cover-label').textContent='📷 點此選擇封面圖';
+  document.getElementById('ev-cover-preview').style.display='none';
 }
 function closeEventModal(e){
   if(!e||e.target===document.getElementById('event-modal-overlay'))
@@ -1097,6 +1108,13 @@ async function submitEvent(){
   const dateEnd=document.getElementById('ev-date-end').value;
   const fullDesc=dateEnd?`${desc}\n日期：${date} 至 ${dateEnd}`:desc;
 
+  let imageUrl='';
+  const coverFile=document.getElementById('ev-cover').files[0];
+  if(coverFile){
+    showToast('⟳ 上傳封面圖片...','info');
+    try{imageUrl=await uploadToFirebase(coverFile,`cards/events/cover_${Date.now()}.jpg`);}
+    catch(e){showToast('⚠️ 圖片上傳失敗：'+e.message,'error');return;}
+  }
   showToast('⟳ 建立中...','info');
   try{
     const r=await apiPost({
@@ -1109,7 +1127,8 @@ async function submitEvent(){
       fee_single:fee1,
       fee_yearly:fee1*10,
       fee_half:fee1*11,
-      status:document.getElementById('ev-status').value
+      status:document.getElementById('ev-status').value,
+      image_url:imageUrl
     });
     if(r.ok){
       showToast('✅ 活動建立成功！','success');
@@ -1117,6 +1136,14 @@ async function submitEvent(){
       syncAll();
     }else showToast('❌ '+r.error,'error');
   }catch(e){showToast('⚠️ 網路錯誤','error');}
+}
+
+function previewEventCover(input){
+  const file=input.files[0];if(!file)return;
+  document.getElementById('ev-cover-label').textContent='📷 '+file.name;
+  const prev=document.getElementById('ev-cover-preview');
+  prev.src=URL.createObjectURL(file);
+  prev.style.display='block';
 }
 
 // ── 更新商品圖片 ──
