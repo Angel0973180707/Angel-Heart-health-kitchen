@@ -193,7 +193,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab" onclick="switchTab('history')"><span class="tab-icon">📋</span>記錄</div>
   <div class="tab" onclick="switchTab('orders')"><span class="tab-icon">🛒</span>訂單</div>
   <div class="tab" onclick="switchTab('accounts')"><span class="tab-icon">💰</span>帳本</div>
-  <div class="tab" onclick="switchTab('regs')"><span class="tab-icon">📝</span>報名</div>
+  <div class="tab" onclick="switchTab('registrations')"><span class="tab-icon">📝</span>報名</div>
+  <div class="tab" onclick="switchTab('members')"><span class="tab-icon">👥</span>會員</div>
+  <div class="tab" onclick="switchTab('reports')"><span class="tab-icon">📊</span>報表</div>
 </div>
 
 <!-- 總覽 -->
@@ -299,6 +301,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 
 <!-- 帳本 -->
 <div class="page" id="page-accounts">
+  <button class="btn btn-gold" onclick="openAccModal()" style="margin-bottom:14px;padding:12px">➕ 新增帳目</button>
   <div class="stats-grid" id="balance-grid"><div class="loading" style="grid-column:1/-1">載入中...</div></div>
   <div class="section-title">收支明細</div>
   <div class="filter-row">
@@ -353,6 +356,62 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
       <button class="btn btn-gold" id="mm-submit-btn" onclick="submitMember()">✅ 儲存</button>
     </div>
+  </div>
+</div>
+
+<!-- 報表 -->
+<div class="page" id="page-reports">
+  <div class="section-title">📊 匯出報表</div>
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <div class="form-card">
+      <div class="form-title">🗃️ 庫存現況</div>
+      <div style="font-size:12px;color:var(--dim);margin-bottom:12px">目前所有商品庫存量、零售價、進價</div>
+      <button class="btn btn-gold" onclick="exportCsv('inventory')">📥 下載 CSV</button>
+    </div>
+    <div class="form-card">
+      <div class="form-title">📥 入庫記錄</div>
+      <div style="font-size:12px;color:var(--dim);margin-bottom:12px">所有入庫異動記錄</div>
+      <button class="btn btn-in" onclick="exportCsv('stockIn')">📥 下載 CSV</button>
+    </div>
+    <div class="form-card">
+      <div class="form-title">📤 出庫記錄</div>
+      <div style="font-size:12px;color:var(--dim);margin-bottom:12px">所有出庫異動記錄</div>
+      <button class="btn btn-out" onclick="exportCsv('stockOut')">📥 下載 CSV</button>
+    </div>
+    <div class="form-card">
+      <div class="form-title">🛒 訂單報表</div>
+      <div style="font-size:12px;color:var(--dim);margin-bottom:12px">所有訂單（含狀態、金額、客戶）</div>
+      <button class="btn btn-gold" onclick="exportCsv('orders')">📥 下載 CSV</button>
+    </div>
+    <div class="form-card">
+      <div class="form-title">💰 帳目報表</div>
+      <div style="font-size:12px;color:var(--dim);margin-bottom:12px">所有收支明細</div>
+      <button class="btn btn-gold" onclick="exportCsv('accounts')">📥 下載 CSV</button>
+    </div>
+  </div>
+</div>
+
+<!-- 新增帳目 Modal -->
+<div class="modal-overlay" id="acc-modal-overlay" onclick="closeAccModal(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">➕ 新增帳目</div>
+      <button class="modal-close" onclick="closeAccModal()">✕</button>
+    </div>
+    <div class="field"><label>類型 *</label>
+      <select id="acc-type">
+        <option value="銷售收款">💚 銷售收款</option>
+        <option value="進貨付款">🔴 進貨付款</option>
+        <option value="其他收入">其他收入</option>
+        <option value="其他支出">其他支出</option>
+      </select>
+    </div>
+    <div class="field"><label>對象</label><input type="text" id="acc-partner" placeholder="客戶或供應商名稱"></div>
+    <div class="field"><label>品項說明</label><input type="text" id="acc-items" placeholder="商品或費用說明"></div>
+    <div class="field"><label>金額（NT$）*</label><input type="number" id="acc-amount" placeholder="0" min="0"></div>
+    <div class="field"><label>日期</label><input type="date" id="acc-date"></div>
+    <div class="field"><label>備註</label><textarea id="acc-note" placeholder="備注..."></textarea></div>
+    <button class="btn btn-gold" onclick="submitAccount()">✅ 新增帳目</button>
   </div>
 </div>
 
@@ -430,7 +489,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 <script>
 const GAS_URL='https://script.google.com/macros/s/AKfycbz4-pJ5jWtu9nevKDl98LxRqfwyVdGApEqEzcKKR9LDxanUM5BCneCZttkH3rkxLlUtYA/exec';
 const ADMIN_KEY='YANGCHING2025';
-let cache={products:[],inventory:[],stockLog:[],orders:[],accounts:[],balance:{},regs:[]};
+let cache={products:[],inventory:[],stockLog:[],orders:[],accounts:[],balance:{},registrations:[],members:[]};
 let invFilter='all',histFilter='all',orderFilter='all',accFilter='all',regFilter='all',memberFilter='all';
 let imgData={in:null};
 
@@ -455,10 +514,11 @@ async function api(params){
   return await r.json();
 }
 async function apiPost(params){
-  // GAS doPost works best with form-encoded or GET params
   const url=GAS_URL+'?'+new URLSearchParams(params).toString();
   const r=await fetch(url);
-  return await r.json();
+  const text=await r.text();
+  try{return JSON.parse(text);}
+  catch(e){console.error('GAS非JSON:',text.slice(0,300));throw new Error('伺服器回應格式錯誤，請稍後再試');}
 }
 
 async function syncAll(){
@@ -498,7 +558,7 @@ function init(){
 }
 
 function switchTab(tab){
-  const tabs=['dashboard','in','out','inventory','history','orders','accounts','registrations','members'];
+  const tabs=['dashboard','in','out','inventory','history','orders','accounts','registrations','members','reports'];
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',tabs[i]===tab));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById('page-'+tab).classList.add('active');
@@ -557,7 +617,7 @@ async function submitOut(){
       note:document.getElementById('out-note').value.trim()});
     if(r.ok){showToast(`📤 出庫成功：${name} × ${qty}`,'success');resetForm('out');syncAll();}
     else showToast('❌ '+r.error,'error');
-  }catch(e){showToast('⚠️ 網路錯誤','error');}
+  }catch(e){showToast('⚠️ 網路錯誤：'+e.message,'error');console.error(e);}
 }
 
 function resetForm(type){
@@ -754,7 +814,7 @@ async function uploadInImages(productId){
   if(!inImgFiles.length)return[];
   const urls=[];
   for(let i=0;i<inImgFiles.length;i++){
-    const path=`warehouse/${productId}/photo${i+1}_${Date.now()}.jpg`;
+    const path=`cards/warehouse/${productId}/photo${i+1}_${Date.now()}.jpg`;
     try{
       const url=await uploadToFirebase(inImgFiles[i],path);
       urls.push(url);
@@ -1066,9 +1126,8 @@ async function uploadProductImg(productId, input){
   showToast('⟳ 上傳圖片中...', 'info');
   try{
     await initFB();
-    const path = `warehouse/${productId}/photo1_${Date.now()}.jpg`;
+    const path = `cards/warehouse/${productId}/photo1_${Date.now()}.jpg`;
     const url = await uploadToFirebase(file, path);
-    // 更新 GAS 商品主檔 image_url
     const r = await apiPost({
       action: 'updateProduct',
       key: ADMIN_KEY,
@@ -1236,6 +1295,70 @@ async function submitMember(){
     showToast(editingMember?'✅ 已更新會員資料':'✅ 會員新增成功','success');
     closeMemberModal();syncAll();
   } else showToast('❌ '+r.error,'error');
+}
+
+// ── 新增帳目 ──
+function openAccModal(){
+  document.getElementById('acc-modal-overlay').classList.add('open');
+  ['acc-partner','acc-items','acc-amount','acc-note'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('acc-type').value='銷售收款';
+  document.getElementById('acc-date').value=new Date().toISOString().slice(0,10);
+}
+function closeAccModal(e){if(!e||e.target===document.getElementById('acc-modal-overlay'))document.getElementById('acc-modal-overlay').classList.remove('open');}
+async function submitAccount(){
+  const type=document.getElementById('acc-type').value;
+  const amount=Number(document.getElementById('acc-amount').value);
+  if(!amount||amount<1){showToast('請填寫金額','error');return;}
+  const isIncome=type==='銷售收款'||type==='其他收入';
+  showToast('⟳ 新增中...','info');
+  try{
+    const r=await apiPost({action:'addAccount',key:ADMIN_KEY,
+      type,
+      partner:document.getElementById('acc-partner').value.trim(),
+      items:document.getElementById('acc-items').value.trim(),
+      income:isIncome?amount:0,
+      expense:isIncome?0:amount,
+      date:document.getElementById('acc-date').value,
+      note:document.getElementById('acc-note').value.trim(),
+      status:'已記錄'
+    });
+    if(r.ok){showToast('✅ 帳目已新增','success');closeAccModal();syncAll();}
+    else showToast('❌ '+(r.error||'新增失敗'),'error');
+  }catch(e){showToast('⚠️ 網路錯誤：'+e.message,'error');console.error(e);}
+}
+
+// ── 報表 CSV 匯出 ──
+function exportCsv(type){
+  let rows=[];let filename='';
+  const now=new Date().toLocaleDateString('zh-TW',{year:'2-digit',month:'2-digit',day:'2-digit'}).replace(/\//g,'');
+  if(type==='inventory'){
+    filename=`庫存現況_${now}.csv`;
+    rows=[['商品ID','商品名稱','分類','庫存量','零售價','進價','警示值','最後更新']];
+    cache.inventory.forEach(p=>rows.push([p.product_id||'',p.name||'',p.category||'',p.qty||0,p.retail_price||'',p.cost_price||'',p.threshold||'',p.updated_at||'']));
+  }else if(type==='stockIn'){
+    filename=`入庫記錄_${now}.csv`;
+    rows=[['時間','商品名稱','數量','進價','供應商','備註']];
+    cache.stockLog.filter(h=>h.type==='入庫').forEach(h=>rows.push([h.created_at||'',h.name||'',h.qty||0,h.price||'',h.partner||'',h.note||'']));
+  }else if(type==='stockOut'){
+    filename=`出庫記錄_${now}.csv`;
+    rows=[['時間','商品名稱','數量','售價','客戶','備註']];
+    cache.stockLog.filter(h=>h.type==='出庫').forEach(h=>rows.push([h.created_at||'',h.name||'',h.qty||0,h.price||'',h.partner||'',h.note||'']));
+  }else if(type==='orders'){
+    filename=`訂單報表_${now}.csv`;
+    rows=[['訂單ID','客戶姓名','電話','地址','總金額','付款方式','狀態','備註','建立時間']];
+    cache.orders.forEach(o=>rows.push([o.order_id||'',o.customer_name||'',o.phone||'',o.address||'',o.total||'',o.payment||'',o.status||'',o.note||'',o.created_at||'']));
+  }else if(type==='accounts'){
+    filename=`帳目報表_${now}.csv`;
+    rows=[['類型','對象','品項','收入','支出','日期','狀態']];
+    cache.accounts.forEach(a=>rows.push([a.type||'',a.partner||'',a.items||'',a.income||'',a.expense||'',a.date||'',a.status||'']));
+  }
+  if(!rows.length||rows.length<2){showToast('⚠️ 目前無資料可匯出','error');return;}
+  const bom='﻿';
+  const csv=bom+rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');
+  a.href=url;a.download=filename;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+  showToast('✅ 報表已下載','success');
 }
 
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
