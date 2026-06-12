@@ -1111,6 +1111,20 @@ function showMemberModal(mid){
   const m=cache.members.find(x=>x.member_id===mid);
   if(!m)return;
   editingMember=m;
+
+  // 篩選該會員的訂單記錄
+  const myOrders=cache.orders.filter(o=>o.phone===m.phone);
+  const orderHTML=myOrders.length?myOrders.map(o=>`
+    <div style="background:var(--surface2);border-radius:var(--rs);padding:10px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:11px;color:var(--muted)">${o.order_id.slice(-8)}</div>
+        <div style="font-size:14px;font-weight:700;color:var(--gold)">NT$ ${Number(o.total).toLocaleString()}</div>
+        <div style="font-size:11px;color:var(--dim)">${o.created_at?String(o.created_at).slice(0,10):''}</div>
+      </div>
+      <span style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:99px;background:var(--surface);color:var(--dim)">${o.status}</span>
+    </div>`).join('')
+    :`<div style="font-size:13px;color:var(--muted);padding:10px 0">尚無訂單記錄</div>`;
+
   document.getElementById('modal-title').textContent=m.name+' 的會員資料';
   document.getElementById('modal-body').innerHTML=`
     <div class="modal-row"><span class="modal-key">姓名</span><span class="modal-val">${m.name}</span></div>
@@ -1120,6 +1134,10 @@ function showMemberModal(mid){
     <div class="modal-row"><span class="modal-key">累積消費</span><span class="modal-val">NT$ ${Number(m.total_spent||0).toLocaleString()}</span></div>
     <div class="modal-row"><span class="modal-key">加入日期</span><span class="modal-val">${m.joined_at?String(m.joined_at).slice(0,10):'—'}</span></div>
     <div class="modal-row"><span class="modal-key">備註</span><span class="modal-val">${m.note||'—'}</span></div>
+    <div style="margin-top:14px">
+      <div style="font-size:12px;font-weight:700;color:var(--dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.8px">📋 消費記錄</div>
+      ${orderHTML}
+    </div>
     <div class="modal-actions">
       <button class="btn btn-gold" onclick="openEditMember('${mid}')">✏️ 編輯資料</button>
       <div style="display:flex;gap:8px">
