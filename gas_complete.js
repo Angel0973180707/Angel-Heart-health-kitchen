@@ -99,7 +99,8 @@ function handleRequest(e) {
       'addEvent','updateEvent','deleteEvent',
       'updateRegistration',
       'getPointsLog','addPoints',
-      'addReturn','getReturns','updateReturn'
+      'addReturn','getReturns','updateReturn',
+      'confirmOrderPayment'
     ];
 
     if (adminActions.includes(action) && p.key !== ADMIN_KEY) {
@@ -144,6 +145,7 @@ function handleRequest(e) {
       case 'addPoints':          return res(addPoints(p));
       case 'getPointsLog':       return res(getPointsLog(p));
 
+      case 'confirmOrderPayment': return res(confirmOrderPayment(p));
       case 'addReturn':          return res(addReturn(p));
       case 'getReturns':         return res(getReturns(p));
       case 'updateReturn':       return res(updateReturn(p));
@@ -851,6 +853,50 @@ function getPointsLog(p) {
   if (p.phone) list = list.filter(x => String(x.member_phone) === String(p.phone));
   list.reverse();
   return { ok: true, data: list.slice(0, Number(p.limit) || 100) };
+}
+
+// ================================================================
+// 確認收款
+// ================================================================
+function confirmOrderPayment(p) {
+  if (!p.order_id) return { ok: false, error: '缺少 order_id' };
+  const found = findRow(SHEET.ORDERS, COL.ORDERS.ID, p.order_id);
+  if (!found) return { ok: false, error: '找不到訂單' };
+  const order = found.row;
+  const c = COL.ORDERS;
+  const amount = Number(p.received_amount) || Number(order[c.TOTAL]) || 0;
+  const payDate = p.payment_date || today();
+
+  // 更新訂單狀態
+  const sheet = getSheet(SHEET.ORDERS);
+  sheet.getRange(found.rowNum, c.STATUS+1).setValue('已付款');
+
+  // 帳本寫收入
+  addAccount({
+    key: ADMIN_KEY,
+    date: payDate, type: '銷售收款',
+    partner: order[c.CNAME],
+    items: '訂單 ' + p.order_id,
+    income: amount, expense: '',
+    payment: order[c.PAYMENT] || 'ATM轉帳',
+    status: '已收款', note: ''
+  });
+
+  // 加點數（每 NT$100 = 1 點）
+  let pointsAdded = 0;
+  if (p.member_phone && amount > 0) {
+    pointsAdded = Math.floor(amount / 100);
+    if (pointsAdded > 0) {
+      try {
+        addPoints({ phone: p.member_phone, points: pointsAdded,
+                    amount: amount, note: '訂單消費：' + p.order_id });
+      } catch(e) {}
+    }
+  }
+
+  refreshBalance();
+  sendLineMsg(`💰 收款確認\n客人：${order[c.CNAME]}\n實收：NT$ ${amount.toLocaleString()}\n訂單：${p.order_id}${pointsAdded>0?'\n加點：'+pointsAdded+' 點':''}\n時間：${now()}`);
+  return { ok: true, points_added: pointsAdded };
 }
 
 // ================================================================

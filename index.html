@@ -292,12 +292,31 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 <div class="page" id="page-orders">
   <div class="filter-row">
     <div class="chip active" onclick="setOrderFilter('all',this)">全部</div>
-    <div class="chip" onclick="setOrderFilter('待確認',this)">待確認</div>
-    <div class="chip" onclick="setOrderFilter('已確認',this)">已確認</div>
-    <div class="chip" onclick="setOrderFilter('已出貨',this)">已出貨</div>
-    <div class="chip" onclick="setOrderFilter('已完成',this)">已完成</div>
+    <div class="chip" onclick="setOrderFilter('待確認',this)">⏳ 待確認</div>
+    <div class="chip" onclick="setOrderFilter('已確認',this)">✅ 已確認</div>
+    <div class="chip" onclick="setOrderFilter('已付款',this)">💰 已付款</div>
+    <div class="chip" onclick="setOrderFilter('已出貨',this)">🚚 已出貨</div>
+    <div class="chip" onclick="setOrderFilter('已完成',this)">🎉 已完成</div>
   </div>
   <div id="order-list"><div class="loading">載入中...</div></div>
+</div>
+
+<!-- 確認收款 Modal -->
+<div class="modal-overlay" id="pay-confirm-overlay" onclick="closePayConfirm(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">💰 確認收款</div>
+      <button class="modal-close" onclick="closePayConfirm()">✕</button>
+    </div>
+    <input type="hidden" id="pc-order-id">
+    <div class="field"><label>實收金額 *</label><input type="number" id="pc-amount" placeholder="0"></div>
+    <div class="field"><label>收款日期</label><input type="date" id="pc-date"></div>
+    <div class="field"><label>會員手機（選填，填了自動加點數）</label><input type="tel" id="pc-phone" placeholder="0912345678"></div>
+    <div style="background:var(--surface2);border-radius:var(--rs);padding:10px 12px;font-size:12px;color:var(--dim);margin:8px 0">
+      💡 每消費 NT$100 = 1 點，自動加到會員帳戶
+    </div>
+    <button class="btn btn-gold" onclick="submitPayConfirm()" id="pc-submit-btn" style="width:100%;padding:14px;margin-top:4px">✅ 確認已收款</button>
+  </div>
 </div>
 
 <!-- 帳本 -->
@@ -790,7 +809,8 @@ function showOrderModal(oid){
     <div class="modal-row"><span class="modal-key">備註</span><span class="modal-val">${o.note||'—'}</span></div>
     <div class="modal-actions">
       ${o.status==='待確認'?`<button class="btn btn-gold" onclick="confirmOrder('${oid}',true)">✅ 確認並扣庫存</button><button class="btn btn-ghost" style="margin-top:0" onclick="confirmOrder('${oid}',false)">確認（不扣庫存）</button>`:''}
-      ${o.status==='已確認'?`<button class="btn btn-in" onclick="updOrder('${oid}','已出貨')">🚚 標記已出貨</button>`:''}
+      ${o.status==='已確認'?`<button class="btn" style="background:var(--gold);color:#0F1117;font-weight:800" onclick="closeModal();openPayConfirm('${oid}',${o.total})">💰 確認收款</button>`:''}
+      ${o.status==='已付款'?`<button class="btn btn-in" onclick="updOrder('${oid}','已出貨')">🚚 標記已出貨</button>`:''}
       ${o.status==='已出貨'?`<button class="btn btn-gold" onclick="updOrder('${oid}','已完成')">✅ 標記已完成</button>`:''}
       ${['待確認','已確認'].includes(o.status)?`<button class="btn" style="background:transparent;border:1px solid var(--red);color:var(--red)" onclick="updOrder('${oid}','已取消')">取消訂單</button>`:''}
     </div>`;
@@ -806,6 +826,37 @@ async function updOrder(oid,status){
   closeModal();showToast('⟳ 更新中...','info');
   const r=await apiPost({action:'updateOrder',key:ADMIN_KEY,order_id:oid,status});
   if(r.ok){showToast('✅ 狀態已更新','success');syncAll();}else showToast('❌ '+r.error,'error');
+}
+
+function openPayConfirm(oid, total){
+  document.getElementById('pc-order-id').value=oid;
+  document.getElementById('pc-amount').value=total||'';
+  document.getElementById('pc-date').value=new Date().toISOString().slice(0,10);
+  document.getElementById('pc-phone').value='';
+  document.getElementById('pay-confirm-overlay').classList.add('open');
+}
+function closePayConfirm(e){
+  if(!e||e.target===document.getElementById('pay-confirm-overlay'))
+    document.getElementById('pay-confirm-overlay').classList.remove('open');
+}
+async function submitPayConfirm(){
+  const oid=document.getElementById('pc-order-id').value;
+  const amount=parseFloat(document.getElementById('pc-amount').value)||0;
+  const date=document.getElementById('pc-date').value;
+  const phone=document.getElementById('pc-phone').value.trim();
+  if(!amount){showToast('請填寫實收金額','error');return;}
+  const btn=document.getElementById('pc-submit-btn');
+  btn.disabled=true;
+  showToast('⟳ 處理中...','info');
+  try{
+    const r=await apiPost({action:'confirmOrderPayment',key:ADMIN_KEY,
+      order_id:oid,received_amount:amount,payment_date:date,member_phone:phone});
+    if(r.ok){
+      showToast(`✅ 收款確認！${r.points_added?'加了 '+r.points_added+' 點':''}`, 'success');
+      closePayConfirm();syncAll();
+    }else showToast('❌ '+r.error,'error');
+  }catch(e){showToast('⚠️ 網路錯誤：'+e.message,'error');console.error(e);}
+  finally{btn.disabled=false;}
 }
 
 function setAccFilter(f,el){accFilter=f;document.querySelectorAll('#page-accounts .chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');renderAccounts();}
