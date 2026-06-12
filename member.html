@@ -134,7 +134,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="login-sub">輸入您的手機號碼<br>查詢訂單、點數與專屬優惠</div>
     <div class="login-card">
       <label class="login-label">手機號碼</label>
-      <input type="tel" class="login-input" id="login-phone" placeholder="0912345678" maxlength="10"
+      <input type="text" inputmode="numeric" class="login-input" id="login-phone" placeholder="0912345678" maxlength="10"
         onkeydown="if(event.key==='Enter')doLogin()">
       <button class="login-btn" onclick="doLogin()">進入會員中心</button>
     </div>
@@ -201,7 +201,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="section-card">
       <div class="section-label">🌿 加入幸福緣會員</div>
       <div class="field"><label>姓名 <span class="req">*</span></label><input type="text" id="r-name" placeholder="請輸入真實姓名"></div>
-      <div class="field"><label>手機號碼 <span class="req">*</span></label><input type="tel" id="r-phone" placeholder="0912345678" maxlength="10"></div>
+      <div class="field"><label>手機號碼 <span class="req">*</span></label><input type="text" inputmode="numeric" id="r-phone" placeholder="0912345678" maxlength="10"></div>
       <div class="field"><label>生日（享生日優惠）</label><input type="date" id="r-birthday"></div>
     </div>
     <div style="background:#fff8ec;border:1.5px solid #e8d5a0;border-radius:var(--rs);padding:14px;margin-bottom:16px;font-size:13px;color:#8B6914;line-height:1.7">
