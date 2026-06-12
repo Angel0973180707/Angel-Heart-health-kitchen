@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#FFFFFF">
+<title>養清廚房 · 會員中心</title>
+<style>
+:root {
+  --green-dark: #1B3A2A;
+  --green-mid:  #2D5C42;
+  --green-soft: #4A7C59;
+  --green-pale: #EAF3EC;
+  --gold:       #C8962A;
+  --text:       #1A2A1E;
+  --text-mid:   #4A5C4E;
+  --text-dim:   #8A9E8E;
+  --border:     #D8E8DA;
+  --bg:         #FAFCFA;
+  --white:      #FFFFFF;
+  --red:        #C94A3A;
+  --font:       'PingFang TC','Microsoft JhengHei','Noto Sans TC',sans-serif;
+  --r: 12px; --rs: 8px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100dvh}
+
+/* ── HEADER ── */
+.header{background:var(--green-dark);padding:16px 18px 14px}
+.header-top{display:flex;align-items:center;gap:10px;color:var(--white)}
+.brand-name{font-size:17px;font-weight:800}
+.brand-sub{font-size:11px;color:rgba(255,255,255,.6);margin-top:2px}
+
+/* ── PAGES ── */
+.page{display:none;padding:20px 16px 60px}
+.page.active{display:block}
+
+/* ── LOGIN ── */
+.login-wrap{max-width:400px;margin:0 auto;text-align:center;padding-top:20px}
+.login-icon{font-size:56px;margin-bottom:16px}
+.login-title{font-size:22px;font-weight:800;color:var(--green-dark);margin-bottom:8px}
+.login-sub{font-size:14px;color:var(--text-dim);margin-bottom:32px;line-height:1.6}
+.login-card{background:var(--white);border:1.5px solid var(--border);border-radius:var(--r);padding:24px;margin-bottom:16px;text-align:left}
+.login-label{font-size:13px;font-weight:700;color:var(--text-mid);margin-bottom:8px;display:block}
+.login-input{width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--rs);color:var(--text);font-size:18px;padding:13px 16px;font-family:var(--font);outline:none;letter-spacing:2px;text-align:center;transition:border-color .2s}
+.login-input:focus{border-color:var(--green-soft)}
+.login-btn{width:100%;padding:15px;background:var(--green-dark);border:none;border-radius:var(--rs);color:#fff;font-size:16px;font-weight:800;cursor:pointer;font-family:var(--font);margin-top:12px}
+.login-btn:active{background:var(--green-mid)}
+.register-link{text-align:center;margin-top:14px;font-size:13px;color:var(--text-dim)}
+.register-link span{color:var(--green-soft);font-weight:700;cursor:pointer}
+
+/* ── MEMBER HOME ── */
+.member-header{background:linear-gradient(135deg,var(--green-dark) 0%,var(--green-mid) 100%);padding:24px 18px;border-radius:0 0 24px 24px;margin:-20px -16px 20px;color:#fff}
+.member-greeting{font-size:14px;color:rgba(255,255,255,.7);margin-bottom:4px}
+.member-name{font-size:24px;font-weight:800;margin-bottom:16px}
+.member-stats{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.member-stat{background:rgba(255,255,255,.12);border-radius:var(--rs);padding:14px;text-align:center}
+.member-stat-val{font-size:24px;font-weight:800;color:#fff}
+.member-stat-label{font-size:11px;color:rgba(255,255,255,.6);margin-top:3px}
+
+/* 生日優惠 */
+.birthday-card{background:linear-gradient(135deg,#C8962A 0%,#E8B840 100%);border-radius:var(--r);padding:18px;margin-bottom:16px;color:#fff;display:flex;align-items:center;gap:14px}
+.birthday-icon{font-size:36px}
+.birthday-title{font-size:15px;font-weight:800;margin-bottom:4px}
+.birthday-desc{font-size:12px;opacity:.85;line-height:1.5}
+.birthday-code{background:rgba(255,255,255,.25);border-radius:var(--rs);padding:8px 14px;margin-top:10px;font-size:14px;font-weight:800;letter-spacing:2px;text-align:center}
+
+/* 點數卡 */
+.points-card{background:var(--white);border:1.5px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:14px}
+.points-title{font-size:13px;font-weight:800;color:var(--green-dark);margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.points-bar-wrap{background:var(--green-pale);border-radius:99px;height:8px;margin-bottom:8px;overflow:hidden}
+.points-bar{background:var(--green-dark);height:100%;border-radius:99px;transition:width .5s}
+.points-info{display:flex;justify-content:space-between;font-size:12px;color:var(--text-dim)}
+.points-discount{background:var(--green-pale);border-radius:var(--rs);padding:10px 14px;margin-top:10px;font-size:13px;color:var(--green-dark);font-weight:600;text-align:center}
+
+/* 訂單記錄 */
+.section-title{font-size:13px;font-weight:800;color:var(--text-mid);margin:20px 0 12px;display:flex;align-items:center;gap:6px}
+.order-item{background:var(--white);border:1.5px solid var(--border);border-radius:var(--rs);padding:13px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.order-item-left{flex:1}
+.order-item-id{font-size:11px;color:var(--text-dim);margin-bottom:3px}
+.order-item-total{font-size:15px;font-weight:700;color:var(--green-dark)}
+.order-item-date{font-size:11px;color:var(--text-dim);margin-top:2px}
+.order-status{font-size:11px;font-weight:700;padding:3px 8px;border-radius:99px}
+.s-待確認{background:rgba(200,150,42,.15);color:var(--gold)}
+.s-已確認{background:rgba(74,158,255,.15);color:#4A9EFF}
+.s-已出貨{background:rgba(74,124,89,.15);color:var(--green-soft)}
+.s-已完成{background:rgba(74,124,89,.2);color:var(--green-soft)}
+.s-已取消{background:rgba(201,74,58,.15);color:var(--red)}
+
+/* 登出 */
+.logout-btn{width:100%;padding:13px;background:transparent;border:1.5px solid var(--border);border-radius:var(--rs);color:var(--text-dim);font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font);margin-top:20px}
+
+/* ── 註冊頁 ── */
+.register-wrap{max-width:400px;margin:0 auto}
+.register-back{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--green-soft);cursor:pointer;margin-bottom:20px;font-weight:600}
+.section-card{background:var(--white);border:1.5px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:14px}
+.section-label{font-size:13px;font-weight:800;color:var(--green-dark);margin-bottom:14px}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12px;font-weight:700;color:var(--text-mid);margin-bottom:5px}
+.field label .req{color:var(--red)}
+.field input{width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--rs);color:var(--text);font-size:15px;padding:11px 13px;font-family:var(--font);outline:none;-webkit-appearance:none;transition:border-color .2s}
+.field input:focus{border-color:var(--green-soft)}
+.submit-btn{width:100%;padding:15px;background:var(--green-dark);border:none;border-radius:var(--rs);color:#fff;font-size:16px;font-weight:800;cursor:pointer;font-family:var(--font)}
+.submit-btn:active{background:var(--green-mid)}
+
+/* ── EMPTY / LOADING ── */
+.empty-state{text-align:center;padding:30px;color:var(--text-dim)}
+.loading{text-align:center;padding:20px;color:var(--text-dim);font-size:14px}
+
+/* ── TOAST ── */
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--green-dark);color:#fff;border-radius:99px;padding:10px 20px;font-size:13px;font-weight:600;z-index:500;opacity:0;transition:all .3s;white-space:nowrap;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.error{background:var(--red)}
+.toast.success{background:var(--green-soft)}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-top">
+    <img src="logo.png" alt="養清廚房" style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,.3)">
+    <div>
+      <div class="brand-name">養清廚房</div>
+      <div class="brand-sub">會員中心</div>
+    </div>
+  </div>
+</div>
+
+<!-- 登入頁 -->
+<div class="page active" id="page-login">
+  <div class="login-wrap">
+    <div class="login-icon">🌿</div>
+    <div class="login-title">會員登入</div>
+    <div class="login-sub">輸入您的手機號碼<br>查詢訂單、點數與專屬優惠</div>
+    <div class="login-card">
+      <label class="login-label">手機號碼</label>
+      <input type="tel" class="login-input" id="login-phone" placeholder="0912345678" maxlength="10"
+        onkeydown="if(event.key==='Enter')doLogin()">
+      <button class="login-btn" onclick="doLogin()">進入會員中心</button>
+    </div>
+    <div class="register-link">還不是會員？<span onclick="showRegister()">立即加入</span></div>
+  </div>
+</div>
+
+<!-- 會員首頁 -->
+<div class="page" id="page-member">
+  <div class="member-header">
+    <div class="member-greeting">歡迎回來 👋</div>
+    <div class="member-name" id="m-name">—</div>
+    <div class="member-stats">
+      <div class="member-stat">
+        <div class="member-stat-val" id="m-points">0</div>
+        <div class="member-stat-label">累積點數</div>
+      </div>
+      <div class="member-stat">
+        <div class="member-stat-val" id="m-spent">NT$ 0</div>
+        <div class="member-stat-label">累積消費</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 生日優惠（生日月才顯示）-->
+  <div class="birthday-card" id="birthday-card" style="display:none">
+    <div class="birthday-icon">🎂</div>
+    <div style="flex:1">
+      <div class="birthday-title">生日快樂！專屬優惠送給您 🎁</div>
+      <div class="birthday-desc">本月壽星享有專屬折扣，購物時告知即可</div>
+      <div class="birthday-code" id="birthday-code">BIRTH-10%OFF</div>
+    </div>
+  </div>
+
+  <!-- 點數說明 -->
+  <div class="points-card">
+    <div class="points-title">⭐ 點數說明</div>
+    <div style="font-size:13px;color:var(--text-mid);line-height:1.8">
+      每消費 NT$100 累積 1 點<br>
+      累積 100 點 = NT$100 折扣<br>
+      累積 500 點 = NT$600 折扣（額外加值）
+    </div>
+    <div class="points-bar-wrap" style="margin-top:12px">
+      <div class="points-bar" id="m-points-bar" style="width:0%"></div>
+    </div>
+    <div class="points-info">
+      <span id="m-points-label">0 / 100 點</span>
+      <span id="m-points-next">再 100 點可折抵 NT$100</span>
+    </div>
+    <div class="points-discount" id="m-discount" style="display:none"></div>
+  </div>
+
+  <!-- 訂單記錄 -->
+  <div class="section-title">📋 最近訂單</div>
+  <div id="m-orders"><div class="loading">載入中...</div></div>
+
+  <button class="logout-btn" onclick="doLogout()">登出</button>
+</div>
+
+<!-- 註冊頁 -->
+<div class="page" id="page-register">
+  <div class="register-wrap">
+    <div class="register-back" onclick="showLogin()">← 返回登入</div>
+    <div class="section-card">
+      <div class="section-label">🌿 加入幸福緣會員</div>
+      <div class="field"><label>姓名 <span class="req">*</span></label><input type="text" id="r-name" placeholder="請輸入真實姓名"></div>
+      <div class="field"><label>手機號碼 <span class="req">*</span></label><input type="tel" id="r-phone" placeholder="0912345678" maxlength="10"></div>
+      <div class="field"><label>生日（享生日優惠）</label><input type="date" id="r-birthday"></div>
+    </div>
+    <div style="background:#fff8ec;border:1.5px solid #e8d5a0;border-radius:var(--rs);padding:14px;margin-bottom:16px;font-size:13px;color:#8B6914;line-height:1.7">
+      🎁 加入會員即享：<br>
+      • 每消費 NT$100 累積 1 點<br>
+      • 生日當月專屬折扣<br>
+      • 訂單查詢與消費記錄
+    </div>
+    <button class="submit-btn" onclick="doRegister()">立即加入會員</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const GAS_URL='https://script.google.com/macros/s/AKfycbz4-pJ5jWtu9nevKDl98LxRqfwyVdGApEqEzcKKR9LDxanUM5BCneCZttkH3rkxLlUtYA/exec';
+let currentMember=null;
+
+// 記住登入狀態
+const savedPhone=localStorage.getItem('yc_member_phone');
+if(savedPhone){
+  document.getElementById('login-phone').value=savedPhone;
+}
+
+async function api(params){
+  const r=await fetch(GAS_URL+'?'+new URLSearchParams(params).toString());
+  return await r.json();
+}
+
+// ── 登入 ──
+async function doLogin(){
+  const phone=document.getElementById('login-phone').value.trim();
+  if(!phone||phone.length<8){showToast('請輸入正確的手機號碼','error');return;}
+  showToast('⟳ 查詢中...','');
+  const r=await api({action:'getMember',phone});
+  if(r.ok){
+    currentMember=r.data;
+    localStorage.setItem('yc_member_phone',phone);
+    renderMember();
+    switchPage('member');
+  } else {
+    showToast('查無會員資料，請先註冊','error');
+  }
+}
+
+// ── 渲染會員頁 ──
+function renderMember(){
+  const m=currentMember;
+  document.getElementById('m-name').textContent=m.name;
+  document.getElementById('m-points').textContent=m.points;
+  document.getElementById('m-spent').textContent='NT$ '+Number(m.total_spent).toLocaleString();
+
+  // 生日優惠
+  if(m.is_birth_month){
+    document.getElementById('birthday-card').style.display='flex';
+    document.getElementById('birthday-code').textContent='BIRTH-'+m.name.slice(0,2)+'-10OFF';
+  }
+
+  // 點數進度
+  const nextLevel=m.points>=500?500:m.points>=100?500:100;
+  const progress=Math.min(100,(m.points/nextLevel)*100);
+  document.getElementById('m-points-bar').style.width=progress+'%';
+  document.getElementById('m-points-label').textContent=`${m.points} / ${nextLevel} 點`;
+
+  if(m.points>=500){
+    document.getElementById('m-points-next').textContent='已達 500 點！';
+    document.getElementById('m-discount').style.display='block';
+    document.getElementById('m-discount').textContent='🎁 可折抵 NT$600（額外加值優惠）';
+  } else if(m.points>=100){
+    const need=500-m.points;
+    document.getElementById('m-points-next').textContent=`再 ${need} 點升級至 500 點優惠`;
+    document.getElementById('m-discount').style.display='block';
+    document.getElementById('m-discount').textContent=`✅ 已可折抵 NT$100，告知客服即可使用`;
+  } else {
+    document.getElementById('m-points-next').textContent=`再 ${100-m.points} 點可折抵 NT$100`;
+  }
+
+  // 訂單記錄
+  const orders=m.recent_orders||[];
+  const el=document.getElementById('m-orders');
+  if(!orders.length){
+    el.innerHTML='<div class="empty-state">尚無訂單記錄</div>';
+    return;
+  }
+  el.innerHTML=orders.map(o=>`
+    <div class="order-item">
+      <div class="order-item-left">
+        <div class="order-item-id">${o.order_id}</div>
+        <div class="order-item-total">NT$ ${Number(o.total).toLocaleString()}</div>
+        <div class="order-item-date">${o.created_at?String(o.created_at).slice(0,10):''}</div>
+      </div>
+      <span class="order-status s-${o.status}">${o.status}</span>
+    </div>`).join('');
+}
+
+// ── 登出 ──
+function doLogout(){
+  currentMember=null;
+  localStorage.removeItem('yc_member_phone');
+  document.getElementById('login-phone').value='';
+  switchPage('login');
+}
+
+// ── 註冊 ──
+async function doRegister(){
+  const name=document.getElementById('r-name').value.trim();
+  const phone=document.getElementById('r-phone').value.trim();
+  const birthday=document.getElementById('r-birthday').value;
+  if(!name||!phone){showToast('請填寫姓名和手機號碼','error');return;}
+  showToast('⟳ 註冊中...','');
+  const r=await api({action:'registerMember',name,phone,birthday});
+  if(r.ok){
+    showToast('✅ 註冊成功！','success');
+    document.getElementById('login-phone').value=phone;
+    showLogin();
+    setTimeout(()=>doLogin(),500);
+  } else {
+    showToast(r.error,'error');
+  }
+}
+
+// ── 頁面切換 ──
+function switchPage(page){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page-'+page).classList.add('active');
+  window.scrollTo(0,0);
+}
+function showRegister(){switchPage('register');}
+function showLogin(){switchPage('login');}
+
+// ── TOAST ──
+function showToast(msg,type=''){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.className='toast'+(type?' '+type:'');
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2500);
+}
+
+// 自動登入
+if(savedPhone){
+  setTimeout(()=>doLogin(),300);
+}
+</script>
+</body>
+</html>
