@@ -204,11 +204,15 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="stat-card"><div class="stat-label">本月收入</div><div class="stat-value green" id="s-income">—</div></div>
     <div class="stat-card"><div class="stat-label">本月支出</div><div class="stat-value blue" id="s-expense">—</div></div>
     <div class="stat-card wide"><div class="stat-label">本月淨利</div><div class="stat-value gold" id="s-profit">NT$ —</div></div>
+    <div class="stat-card"><div class="stat-label">待審核報名</div><div class="stat-value gold" id="s-pending-regs">—</div><div class="stat-sub">筆待審核</div></div>
+    <div class="stat-card"><div class="stat-label">本月新會員</div><div class="stat-value green" id="s-new-members">—</div><div class="stat-sub">人加入</div></div>
   </div>
   <div class="section-title">⚠️ 低庫存警示</div>
   <div class="alert-list" id="alert-list"><div class="loading">載入中...</div></div>
   <div class="section-title">🕐 最近異動</div>
   <div class="history-list" id="recent-list"><div class="loading">載入中...</div></div>
+  <div class="section-title">🎂 本月壽星</div>
+  <div class="alert-list" id="birthday-list"><div class="loading">載入中...</div></div>
 </div>
 
 <!-- 入庫 -->
@@ -574,6 +578,32 @@ function renderDashboard(){
   al.innerHTML=items.length?items.slice(0,5).map(p=>`<div class="alert-item"><div class="alert-img">${p.image_url?`<img src="${p.image_url}">`:'📦'}</div><div><div class="alert-name">${p.name}</div><div class="alert-qty">${p.qty===0?'❌ 已無庫存':`⚠️ 剩 ${p.qty} 件（警示：${p.threshold}）`}</div></div></div>`).join(''):`<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">庫存充足</div></div>`;
   const rl=document.getElementById('recent-list');const recent=cache.stockLog.slice(0,5);
   rl.innerHTML=recent.length?recent.map(h=>histHTML(h)).join(''):`<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-text">尚無記錄</div></div>`;
+
+  // 待審核報名數
+  const pendingRegs=(cache.registrations||[]).filter(r=>r.fee_status==='待審核');
+  document.getElementById('s-pending-regs').textContent=pendingRegs.length;
+
+  // 新會員數（本月）
+  const thisMonth=new Date().toISOString().slice(0,7);
+  const newMembers=(cache.members||[]).filter(m=>m.joined_at&&String(m.joined_at).slice(0,7)===thisMonth);
+  document.getElementById('s-new-members').textContent=newMembers.length;
+
+  // 本月壽星
+  const thisMonthNum=new Date().getMonth();
+  const birthdays=(cache.members||[]).filter(m=>{
+    if(!m.birthday)return false;
+    return new Date(m.birthday).getMonth()===thisMonthNum;
+  });
+  const bdEl=document.getElementById('birthday-list');
+  bdEl.innerHTML=birthdays.length?birthdays.map(m=>`
+    <div class="alert-item" style="background:rgba(200,150,42,.08);border-color:rgba(200,150,42,.3)">
+      <div class="alert-img" style="font-size:20px">🎂</div>
+      <div>
+        <div class="alert-name">${m.name}</div>
+        <div style="font-size:12px;color:var(--gold);margin-top:2px">${m.phone} · ${m.birthday?new Date(m.birthday).toLocaleDateString('zh-TW',{month:'long',day:'numeric'}):''}</div>
+      </div>
+    </div>`).join('')
+    :`<div class="empty-state"><div class="empty-icon">🎂</div><div class="empty-text">本月無壽星</div></div>`;
 }
 
 function setFilter(f,el){invFilter=f;document.querySelectorAll('#page-inventory .chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');renderInventory();}
