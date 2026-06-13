@@ -640,12 +640,6 @@ async function submitOrder(){
       if(selectedPayment==='ATM轉帳'){
         document.getElementById('success-atm').style.display='block';
         document.getElementById('success-amount').textContent='NT$ '+total.toLocaleString();
-        // LINE OA 回報連結
-        const lineMsg=encodeURIComponent(`您好，我要回報匯款末5碼\n訂單編號：${orderId}\nATM 匯款末5碼：`);
-        document.getElementById('line-report-link').href=`https://lin.ee/tMag2XG?msg=${lineMsg}`;
-        document.getElementById('line-report-btn').style.display='block';
-      }
-      if(selectedPayment==='ATM轉帳'){
         document.getElementById('success-steps').style.display='block';
       }
       document.getElementById('success-screen').classList.add('open');

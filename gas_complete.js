@@ -6,22 +6,22 @@
 // ================================================================
 
 const SPREADSHEET_ID = '1geF1x3u9T_S6gmJlnLiV6-x77t66WtI4bON_Nr3FH6w';
-const ADMIN_KEY = 'YANGCHING2025';
-
-// LINE 通知設定
-const LINE_TOKEN   = 'SGl/bUCnFz3NpOQJJKJTU+zTKgkqtIfdAKE1FM4v6Eu6KKm8i+MmbXsegjW3ef8WLBxNzoIx6oZfh67alrl5OUTdyPezUDiVTz7nbLTwbLESCzzTAQnxcRuwBaKihcgUT1z+ZtQ7Z8QFVOJQhJ4VRAdB04t89/1O/w1cDnyilFU=';
-const LINE_USER_ID = 'U045fa7302eac96a6d54261d38a67f1b7';
+// 密碼 / LINE token 改存 Script Properties（ADMIN_PASSWORD、LINE_TOKEN、LINE_USER_ID）
 
 function sendLineMsg(message) {
   try {
+    var props  = PropertiesService.getScriptProperties();
+    var token  = props.getProperty('LINE_TOKEN')   || '';
+    var userId = props.getProperty('LINE_USER_ID') || '';
+    if (!token || !userId) { Logger.log('LINE_TOKEN 或 LINE_USER_ID 未設定'); return; }
     UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
       method: 'post',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + LINE_TOKEN
+        'Authorization': 'Bearer ' + token
       },
       payload: JSON.stringify({
-        to: LINE_USER_ID,
+        to: userId,
         messages: [{ type: 'text', text: message }]
       }),
       muteHttpExceptions: true
@@ -94,17 +94,17 @@ function handleRequest(e) {
     const adminActions = [
       'addProduct','updateProduct','deleteProduct',
       'stockIn','stockOut','syncInventory',
-      'updateOrder',
-      'addAccount','updateAccount','refreshBalance',
+      'getOrders','updateOrder','confirmOrderPayment',
+      'getAccounts','addAccount','updateAccount',
+      'getBalance','refreshBalance',
       'addEvent','updateEvent','deleteEvent',
-      'updateRegistration',
-      'getPointsLog','addPoints',
-      'addReturn','getReturns','updateReturn',
-      'confirmOrderPayment'
+      'getRegistrations','updateRegistration',
+      'updateMember','addPoints','getPointsLog',
+      'addReturn','getReturns','updateReturn'
     ];
 
-    if (adminActions.includes(action) && p.key !== ADMIN_KEY) {
-      return res({ ok: false, error: '未授權' });
+    if (adminActions.includes(action) && !validateSession_(p.session_token)) {
+      return res({ ok: false, error: '未授權', auth_required: true });
     }
 
     switch (action) {
@@ -150,6 +150,7 @@ function handleRequest(e) {
       case 'getReturns':         return res(getReturns(p));
       case 'updateReturn':       return res(updateReturn(p));
 
+      case 'loginAdmin':         return res(loginAdmin(p));
       default:
         return res({ ok: false, error: '未知動作: ' + action });
     }
@@ -310,7 +311,7 @@ function stockIn(p) {
   ]);
   if (p.price && p.auto_account !== 'false') {
     addAccount({
-      key: ADMIN_KEY,
+
       date: today(), type: '進貨付款',
       partner: p.partner||'總部',
       items: result.name + ' x' + qty,
@@ -459,7 +460,7 @@ function updateOrder(p) {
                    price: item.price, partner: found.row[c.CNAME], note: '訂單:'+p.order_id });
       });
       addAccount({
-        key: ADMIN_KEY,
+  
         date: today(), type: '銷售收款',
         partner: found.row[c.CNAME],
         items: '訂單 ' + p.order_id,
@@ -715,7 +716,7 @@ function updateRegistration(p) {
   if (p.accommodation !== undefined) sheet.getRange(rn, c.ACCOMMODATION+1).setValue(p.accommodation);
   if (p.fee_status === '已繳費') {
     addAccount({
-      key: ADMIN_KEY,
+
       date: today(), type: '銷售收款',
       partner: found.row[c.NAME],
       items: '活動報名費 ' + found.row[c.ENAME],
@@ -732,6 +733,7 @@ function updateRegistration(p) {
 // ================================================================
 function getMember(p) {
   if (p.all === 'true') {
+    if (!validateSession_(p.session_token)) return { ok: false, error: '未授權', auth_required: true };
     const rows = getRows(SHEET.MEMBERS);
     const c = COL.MEMBERS;
     return {
@@ -873,7 +875,7 @@ function confirmOrderPayment(p) {
 
   // 帳本寫收入
   addAccount({
-    key: ADMIN_KEY,
+
     date: payDate, type: '銷售收款',
     partner: order[c.CNAME],
     items: '訂單 ' + p.order_id,
@@ -925,7 +927,7 @@ function addReturn(p) {
 
   // 帳本寫退款支出
   addAccount({
-    key: ADMIN_KEY,
+
     date: today(), type: '退款支出',
     partner: p.name,
     items: p.product_name + ' x' + qty + ' 退貨',
@@ -982,4 +984,32 @@ function updateReturn(p) {
   // 確認已退款 → 更新帳本狀態
   if (p.status === '已退款') refreshBalance();
   return { ok: true };
+}
+
+// ================================================================
+// 身份驗證
+// ================================================================
+function validateSession_(token) {
+  if (!token) return false;
+  try {
+    return !!CacheService.getScriptCache().get('session:' + token);
+  } catch(e) {
+    return false;
+  }
+}
+
+function loginAdmin(p) {
+  var props = PropertiesService.getScriptProperties();
+  var correctPwd = props.getProperty('ADMIN_PASSWORD') || '';
+  if (!correctPwd) return { ok: false, error: '系統尚未設定管理密碼，請聯繫管理員' };
+  if (!p.password || p.password !== correctPwd) {
+    return { ok: false, error: '密碼錯誤，請重試' };
+  }
+  var token = Utilities.getUuid();
+  try {
+    CacheService.getScriptCache().put('session:' + token, '1', 21600);
+  } catch(e) {
+    return { ok: false, error: '建立 session 失敗：' + e.toString() };
+  }
+  return { ok: true, token: token, expires_in: 21600 };
 }

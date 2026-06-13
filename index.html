@@ -429,19 +429,32 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 
 <script>
 const GAS_URL='https://script.google.com/macros/s/AKfycbz4-pJ5jWtu9nevKDl98LxRqfwyVdGApEqEzcKKR9LDxanUM5BCneCZttkH3rkxLlUtYA/exec';
-const ADMIN_KEY='YANGCHING2025';
+let SESSION_TOKEN=sessionStorage.getItem('yc_admin_token')||'';
 let cache={products:[],inventory:[],stockLog:[],orders:[],accounts:[],balance:{},registrations:[],members:[]};
 let invFilter='all',histFilter='all',orderFilter='all',accFilter='all',regFilter='all',memberFilter='all';
 let imgData={in:null};
 
 function hashStr(s){let h=0;for(let i=0;i<s.length;i++)h=(Math.imul(31,h)+s.charCodeAt(i))|0;return h.toString(36)}
 
-const PWD='17good';
-function unlock(){
+async function unlock(){
   const pwd=document.getElementById('lock-pwd').value;
   if(!pwd)return;
-  if(pwd===PWD){enterApp();}
-  else{document.getElementById('lock-err').textContent='密碼錯誤，請重試';document.getElementById('lock-pwd').value='';}
+  const lockErr=document.getElementById('lock-err');
+  lockErr.textContent='驗證中…';
+  try{
+    const r=await fetch(GAS_URL+'?'+new URLSearchParams({action:'loginAdmin',password:pwd}).toString());
+    const data=await r.json();
+    if(data.ok&&data.token){SESSION_TOKEN=data.token;sessionStorage.setItem('yc_admin_token',data.token);enterApp();}
+    else{lockErr.textContent=data.error||'密碼錯誤，請重試';document.getElementById('lock-pwd').value='';}
+  }catch(e){lockErr.textContent='網路錯誤，請稍後再試';}
+}
+
+function handleAuthError(){
+  SESSION_TOKEN='';sessionStorage.removeItem('yc_admin_token');
+  document.getElementById('main-app').style.display='none';
+  document.getElementById('lock-screen').style.display='';
+  document.getElementById('lock-err').textContent='Session 已過期，請重新登入';
+  document.getElementById('lock-pwd').value='';
 }
 
 function enterApp(){
@@ -452,13 +465,12 @@ function enterApp(){
 
 async function api(params){
   const r=await fetch(GAS_URL+'?'+new URLSearchParams(params).toString());
-  return await r.json();
+  const data=await r.json();if(data.auth_required)handleAuthError();return data;
 }
 async function apiPost(params){
-  // GAS doPost works best with form-encoded or GET params
   const url=GAS_URL+'?'+new URLSearchParams(params).toString();
   const r=await fetch(url);
-  return await r.json();
+  const data=await r.json();if(data.auth_required)handleAuthError();return data;
 }
 
 async function syncAll(){
@@ -474,13 +486,13 @@ async function syncAll(){
     if(p.ok)   cache.products =p.data;
     if(inv.ok) cache.inventory=inv.data;
     if(log.ok) cache.stockLog =log.data;
-    try{const regs=await api({action:'getRegistrations',key:ADMIN_KEY});if(regs.ok)cache.registrations=regs.data;}catch(e){}
+    try{const regs=await api({action:'getRegistrations',session_token:SESSION_TOKEN});if(regs.ok)cache.registrations=regs.data;}catch(e){}
     // 選擇性資料，失敗不影響主流程
-    try{const ord=await api({action:'getOrders',key:ADMIN_KEY});if(ord.ok)cache.orders=ord.data;}catch(e){}
-    try{const acc=await api({action:'getAccounts',key:ADMIN_KEY});if(acc.ok)cache.accounts=acc.data;}catch(e){}
-    try{const bal=await api({action:'getBalance',key:ADMIN_KEY});if(bal.ok)cache.balance=bal.data;}catch(e){}
-    try{const reg=await api({action:'getRegistrations',key:ADMIN_KEY});if(reg.ok)cache.registrations=reg.data;}catch(e){}
-    try{const mem=await api({action:'getMember',key:ADMIN_KEY,all:'true'});if(mem.ok)cache.members=mem.data||[];}catch(e){}
+    try{const ord=await api({action:'getOrders',session_token:SESSION_TOKEN});if(ord.ok)cache.orders=ord.data;}catch(e){}
+    try{const acc=await api({action:'getAccounts',session_token:SESSION_TOKEN});if(acc.ok)cache.accounts=acc.data;}catch(e){}
+    try{const bal=await api({action:'getBalance',session_token:SESSION_TOKEN});if(bal.ok)cache.balance=bal.data;}catch(e){}
+    try{const reg=await api({action:'getRegistrations',session_token:SESSION_TOKEN});if(reg.ok)cache.registrations=reg.data;}catch(e){}
+    try{const mem=await api({action:'getMember',session_token:SESSION_TOKEN,all:'true'});if(mem.ok)cache.members=mem.data||[];}catch(e){}
     localStorage.setItem('yc_cache',JSON.stringify(cache));
     refreshDatalist();renderAll();
     showToast('✅ 同步完成','success');
@@ -531,7 +543,7 @@ async function submitIn(){
   try{imgUrls=await uploadInImages(pid);}catch(e){}
   showToast('⟳ 送出中...','info');
   try{
-    const params={action:'stockIn',key:ADMIN_KEY,product_id:pid,qty,
+    const params={action:'stockIn',session_token:SESSION_TOKEN,product_id:pid,qty,
       price:document.getElementById('in-price').value||'',
       threshold:document.getElementById('in-threshold').value||10,
       partner:document.getElementById('in-supplier').value.trim()||'養清廚房總部',
@@ -551,7 +563,7 @@ async function submitOut(){
   if(!pid){showToast('找不到商品ID，請確認名稱或手動填入','error');return;}
   showToast('⟳ 送出中...','info');
   try{
-    const r=await apiPost({action:'stockOut',key:ADMIN_KEY,product_id:pid,qty,
+    const r=await apiPost({action:'stockOut',session_token:SESSION_TOKEN,product_id:pid,qty,
       price:document.getElementById('out-price').value||'',
       partner:document.getElementById('out-customer').value.trim(),
       note:document.getElementById('out-note').value.trim()});
@@ -679,12 +691,12 @@ function showOrderModal(oid){
 
 async function confirmOrder(oid,deduct){
   closeModal();showToast('⟳ 處理中...','info');
-  const r=await apiPost({action:'updateOrder',key:ADMIN_KEY,order_id:oid,status:'已確認',deduct:deduct?'true':'false'});
+  const r=await apiPost({action:'updateOrder',session_token:SESSION_TOKEN,order_id:oid,status:'已確認',deduct:deduct?'true':'false'});
   if(r.ok){showToast('✅ 訂單已確認','success');syncAll();}else showToast('❌ '+r.error,'error');
 }
 async function updOrder(oid,status){
   closeModal();showToast('⟳ 更新中...','info');
-  const r=await apiPost({action:'updateOrder',key:ADMIN_KEY,order_id:oid,status});
+  const r=await apiPost({action:'updateOrder',session_token:SESSION_TOKEN,order_id:oid,status});
   if(r.ok){showToast('✅ 狀態已更新','success');syncAll();}else showToast('❌ '+r.error,'error');
 }
 
@@ -847,7 +859,7 @@ function copyLineMsg(id){
 async function updateReg(rid,status){
   closeModal();
   showToast('⟳ 更新中...','info');
-  const r=await apiPost({action:'updateRegistration',key:ADMIN_KEY,reg_id:rid,fee_status:status});
+  const r=await apiPost({action:'updateRegistration',session_token:SESSION_TOKEN,reg_id:rid,fee_status:status});
   if(r.ok){showToast('✅ 已更新為：'+status,'success');syncAll();}
   else showToast('❌ '+r.error,'error');
 }
@@ -1039,7 +1051,7 @@ async function submitEvent(){
   showToast('⟳ 建立中...','info');
   try{
     const r=await apiPost({
-      action:'addEvent',key:ADMIN_KEY,
+      action:'addEvent',session_token:SESSION_TOKEN,
       name,date,location,
       description:fullDesc||name,
       capacity:accom+noaccom,
@@ -1070,7 +1082,7 @@ async function uploadProductImg(productId, input){
     // 更新 GAS 商品主檔 image_url
     const r = await apiPost({
       action: 'updateProduct',
-      key: ADMIN_KEY,
+      session_token: SESSION_TOKEN,
       product_id: productId,
       image_url: url
     });
@@ -1185,7 +1197,7 @@ async function doAddPoints(phone){
   if(!points&&!amount){showToast('請填入點數或消費金額','error');return;}
   const addPts=points||(Math.floor(amount/100));
   showToast('⟳ 更新中...','info');
-  const r=await apiPost({action:'addPoints',key:ADMIN_KEY,phone,points:addPts,amount});
+  const r=await apiPost({action:'addPoints',session_token:SESSION_TOKEN,phone,points:addPts,amount});
   if(r.ok){showToast(`✅ 已新增 ${addPts} 點`,'success');closeModal();syncAll();}
   else showToast('❌ '+r.error,'error');
 }
@@ -1227,7 +1239,7 @@ async function submitMember(){
   showToast('⟳ 儲存中...','info');
   let r;
   if(editingMember){
-    r=await apiPost({action:'updateMember',key:ADMIN_KEY,phone,birthday,note});
+    r=await apiPost({action:'updateMember',session_token:SESSION_TOKEN,phone,birthday,note});
   } else {
     r=await apiPost({action:'registerMember',name,phone,birthday,note});
   }
