@@ -193,10 +193,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab" onclick="switchTab('history')"><span class="tab-icon">📋</span>記錄</div>
   <div class="tab" onclick="switchTab('orders')"><span class="tab-icon">🛒</span>訂單</div>
   <div class="tab" onclick="switchTab('accounts')"><span class="tab-icon">💰</span>帳本</div>
-  <div class="tab" onclick="switchTab('registrations')"><span class="tab-icon">📝</span>報名</div>
-  <div class="tab" onclick="switchTab('members')"><span class="tab-icon">👥</span>會員</div>
-  <div class="tab" onclick="switchTab('reports')"><span class="tab-icon">📊</span>報表</div>
-  <div class="tab" onclick="switchTab('returns')"><span class="tab-icon">↩️</span>退貨</div>
+  <div class="tab" onclick="switchTab('regs')"><span class="tab-icon">📝</span>報名</div>
 </div>
 
 <!-- 總覽 -->
@@ -292,36 +289,16 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 <div class="page" id="page-orders">
   <div class="filter-row">
     <div class="chip active" onclick="setOrderFilter('all',this)">全部</div>
-    <div class="chip" onclick="setOrderFilter('待確認',this)">⏳ 待確認</div>
-    <div class="chip" onclick="setOrderFilter('已確認',this)">✅ 已確認</div>
-    <div class="chip" onclick="setOrderFilter('已付款',this)">💰 已付款</div>
-    <div class="chip" onclick="setOrderFilter('已出貨',this)">🚚 已出貨</div>
-    <div class="chip" onclick="setOrderFilter('已完成',this)">🎉 已完成</div>
+    <div class="chip" onclick="setOrderFilter('待確認',this)">待確認</div>
+    <div class="chip" onclick="setOrderFilter('已確認',this)">已確認</div>
+    <div class="chip" onclick="setOrderFilter('已出貨',this)">已出貨</div>
+    <div class="chip" onclick="setOrderFilter('已完成',this)">已完成</div>
   </div>
   <div id="order-list"><div class="loading">載入中...</div></div>
 </div>
 
-<!-- 確認收款 Modal -->
-<div class="modal-overlay" id="pay-confirm-overlay" onclick="closePayConfirm(event)">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">💰 確認收款</div>
-      <button class="modal-close" onclick="closePayConfirm()">✕</button>
-    </div>
-    <input type="hidden" id="pc-order-id">
-    <div class="field"><label>實收金額 *</label><input type="number" id="pc-amount" placeholder="0"></div>
-    <div class="field"><label>收款日期</label><input type="date" id="pc-date"></div>
-    <div class="field"><label>會員手機（選填，填了自動加點數）</label><input type="tel" id="pc-phone" placeholder="0912345678"></div>
-    <div style="background:var(--surface2);border-radius:var(--rs);padding:10px 12px;font-size:12px;color:var(--dim);margin:8px 0">
-      💡 每消費 NT$100 = 1 點，自動加到會員帳戶
-    </div>
-    <button class="btn btn-gold" onclick="submitPayConfirm()" id="pc-submit-btn" style="width:100%;padding:14px;margin-top:4px">✅ 確認已收款</button>
-  </div>
-</div>
-
 <!-- 帳本 -->
 <div class="page" id="page-accounts">
-  <button class="btn btn-gold" onclick="openAccModal()" style="margin-bottom:14px;padding:12px">➕ 新增帳目</button>
   <div class="stats-grid" id="balance-grid"><div class="loading" style="grid-column:1/-1">載入中...</div></div>
   <div class="section-title">收支明細</div>
   <div class="filter-row">
@@ -379,112 +356,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   </div>
 </div>
 
-<!-- 報表 -->
-<div class="page" id="page-reports">
-  <div class="section-title">📊 匯出報表</div>
-  <div style="display:flex;flex-direction:column;gap:10px">
-    <div class="form-card">
-      <div class="form-title">🗃️ 庫存現況</div>
-      <div style="font-size:12px;color:var(--dim);margin-bottom:12px">目前所有商品庫存量、零售價、進價</div>
-      <button class="btn btn-gold" onclick="exportCsv('inventory')">📥 下載 CSV</button>
-    </div>
-    <div class="form-card">
-      <div class="form-title">📥 入庫記錄</div>
-      <div style="font-size:12px;color:var(--dim);margin-bottom:12px">所有入庫異動記錄</div>
-      <button class="btn btn-in" onclick="exportCsv('stockIn')">📥 下載 CSV</button>
-    </div>
-    <div class="form-card">
-      <div class="form-title">📤 出庫記錄</div>
-      <div style="font-size:12px;color:var(--dim);margin-bottom:12px">所有出庫異動記錄</div>
-      <button class="btn btn-out" onclick="exportCsv('stockOut')">📥 下載 CSV</button>
-    </div>
-    <div class="form-card">
-      <div class="form-title">🛒 訂單報表</div>
-      <div style="font-size:12px;color:var(--dim);margin-bottom:12px">所有訂單（含狀態、金額、客戶）</div>
-      <button class="btn btn-gold" onclick="exportCsv('orders')">📥 下載 CSV</button>
-    </div>
-    <div class="form-card">
-      <div class="form-title">💰 帳目報表</div>
-      <div style="font-size:12px;color:var(--dim);margin-bottom:12px">所有收支明細</div>
-      <button class="btn btn-gold" onclick="exportCsv('accounts')">📥 下載 CSV</button>
-    </div>
-  </div>
-</div>
-
-<!-- 退貨退款 -->
-<div class="page" id="page-returns">
-  <button class="btn btn-red" onclick="openReturnModal()" style="margin-bottom:14px;padding:12px;width:100%">↩️ 新增退貨退款</button>
-  <div class="filter-row">
-    <div class="chip active" onclick="setReturnFilter('all',this)">全部</div>
-    <div class="chip" onclick="setReturnFilter('待處理',this)">⏳ 待處理</div>
-    <div class="chip" onclick="setReturnFilter('已退款',this)">✅ 已退款</div>
-    <div class="chip" onclick="setReturnFilter('已拒絕',this)">❌ 已拒絕</div>
-  </div>
-  <div id="return-list"></div>
-</div>
-
-<!-- 退貨退款 Modal -->
-<div class="modal-overlay" id="return-modal-overlay" onclick="closeReturnModal(event)">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">↩️ 新增退貨退款</div>
-      <button class="modal-close" onclick="closeReturnModal()">✕</button>
-    </div>
-    <div class="field-row">
-      <div class="field"><label>客人姓名 *</label><input type="text" id="ret-name" placeholder="姓名"></div>
-      <div class="field"><label>手機號碼</label><input type="tel" id="ret-phone" placeholder="有會員填手機"></div>
-    </div>
-    <div class="field">
-      <label>退貨商品 *</label>
-      <input type="text" id="ret-product" list="dl-products" placeholder="商品名稱">
-    </div>
-    <div class="field-row">
-      <div class="field"><label>退貨數量 *</label><input type="number" id="ret-qty" placeholder="1" value="1" min="1"></div>
-      <div class="field"><label>退款金額 *</label><input type="number" id="ret-amount" placeholder="0"></div>
-    </div>
-    <div class="field-row">
-      <div class="field">
-        <label>退款方式</label>
-        <select id="ret-payment">
-          <option value="現金">現金</option>
-          <option value="轉帳">轉帳</option>
-          <option value="折抵點數">折抵點數</option>
-        </select>
-      </div>
-      <div class="field"><label>扣回點數</label><input type="number" id="ret-points" placeholder="0（選填）" value="0"></div>
-    </div>
-    <div class="field"><label>退貨原因</label><input type="text" id="ret-reason" placeholder="例：品質問題、不符期待..."></div>
-    <div class="field"><label>備註</label><input type="text" id="ret-note" placeholder=""></div>
-    <div style="margin-top:12px">
-      <button class="btn btn-red" onclick="submitReturn()" id="ret-submit-btn" style="width:100%;padding:14px">✅ 確認送出退貨</button>
-    </div>
-  </div>
-</div>
-
-<!-- 新增帳目 Modal -->
-<div class="modal-overlay" id="acc-modal-overlay" onclick="closeAccModal(event)">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">➕ 新增帳目</div>
-      <button class="modal-close" onclick="closeAccModal()">✕</button>
-    </div>
-    <div class="field"><label>類型 *</label>
-      <select id="acc-type">
-        <option value="銷售收款">💚 銷售收款</option>
-        <option value="進貨付款">🔴 進貨付款</option>
-        <option value="其他收入">其他收入</option>
-        <option value="其他支出">其他支出</option>
-      </select>
-    </div>
-    <div class="field"><label>對象</label><input type="text" id="acc-partner" placeholder="客戶或供應商名稱"></div>
-    <div class="field"><label>品項說明</label><input type="text" id="acc-items" placeholder="商品或費用說明"></div>
-    <div class="field"><label>金額（NT$）*</label><input type="number" id="acc-amount" placeholder="0" min="0"></div>
-    <div class="field"><label>日期</label><input type="date" id="acc-date"></div>
-    <div class="field"><label>備註</label><textarea id="acc-note" placeholder="備注..."></textarea></div>
-    <button class="btn btn-gold" onclick="submitAccount()">✅ 新增帳目</button>
-  </div>
-</div>
-
 <!-- 新增活動 Modal -->
 <div class="modal-overlay" id="event-modal-overlay" onclick="closeEventModal(event)">
   <div class="modal" style="max-height:92dvh">
@@ -517,14 +388,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
           </div>
         </div>
         <div class="field"><label>活動說明（可留空讓 AI 生成）</label><textarea id="ev-desc" placeholder="留空後點「產生 AI 協作指令」，貼給 Claude 生成說明，再回填"></textarea></div>
-        <div class="field" style="margin-top:8px">
-          <label>封面圖片（選填）</label>
-          <label class="img-upload" style="display:block;padding:12px;text-align:center;cursor:pointer">
-            <span id="ev-cover-label">📷 點此選擇封面圖</span>
-            <input type="file" id="ev-cover" accept="image/*" style="display:none" onchange="previewEventCover(this)">
-          </label>
-          <img id="ev-cover-preview" style="display:none;width:100%;border-radius:var(--rs);margin-top:8px;max-height:160px;object-fit:cover">
-        </div>
 
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
           <button class="btn btn-gold" onclick="genAIPrompt()">📋 產生 AI 協作指令</button>
@@ -567,8 +430,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 <script>
 const GAS_URL='https://script.google.com/macros/s/AKfycbz4-pJ5jWtu9nevKDl98LxRqfwyVdGApEqEzcKKR9LDxanUM5BCneCZttkH3rkxLlUtYA/exec';
 const ADMIN_KEY='YANGCHING2025';
-let cache={products:[],inventory:[],stockLog:[],orders:[],accounts:[],balance:{},registrations:[],members:[],returns:[]};
-let invFilter='all',histFilter='all',orderFilter='all',accFilter='all',regFilter='all',memberFilter='all',returnFilter='all';
+let cache={products:[],inventory:[],stockLog:[],orders:[],accounts:[],balance:{},regs:[]};
+let invFilter='all',histFilter='all',orderFilter='all',accFilter='all',regFilter='all',memberFilter='all';
 let imgData={in:null};
 
 function hashStr(s){let h=0;for(let i=0;i<s.length;i++)h=(Math.imul(31,h)+s.charCodeAt(i))|0;return h.toString(36)}
@@ -592,11 +455,10 @@ async function api(params){
   return await r.json();
 }
 async function apiPost(params){
+  // GAS doPost works best with form-encoded or GET params
   const url=GAS_URL+'?'+new URLSearchParams(params).toString();
   const r=await fetch(url);
-  const text=await r.text();
-  try{return JSON.parse(text);}
-  catch(e){console.error('GAS非JSON:',text.slice(0,300));throw new Error('伺服器回應格式錯誤，請稍後再試');}
+  return await r.json();
 }
 
 async function syncAll(){
@@ -619,7 +481,6 @@ async function syncAll(){
     try{const bal=await api({action:'getBalance',key:ADMIN_KEY});if(bal.ok)cache.balance=bal.data;}catch(e){}
     try{const reg=await api({action:'getRegistrations',key:ADMIN_KEY});if(reg.ok)cache.registrations=reg.data;}catch(e){}
     try{const mem=await api({action:'getMember',key:ADMIN_KEY,all:'true'});if(mem.ok)cache.members=mem.data||[];}catch(e){}
-    try{const ret=await api({action:'getReturns',key:ADMIN_KEY});if(ret.ok)cache.returns=ret.data||[];}catch(e){}
     localStorage.setItem('yc_cache',JSON.stringify(cache));
     refreshDatalist();renderAll();
     showToast('✅ 同步完成','success');
@@ -627,7 +488,7 @@ async function syncAll(){
   btn.textContent='⟳ 同步';btn.classList.remove('syncing');
 }
 
-function renderAll(){renderDashboard();renderInventory();renderHistory();renderOrders();renderAccounts();renderRegistrations();renderMembers();renderReturns();}
+function renderAll(){renderDashboard();renderInventory();renderHistory();renderOrders();renderAccounts();renderRegistrations();renderMembers();}
 
 function init(){
   document.getElementById('topbar-date').textContent=new Date().toLocaleDateString('zh-TW',{weekday:'short',month:'long',day:'numeric'});
@@ -637,7 +498,7 @@ function init(){
 }
 
 function switchTab(tab){
-  const tabs=['dashboard','in','out','inventory','history','orders','accounts','registrations','members','reports','returns'];
+  const tabs=['dashboard','in','out','inventory','history','orders','accounts','registrations','members'];
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',tabs[i]===tab));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById('page-'+tab).classList.add('active');
@@ -696,7 +557,7 @@ async function submitOut(){
       note:document.getElementById('out-note').value.trim()});
     if(r.ok){showToast(`📤 出庫成功：${name} × ${qty}`,'success');resetForm('out');syncAll();}
     else showToast('❌ '+r.error,'error');
-  }catch(e){showToast('⚠️ 網路錯誤：'+e.message,'error');console.error(e);}
+  }catch(e){showToast('⚠️ 網路錯誤','error');}
 }
 
 function resetForm(type){
@@ -809,8 +670,7 @@ function showOrderModal(oid){
     <div class="modal-row"><span class="modal-key">備註</span><span class="modal-val">${o.note||'—'}</span></div>
     <div class="modal-actions">
       ${o.status==='待確認'?`<button class="btn btn-gold" onclick="confirmOrder('${oid}',true)">✅ 確認並扣庫存</button><button class="btn btn-ghost" style="margin-top:0" onclick="confirmOrder('${oid}',false)">確認（不扣庫存）</button>`:''}
-      ${o.status==='已確認'?`<button class="btn" style="background:var(--gold);color:#0F1117;font-weight:800" onclick="closeModal();openPayConfirm('${oid}',${o.total})">💰 確認收款</button>`:''}
-      ${o.status==='已付款'?`<button class="btn btn-in" onclick="updOrder('${oid}','已出貨')">🚚 標記已出貨</button>`:''}
+      ${o.status==='已確認'?`<button class="btn btn-in" onclick="updOrder('${oid}','已出貨')">🚚 標記已出貨</button>`:''}
       ${o.status==='已出貨'?`<button class="btn btn-gold" onclick="updOrder('${oid}','已完成')">✅ 標記已完成</button>`:''}
       ${['待確認','已確認'].includes(o.status)?`<button class="btn" style="background:transparent;border:1px solid var(--red);color:var(--red)" onclick="updOrder('${oid}','已取消')">取消訂單</button>`:''}
     </div>`;
@@ -826,37 +686,6 @@ async function updOrder(oid,status){
   closeModal();showToast('⟳ 更新中...','info');
   const r=await apiPost({action:'updateOrder',key:ADMIN_KEY,order_id:oid,status});
   if(r.ok){showToast('✅ 狀態已更新','success');syncAll();}else showToast('❌ '+r.error,'error');
-}
-
-function openPayConfirm(oid, total){
-  document.getElementById('pc-order-id').value=oid;
-  document.getElementById('pc-amount').value=total||'';
-  document.getElementById('pc-date').value=new Date().toISOString().slice(0,10);
-  document.getElementById('pc-phone').value='';
-  document.getElementById('pay-confirm-overlay').classList.add('open');
-}
-function closePayConfirm(e){
-  if(!e||e.target===document.getElementById('pay-confirm-overlay'))
-    document.getElementById('pay-confirm-overlay').classList.remove('open');
-}
-async function submitPayConfirm(){
-  const oid=document.getElementById('pc-order-id').value;
-  const amount=parseFloat(document.getElementById('pc-amount').value)||0;
-  const date=document.getElementById('pc-date').value;
-  const phone=document.getElementById('pc-phone').value.trim();
-  if(!amount){showToast('請填寫實收金額','error');return;}
-  const btn=document.getElementById('pc-submit-btn');
-  btn.disabled=true;
-  showToast('⟳ 處理中...','info');
-  try{
-    const r=await apiPost({action:'confirmOrderPayment',key:ADMIN_KEY,
-      order_id:oid,received_amount:amount,payment_date:date,member_phone:phone});
-    if(r.ok){
-      showToast(`✅ 收款確認！${r.points_added?'加了 '+r.points_added+' 點':''}`, 'success');
-      closePayConfirm();syncAll();
-    }else showToast('❌ '+r.error,'error');
-  }catch(e){showToast('⚠️ 網路錯誤：'+e.message,'error');console.error(e);}
-  finally{btn.disabled=false;}
 }
 
 function setAccFilter(f,el){accFilter=f;document.querySelectorAll('#page-accounts .chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');renderAccounts();}
@@ -925,7 +754,7 @@ async function uploadInImages(productId){
   if(!inImgFiles.length)return[];
   const urls=[];
   for(let i=0;i<inImgFiles.length;i++){
-    const path=`cards/warehouse/${productId}/photo${i+1}_${Date.now()}.jpg`;
+    const path=`warehouse/${productId}/photo${i+1}_${Date.now()}.jpg`;
     try{
       const url=await uploadToFirebase(inImgFiles[i],path);
       urls.push(url);
@@ -1139,9 +968,6 @@ function openEventModal(){
   document.getElementById('ev-noaccom').value='6';
   document.getElementById('ev-fee1').value='12000';
   document.getElementById('ev-status').value='報名中';
-  document.getElementById('ev-cover').value='';
-  document.getElementById('ev-cover-label').textContent='📷 點此選擇封面圖';
-  document.getElementById('ev-cover-preview').style.display='none';
 }
 function closeEventModal(e){
   if(!e||e.target===document.getElementById('event-modal-overlay'))
@@ -1211,13 +1037,6 @@ async function submitEvent(){
   const dateEnd=document.getElementById('ev-date-end').value;
   const fullDesc=dateEnd?`${desc}\n日期：${date} 至 ${dateEnd}`:desc;
 
-  let imageUrl='';
-  const coverFile=document.getElementById('ev-cover').files[0];
-  if(coverFile){
-    showToast('⟳ 上傳封面圖片...','info');
-    try{imageUrl=await uploadToFirebase(coverFile,`cards/events/cover_${Date.now()}.jpg`);}
-    catch(e){showToast('⚠️ 圖片上傳失敗：'+e.message,'error');return;}
-  }
   showToast('⟳ 建立中...','info');
   try{
     const r=await apiPost({
@@ -1230,8 +1049,7 @@ async function submitEvent(){
       fee_single:fee1,
       fee_yearly:fee1*10,
       fee_half:fee1*11,
-      status:document.getElementById('ev-status').value,
-      image_url:imageUrl
+      status:document.getElementById('ev-status').value
     });
     if(r.ok){
       showToast('✅ 活動建立成功！','success');
@@ -1241,123 +1059,6 @@ async function submitEvent(){
   }catch(e){showToast('⚠️ 網路錯誤','error');}
 }
 
-// ── 退貨退款 ──
-function setReturnFilter(f,el){
-  returnFilter=f;
-  document.querySelectorAll('#page-returns .chip').forEach(c=>c.classList.remove('active'));
-  el.classList.add('active');
-  renderReturns();
-}
-
-function renderReturns(){
-  const list=document.getElementById('return-list');
-  if(!list)return;
-  let data=[...(cache.returns||[])];
-  if(returnFilter!=='all')data=data.filter(r=>r.status===returnFilter);
-  if(!data.length){list.innerHTML='<div style="text-align:center;color:var(--dim);padding:40px 0">目前沒有退貨記錄</div>';return;}
-  const statusColor={待處理:'var(--blue)',已退款:'var(--green)',已拒絕:'var(--red)'};
-  list.innerHTML=data.map(r=>`
-    <div class="form-card" style="margin-bottom:10px;cursor:pointer" onclick="openReturnDetail(${JSON.stringify(r).replace(/'/g,'&#39;')})">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start">
-        <div>
-          <div style="font-size:15px;font-weight:700">${r.product_name||'—'} × ${r.qty}</div>
-          <div style="font-size:12px;color:var(--dim);margin-top:3px">👤 ${r.name} ${r.phone?'· '+r.phone:''}</div>
-          <div style="font-size:12px;color:var(--dim);margin-top:2px">💬 ${r.reason||'—'}</div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-size:14px;font-weight:700;color:var(--red)">- NT$ ${Number(r.refund_amount||0).toLocaleString()}</div>
-          <div style="font-size:11px;margin-top:4px;padding:2px 8px;border-radius:99px;background:${statusColor[r.status]||'var(--dim)'}22;color:${statusColor[r.status]||'var(--dim)'}">${r.status||'—'}</div>
-          <div style="font-size:11px;color:var(--dim);margin-top:4px">${String(r.created_at||'').slice(0,10)}</div>
-        </div>
-      </div>
-    </div>`).join('');
-}
-
-function openReturnModal(){
-  document.getElementById('return-modal-overlay').classList.add('open');
-  ['ret-name','ret-phone','ret-product','ret-reason','ret-note'].forEach(id=>{
-    const el=document.getElementById(id);if(el)el.value='';
-  });
-  document.getElementById('ret-qty').value='1';
-  document.getElementById('ret-amount').value='';
-  document.getElementById('ret-points').value='0';
-  document.getElementById('ret-payment').value='現金';
-}
-function closeReturnModal(e){
-  if(!e||e.target===document.getElementById('return-modal-overlay'))
-    document.getElementById('return-modal-overlay').classList.remove('open');
-}
-
-async function submitReturn(){
-  const name=document.getElementById('ret-name').value.trim();
-  const product=document.getElementById('ret-product').value.trim();
-  const qty=parseInt(document.getElementById('ret-qty').value)||0;
-  const amount=parseFloat(document.getElementById('ret-amount').value)||0;
-  if(!name||!product||qty<1){showToast('請填寫客人姓名、商品、數量','error');return;}
-  const phone=document.getElementById('ret-phone').value.trim();
-  const reason=document.getElementById('ret-reason').value.trim();
-  const note=document.getElementById('ret-note').value.trim();
-  const payment=document.getElementById('ret-payment').value;
-  const points=parseInt(document.getElementById('ret-points').value)||0;
-  const pid=getPidByName(product)||'';
-  const btn=document.getElementById('ret-submit-btn');
-  btn.disabled=true;
-  showToast('⟳ 處理中...','info');
-  try{
-    const r=await apiPost({
-      action:'addReturn',key:ADMIN_KEY,
-      name,phone,product_id:pid,product_name:product,
-      qty,refund_amount:amount,payment,reason,note,
-      points_deducted:points
-    });
-    if(r.ok){
-      showToast('✅ 退貨已記錄，庫存已補回','success');
-      closeReturnModal();
-      syncAll();
-    }else showToast('❌ '+r.error,'error');
-  }catch(e){showToast('⚠️ 網路錯誤：'+e.message,'error');console.error(e);}
-  finally{btn.disabled=false;}
-}
-
-function openReturnDetail(r){
-  document.getElementById('modal-title').textContent=r.name+' 的退貨';
-  const statusColor={待處理:'var(--blue)',已退款:'var(--green)',已拒絕:'var(--red)'};
-  document.getElementById('modal-body').innerHTML=`
-    <div class="modal-row"><span class="modal-key">退貨編號</span><span class="modal-val" style="font-size:11px">${r.return_id}</span></div>
-    <div class="modal-row"><span class="modal-key">客人</span><span class="modal-val">${r.name} ${r.phone?'· '+r.phone:''}</span></div>
-    <div class="modal-row"><span class="modal-key">商品</span><span class="modal-val">${r.product_name} × ${r.qty}</span></div>
-    <div class="modal-row"><span class="modal-key">退款金額</span><span class="modal-val red">NT$ ${Number(r.refund_amount||0).toLocaleString()}</span></div>
-    <div class="modal-row"><span class="modal-key">退款方式</span><span class="modal-val">${r.payment||'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">扣回點數</span><span class="modal-val">${r.points_deducted||0} 點</span></div>
-    <div class="modal-row"><span class="modal-key">原因</span><span class="modal-val">${r.reason||'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">備註</span><span class="modal-val">${r.note||'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">狀態</span><span class="modal-val" style="color:${statusColor[r.status]||'var(--dim)'}">${r.status}</span></div>
-    <div class="modal-row"><span class="modal-key">時間</span><span class="modal-val">${r.created_at}</span></div>
-    ${r.status==='待處理'?`
-    <div class="modal-actions">
-      <button class="btn btn-in" onclick="confirmReturn('${r.return_id}','已退款')">✅ 標記已退款</button>
-      <button class="btn btn-red" onclick="confirmReturn('${r.return_id}','已拒絕')">❌ 拒絕退貨</button>
-    </div>`:''}`;
-  document.getElementById('modal-overlay').classList.add('open');
-}
-
-async function confirmReturn(returnId, status){
-  showToast('⟳ 更新中...','info');
-  try{
-    const r=await apiPost({action:'updateReturn',key:ADMIN_KEY,return_id:returnId,status});
-    if(r.ok){showToast('✅ 狀態已更新','success');closeModal();syncAll();}
-    else showToast('❌ '+r.error,'error');
-  }catch(e){showToast('⚠️ 網路錯誤','error');}
-}
-
-function previewEventCover(input){
-  const file=input.files[0];if(!file)return;
-  document.getElementById('ev-cover-label').textContent='📷 '+file.name;
-  const prev=document.getElementById('ev-cover-preview');
-  prev.src=URL.createObjectURL(file);
-  prev.style.display='block';
-}
-
 // ── 更新商品圖片 ──
 async function uploadProductImg(productId, input){
   const file = input.files[0];
@@ -1365,8 +1066,9 @@ async function uploadProductImg(productId, input){
   showToast('⟳ 上傳圖片中...', 'info');
   try{
     await initFB();
-    const path = `cards/warehouse/${productId}/photo1_${Date.now()}.jpg`;
+    const path = `warehouse/${productId}/photo1_${Date.now()}.jpg`;
     const url = await uploadToFirebase(file, path);
+    // 更新 GAS 商品主檔 image_url
     const r = await apiPost({
       action: 'updateProduct',
       key: ADMIN_KEY,
@@ -1534,70 +1236,6 @@ async function submitMember(){
     showToast(editingMember?'✅ 已更新會員資料':'✅ 會員新增成功','success');
     closeMemberModal();syncAll();
   } else showToast('❌ '+r.error,'error');
-}
-
-// ── 新增帳目 ──
-function openAccModal(){
-  document.getElementById('acc-modal-overlay').classList.add('open');
-  ['acc-partner','acc-items','acc-amount','acc-note'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
-  document.getElementById('acc-type').value='銷售收款';
-  document.getElementById('acc-date').value=new Date().toISOString().slice(0,10);
-}
-function closeAccModal(e){if(!e||e.target===document.getElementById('acc-modal-overlay'))document.getElementById('acc-modal-overlay').classList.remove('open');}
-async function submitAccount(){
-  const type=document.getElementById('acc-type').value;
-  const amount=Number(document.getElementById('acc-amount').value);
-  if(!amount||amount<1){showToast('請填寫金額','error');return;}
-  const isIncome=type==='銷售收款'||type==='其他收入';
-  showToast('⟳ 新增中...','info');
-  try{
-    const r=await apiPost({action:'addAccount',key:ADMIN_KEY,
-      type,
-      partner:document.getElementById('acc-partner').value.trim(),
-      items:document.getElementById('acc-items').value.trim(),
-      income:isIncome?amount:0,
-      expense:isIncome?0:amount,
-      date:document.getElementById('acc-date').value,
-      note:document.getElementById('acc-note').value.trim(),
-      status:'已記錄'
-    });
-    if(r.ok){showToast('✅ 帳目已新增','success');closeAccModal();syncAll();}
-    else showToast('❌ '+(r.error||'新增失敗'),'error');
-  }catch(e){showToast('⚠️ 網路錯誤：'+e.message,'error');console.error(e);}
-}
-
-// ── 報表 CSV 匯出 ──
-function exportCsv(type){
-  let rows=[];let filename='';
-  const now=new Date().toLocaleDateString('zh-TW',{year:'2-digit',month:'2-digit',day:'2-digit'}).replace(/\//g,'');
-  if(type==='inventory'){
-    filename=`庫存現況_${now}.csv`;
-    rows=[['商品ID','商品名稱','分類','庫存量','零售價','進價','警示值','最後更新']];
-    cache.inventory.forEach(p=>rows.push([p.product_id||'',p.name||'',p.category||'',p.qty||0,p.retail_price||'',p.cost_price||'',p.threshold||'',p.updated_at||'']));
-  }else if(type==='stockIn'){
-    filename=`入庫記錄_${now}.csv`;
-    rows=[['時間','商品名稱','數量','進價','供應商','備註']];
-    cache.stockLog.filter(h=>h.type==='入庫').forEach(h=>rows.push([h.created_at||'',h.name||'',h.qty||0,h.price||'',h.partner||'',h.note||'']));
-  }else if(type==='stockOut'){
-    filename=`出庫記錄_${now}.csv`;
-    rows=[['時間','商品名稱','數量','售價','客戶','備註']];
-    cache.stockLog.filter(h=>h.type==='出庫').forEach(h=>rows.push([h.created_at||'',h.name||'',h.qty||0,h.price||'',h.partner||'',h.note||'']));
-  }else if(type==='orders'){
-    filename=`訂單報表_${now}.csv`;
-    rows=[['訂單ID','客戶姓名','電話','地址','總金額','付款方式','狀態','備註','建立時間']];
-    cache.orders.forEach(o=>rows.push([o.order_id||'',o.customer_name||'',o.phone||'',o.address||'',o.total||'',o.payment||'',o.status||'',o.note||'',o.created_at||'']));
-  }else if(type==='accounts'){
-    filename=`帳目報表_${now}.csv`;
-    rows=[['類型','對象','品項','收入','支出','日期','狀態']];
-    cache.accounts.forEach(a=>rows.push([a.type||'',a.partner||'',a.items||'',a.income||'',a.expense||'',a.date||'',a.status||'']));
-  }
-  if(!rows.length||rows.length<2){showToast('⚠️ 目前無資料可匯出','error');return;}
-  const bom='﻿';
-  const csv=bom+rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
-  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
-  const url=URL.createObjectURL(blob);const a=document.createElement('a');
-  a.href=url;a.download=filename;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
-  showToast('✅ 報表已下載','success');
 }
 
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
