@@ -193,7 +193,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab" onclick="switchTab('history')"><span class="tab-icon">📋</span>記錄</div>
   <div class="tab" onclick="switchTab('orders')"><span class="tab-icon">🛒</span>訂單</div>
   <div class="tab" onclick="switchTab('accounts')"><span class="tab-icon">💰</span>帳本</div>
-  <div class="tab" onclick="switchTab('regs')"><span class="tab-icon">📝</span>報名</div>
+  <div class="tab" onclick="switchTab('registrations')"><span class="tab-icon">📝</span>報名</div>
 </div>
 
 <!-- 總覽 -->
@@ -430,7 +430,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 <script>
 const GAS_URL='https://script.google.com/macros/s/AKfycbz4-pJ5jWtu9nevKDl98LxRqfwyVdGApEqEzcKKR9LDxanUM5BCneCZttkH3rkxLlUtYA/exec';
 const ADMIN_KEY='YANGCHING2025';
-let cache={products:[],inventory:[],stockLog:[],orders:[],accounts:[],balance:{},regs:[]};
+let cache={products:[],inventory:[],stockLog:[],orders:[],accounts:[],balance:{},registrations:[],members:[]};
 let invFilter='all',histFilter='all',orderFilter='all',accFilter='all',regFilter='all',memberFilter='all';
 let imgData={in:null};
 
@@ -764,7 +764,6 @@ async function uploadInImages(productId){
 }
 
 // ── 報名管理 ──
-let regFilter='all';
 function setRegFilter(f,el){
   regFilter=f;
   document.querySelectorAll('#page-registrations .chip').forEach(c=>c.classList.remove('active'));
