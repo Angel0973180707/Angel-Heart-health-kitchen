@@ -1,4 +1,4 @@
-const CACHE_NAME = 'inventory-pwa-v9';
+const CACHE_NAME = 'inventory-pwa-v10';
 const ASSETS = [
   './index.html',
   './manifest.json',
@@ -22,7 +22,8 @@ self.addEventListener('fetch', e => {
   const url = e.request.url;
   // GAS / Firebase 一律走網路，不快取
   if (url.includes('script.google.com') || url.includes('googleapis.com') ||
-      url.includes('firebasestorage') || url.includes('gstatic.com')) {
+      url.includes('firebasestorage') || url.includes('gstatic.com') ||
+      url.includes('firebaseapp.com') || url.includes('firebase.google.com')) {
     e.respondWith(fetch(e.request));
     return;
   }

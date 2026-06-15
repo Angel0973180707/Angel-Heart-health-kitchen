@@ -722,20 +722,40 @@ function showToast(msg,type='success'){const t=document.getElementById('toast');
 // ── Firebase 圖片上傳 ──
 const FB_CONFIG={apiKey:"AIzaSyD8DTzmzyuDFkrBMjGNZkJoN9fcY9_8mb4",authDomain:"happiness-smart-card-pro-7389a.firebaseapp.com",projectId:"happiness-smart-card-pro-7389a",storageBucket:"happiness-smart-card-pro-7389a.firebasestorage.app",messagingSenderId:"143313936007",appId:"1:143313936007:web:7c948563c51e8a47d3a222"};
 
-let fbApp=null,fbStorage=null,fbAuth=null;
+let fbApp=null,fbStorage=null,fbAuth=null,_fbInitPromise=null;
+
 async function initFB(){
-  if(fbApp)return;
-  const {initializeApp}=await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js');
-  const {getStorage}=await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js');
-  const {getAuth,signInAnonymously}=await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
-  fbApp=initializeApp(FB_CONFIG,'yc-app');
-  fbStorage=getStorage(fbApp);
-  fbAuth=getAuth(fbApp);
-  await signInAnonymously(fbAuth);
+  // 用 promise 鎖防止同時兩個呼叫重複建立 Firebase App
+  if(_fbInitPromise) return _fbInitPromise;
+  _fbInitPromise=(async()=>{
+    const [{initializeApp,getApps,getApp},
+           {getStorage},
+           {getAuth,signInAnonymously}]=await Promise.all([
+      import('https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js'),
+      import('https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js'),
+      import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js')
+    ]);
+    // 避免重複 initializeApp 同名 app 拋例外
+    fbApp=getApps().find(a=>a.name==='yc-app')||initializeApp(FB_CONFIG,'yc-app');
+    fbStorage=getStorage(fbApp);
+    fbAuth=getAuth(fbApp);
+    // 僅在尚未登入時執行匿名登入
+    if(!fbAuth.currentUser) await signInAnonymously(fbAuth);
+  })();
+  return _fbInitPromise;
 }
 
-async function uploadToFirebase(file, path){
+async function _ensureFbAuth(){
   await initFB();
+  // auth token 可能因閒置過久而遺失，重新確認
+  if(!fbAuth.currentUser){
+    const {signInAnonymously}=await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js');
+    await signInAnonymously(fbAuth);
+  }
+}
+
+async function uploadToFirebase(file,path){
+  await _ensureFbAuth();
   const {ref,uploadBytes,getDownloadURL}=await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js');
   const storageRef=ref(fbStorage,path);
   await uploadBytes(storageRef,file,{contentType:file.type||'image/jpeg',cacheControl:'public,max-age=31536000'});
@@ -770,7 +790,15 @@ async function uploadInImages(productId){
     try{
       const url=await uploadToFirebase(inImgFiles[i],path);
       urls.push(url);
-    }catch(e){console.error('圖片上傳失敗',e);}
+    }catch(e){
+      console.error('圖片上傳失敗',e);
+      const code=e.code||'';
+      if(code==='storage/unauthorized'){
+        showToast('⚠️ Firebase Storage 規則未授權（warehouse/ 路徑）','error');
+      } else {
+        showToast('⚠️ 圖片上傳失敗：'+(e.message||code),'error');
+      }
+    }
   }
   return urls;
 }
@@ -1074,12 +1102,12 @@ async function submitEvent(){
 async function uploadProductImg(productId, input){
   const file = input.files[0];
   if(!file) return;
+  if(!SESSION_TOKEN){ showToast('⚠️ 請先重新登入','error'); return; }
   showToast('⟳ 上傳圖片中...', 'info');
   try{
-    await initFB();
+    // uploadToFirebase 內部已呼叫 _ensureFbAuth，不需要再 initFB
     const path = `warehouse/${productId}/photo1_${Date.now()}.jpg`;
     const url = await uploadToFirebase(file, path);
-    // 更新 GAS 商品主檔 image_url
     const r = await apiPost({
       action: 'updateProduct',
       session_token: SESSION_TOKEN,
@@ -1091,11 +1119,18 @@ async function uploadProductImg(productId, input){
       closeModal();
       syncAll();
     } else {
-      showToast('❌ ' + r.error, 'error');
+      showToast('❌ GAS 更新失敗：' + r.error, 'error');
     }
   } catch(e){
-    showToast('⚠️ 上傳失敗：' + e.message, 'error');
-    console.error(e);
+    console.error('圖片上傳錯誤', e);
+    const code = e.code || '';
+    if(code === 'storage/unauthorized'){
+      showToast('⚠️ Firebase Storage 規則未授權（請確認 warehouse/ 路徑規則）', 'error');
+    } else if(code.startsWith('auth/')){
+      showToast('⚠️ Firebase 匿名登入失敗：' + code, 'error');
+    } else {
+      showToast('⚠️ 上傳失敗：' + (e.message || code || String(e)), 'error');
+    }
   }
 }
 
