@@ -277,10 +277,10 @@ function renderRegs(list){
 function openApprove(regId,name,feeType,feeAmt){
   currentRegId=regId;
   document.getElementById('approve-sub').textContent=`${name}・${feeType} NT$ ${Number(feeAmt).toLocaleString()}`;
-  document.getElementById('approve-bank').value='';
-  document.getElementById('approve-account').value='';
-  document.getElementById('approve-payee').value='';
-  document.getElementById('approve-note').value='';
+  document.getElementById('approve-bank').value='中華郵政 700';
+  document.getElementById('approve-account').value='0041336-0597692';
+  document.getElementById('approve-payee').value='李秀芳';
+  document.getElementById('approve-note').value='美心良田社區總體營造工作坊 心文明健康旅療專用帳戶';
   document.getElementById('modal-approve').classList.add('open');
 }
 
