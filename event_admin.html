@@ -157,6 +157,32 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   </div>
 </div>
 
+<!-- 確認收款 Modal -->
+<div class="modal-overlay" id="modal-confirm-pay">
+  <div class="modal">
+    <div class="modal-title">💰 確認收款</div>
+    <div class="modal-sub" id="confirm-pay-sub"></div>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal('modal-confirm-pay')">取消</button>
+      <button class="modal-confirm" onclick="submitConfirmPayment()">確認收款並產生文案</button>
+    </div>
+  </div>
+</div>
+
+<!-- 報名成功文案 Modal -->
+<div class="modal-overlay" id="modal-copy-msg">
+  <div class="modal">
+    <div class="modal-title">📋 報名成功文案</div>
+    <div class="modal-sub">複製後貼給學員</div>
+    <textarea id="copy-msg-text" readonly
+      style="width:100%;min-height:220px;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--rs);padding:12px;font-size:13px;font-family:var(--font);color:var(--text);line-height:1.8;resize:none;outline:none"></textarea>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal('modal-copy-msg')">關閉</button>
+      <button class="modal-confirm" onclick="copyMsg()">📋 複製文案</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -164,6 +190,8 @@ const GAS_URL='https://script.google.com/macros/s/AKfycbz4-pJ5jWtu9nevKDl98LxRqf
 
 let sessionToken=localStorage.getItem('event_admin_token')||'';
 let currentRegId='';
+let currentRegData=null;
+let eventsMap={};
 
 // ── 初始化 ──
 window.addEventListener('load',()=>{
@@ -220,6 +248,8 @@ async function loadEvents(){
         if(b.status==='報名中'&&a.status!=='報名中')return 1;
         return 0;
       });
+      eventsMap={};
+      sorted.forEach(e=>{ eventsMap[e.event_id]=e; });
       sel.innerHTML=sorted.map(e=>`<option value="${e.event_id}">[${e.status}] ${e.name}</option>`).join('');
       loadRegs();
     }else{
@@ -246,11 +276,14 @@ async function loadRegs(){
   }catch(e){showToast('載入失敗');}
 }
 
+let _regsCache=[];
 function renderRegs(list){
+  _regsCache=list;
   const el=document.getElementById('reg-list');
   if(!list.length){el.innerHTML='<div class="empty-state">沒有符合的報名記錄</div>';return;}
-  el.innerHTML=list.map(reg=>{
+  el.innerHTML=list.map((reg,idx)=>{
     const canAct=reg.fee_status==='申請中'||reg.fee_status==='待審核';
+    const canConfirm=reg.fee_status==='待付款';
     const canCancel=reg.fee_status!=='已取消'&&reg.fee_status!=='已完成';
     return `<div class="reg-card">
       <div class="reg-header">
@@ -261,13 +294,17 @@ function renderRegs(list){
       <div class="reg-row">費用：<span>${reg.fee_type} NT$ ${Number(reg.fee_amount||0).toLocaleString()}</span></div>
       <div class="reg-row">住宿：<span>${reg.accommodation||'不住宿'}</span></div>
       ${reg.note?`<div class="reg-row">備註：<span>${reg.note}</span></div>`:''}
-      <div class="reg-row" style="font-size:10px;color:var(--text-dim);margin-top:4px">${reg.id}</div>
+      <div class="reg-row" style="font-size:10px;color:var(--text-dim);margin-top:4px">${reg.reg_id||reg.id||''}</div>
       ${canAct?`<div class="reg-actions">
-        <button class="approve-btn" onclick="openApprove('${reg.id}','${reg.name}','${reg.fee_type}',${reg.fee_amount||0})">審核通過</button>
-        <button class="reject-btn" onclick="openReject('${reg.id}','${reg.name}')">未錄取</button>
+        <button class="approve-btn" onclick="openApprove('${reg.reg_id||reg.id}','${reg.name}','${reg.fee_type}',${reg.fee_amount||0})">審核通過</button>
+        <button class="reject-btn" onclick="openReject('${reg.reg_id||reg.id}','${reg.name}')">未錄取</button>
       </div>`:''}
-      ${(!canAct&&canCancel)?`<div class="reg-actions">
-        <button class="cancel-btn" onclick="doCancel('${reg.id}','${reg.name}')">取消報名</button>
+      ${canConfirm?`<div class="reg-actions">
+        <button class="approve-btn" onclick="openConfirmPayment(${idx})">💰 確認收款</button>
+        <button class="cancel-btn" onclick="doCancel('${reg.reg_id||reg.id}','${reg.name}')">取消報名</button>
+      </div>`:''}
+      ${(!canAct&&!canConfirm&&canCancel)?`<div class="reg-actions">
+        <button class="cancel-btn" onclick="doCancel('${reg.reg_id||reg.id}','${reg.name}')">取消報名</button>
       </div>`:''}
     </div>`;
   }).join('');
@@ -346,6 +383,74 @@ async function doCancel(regId,name){
     if(d.ok){showToast('已取消報名');loadRegs();}
     else showToast(d.error||'取消失敗');
   }catch(e){showToast('連線失敗');}
+}
+
+// ── 確認收款 ──
+function openConfirmPayment(idx){
+  currentRegData=_regsCache[idx];
+  currentRegId=currentRegData.reg_id||currentRegData.id;
+  const name=currentRegData.name;
+  const amt=Number(currentRegData.fee_amount||0).toLocaleString();
+  document.getElementById('confirm-pay-sub').textContent=`${name}・NT$ ${amt}`;
+  document.getElementById('modal-confirm-pay').classList.add('open');
+}
+
+async function submitConfirmPayment(){
+  const btn=document.querySelector('#modal-confirm-pay .modal-confirm');
+  btn.disabled=true;btn.textContent='處理中...';
+  try{
+    const r=await fetch(GAS_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'updateRegistration',session_token:sessionToken,
+        reg_id:currentRegId,fee_status:'已完成'})});
+    const d=await r.json();
+    if(d.auth_required){logout();return;}
+    if(d.ok){
+      closeModal('modal-confirm-pay');
+      showCopyMsg(currentRegData);
+      loadRegs();
+    }else{showToast(d.error||'操作失敗');}
+  }catch(e){showToast('連線失敗');}
+  btn.disabled=false;btn.textContent='確認收款並產生文案';
+}
+
+function showCopyMsg(reg){
+  const eid=document.getElementById('event-select').value;
+  const ev=eventsMap[eid]||{};
+  const name=reg.name||'';
+  const eventName=reg.event_name||ev.name||'';
+  const date=ev.date||'';
+  const location=ev.location||'';
+  const feeType=reg.fee_type||'';
+  const feeAmt=Number(reg.fee_amount||0).toLocaleString();
+  const accom=reg.accommodation||'不住宿';
+
+  const msg=`✅ 付款確認，報名成功！
+
+親愛的 ${name} 您好，
+
+您的付款已確認，報名手續正式完成！
+
+📋 報名資料
+活動：${eventName}${date?'\n日期：'+date:''}${location?'\n地點：'+location:''}
+住宿：${accom}
+費用：${feeType} NT$ ${feeAmt}
+
+🌿 感謝您的信任與支持，期待與您相見！
+如有任何問題，歡迎隨時透過 LINE 與我們聯繫。`;
+
+  document.getElementById('copy-msg-text').value=msg;
+  document.getElementById('modal-copy-msg').classList.add('open');
+}
+
+function copyMsg(){
+  const el=document.getElementById('copy-msg-text');
+  el.select();
+  navigator.clipboard.writeText(el.value).then(()=>{
+    showToast('✅ 已複製！');
+  }).catch(()=>{
+    document.execCommand('copy');
+    showToast('✅ 已複製！');
+  });
 }
 
 // ── 工具 ──
