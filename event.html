@@ -440,6 +440,7 @@ async function submitReg(){
       event_id:currentEvent.event_id,
       name,phone,
       address:document.getElementById('f-address').value.trim(),
+      gender:document.getElementById('f-gender').value,
       accommodation:document.getElementById('f-accommodation').value,
       fee_type:selectedFeeType,
       fee_amount:Number(feeAmount),

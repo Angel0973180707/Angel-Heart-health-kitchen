@@ -578,16 +578,33 @@ function goCheckout(){
 }
 function closeCheckout(){document.getElementById('checkout-screen').classList.remove('open');}
 
+const FREE_SHIP_THRESHOLD=1000;
+const SHIP_FEE=80;
+
+function calcShipping(subtotal){
+  return subtotal>=FREE_SHIP_THRESHOLD?0:SHIP_FEE;
+}
+
 function renderCheckoutItems(){
   const items=Object.values(cart);
-  const total=items.reduce((s,{product:p,qty})=>s+Number(p.retail_price)*qty,0);
+  const subtotal=items.reduce((s,{product:p,qty})=>s+Number(p.retail_price)*qty,0);
+  const shipFee=calcShipping(subtotal);
+  const total=subtotal+shipFee;
   document.getElementById('checkout-items').innerHTML=
     items.map(({product:p,qty})=>`
       <div class="order-summary-item">
         <span class="order-item-name">${p.name} × ${qty}</span>
         <span class="order-item-price">NT$ ${(Number(p.retail_price)*qty).toLocaleString()}</span>
       </div>`).join('')+
-    `<div class="order-total-row">
+    `<div class="order-summary-item" style="color:var(--text-mid)">
+      <span class="order-item-name">商品小計</span>
+      <span class="order-item-price">NT$ ${subtotal.toLocaleString()}</span>
+    </div>
+    <div class="order-summary-item" style="color:var(--text-mid)">
+      <span class="order-item-name">運費${shipFee===0?'（滿 NT$'+FREE_SHIP_THRESHOLD.toLocaleString()+' 免運）':''}</span>
+      <span class="order-item-price" style="${shipFee===0?'color:var(--green-soft)':''}">${shipFee===0?'免運':'NT$ '+shipFee.toLocaleString()}</span>
+    </div>
+    <div class="order-total-row">
       <span class="order-total-label">合計</span>
       <span class="order-total-val">NT$ ${total.toLocaleString()}</span>
     </div>`;
@@ -628,7 +645,6 @@ async function submitOrder(){
       phone,
       address:document.getElementById('f-address').value.trim(),
       items:itemsJson,
-      total,
       payment:selectedPayment,
       note:document.getElementById('f-note').value.trim()
     }).toString());
@@ -636,10 +652,11 @@ async function submitOrder(){
     if(data.ok){
       document.getElementById('checkout-screen').classList.remove('open');
       const orderId=data.order_id;
+      const finalTotal=data.total||0;
       document.getElementById('success-order-id').textContent='訂單編號：'+orderId;
       if(selectedPayment==='ATM轉帳'){
         document.getElementById('success-atm').style.display='block';
-        document.getElementById('success-amount').textContent='NT$ '+total.toLocaleString();
+        document.getElementById('success-amount').textContent='NT$ '+Number(finalTotal).toLocaleString()+(data.shipping_fee>0?' （含運費 NT$ '+data.shipping_fee+'）':'（免運）');
         document.getElementById('success-steps').style.display='block';
       }
       document.getElementById('success-screen').classList.add('open');
@@ -671,6 +688,7 @@ function showToast(msg,type=''){
 
 // ── 訂單查詢 ──
 function openQueryScreen(){
+  document.getElementById('success-screen').classList.remove('open');
   document.getElementById('query-screen').classList.add('open');
   document.getElementById('query-result').innerHTML='';
   document.getElementById('query-phone').value='';
@@ -686,8 +704,7 @@ async function queryOrders(){
     const r=await fetch(GAS_URL+'?action=getOrders&phone='+encodeURIComponent(phone));
     const data=await r.json();
     if(!data.ok){el.innerHTML='<div class="empty-state"><div class="empty-icon">😔</div><div class="empty-text">查詢失敗，請重試</div></div>';return;}
-    // filter by phone
-    const orders=(data.data||[]).filter(o=>o.phone===phone);
+    const orders=(data.data||[]).filter(o=>String(o.phone)===String(phone));
     if(!orders.length){
       el.innerHTML='<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-text">查無訂單<br><span style="font-size:12px">請確認手機號碼是否正確</span></div></div>';
       return;
@@ -697,10 +714,16 @@ async function queryOrders(){
 }
 
 function orderQueryCard(o){
-  const statusColor={'待確認':'#C8962A','已確認':'#2D7A4A','已出貨':'#2D7A4A','已完成':'#2D7A4A','已取消':'#C94A3A'};
+  const statusColor={'待確認':'#C8962A','已確認':'#2D7A4A','已出貨':'#2D7A4A','已完成':'#2D7A4A','已取消':'#C94A3A','已付款':'#2D7A4A'};
   const col=statusColor[o.status]||'#4A5C4E';
   const isATM=o.payment==='ATM轉帳';
   const needReport=isATM&&(o.status==='待確認');
+  const canCancel=o.status!=='已完成'&&o.status!=='已取消'&&o.status!=='已出貨';
+  const subtotal=Number(o.subtotal)||Number(o.total)||0;
+  const shipFee=Number(o.shipping_fee)||0;
+  const priceDetail=shipFee>0
+    ?`商品 NT$ ${subtotal.toLocaleString()} ＋ 運費 NT$ ${shipFee.toLocaleString()}`
+    :`商品 NT$ ${subtotal.toLocaleString()}（免運）`;
   return `
   <div style="background:#fff;border:1.5px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -709,8 +732,9 @@ function orderQueryCard(o){
     </div>
     <div style="font-size:15px;font-weight:700;margin-bottom:4px">${o.customer_name} 的訂單</div>
     <div style="font-size:13px;color:var(--text-mid);margin-bottom:4px">💳 ${o.payment}</div>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">${priceDetail}</div>
     <div style="font-size:16px;font-weight:800;color:var(--green-dark);margin-bottom:12px">NT$ ${Number(o.total).toLocaleString()}</div>
-    <div style="font-size:12px;color:var(--text-dim);margin-bottom:${needReport?'14px':'0'}">${o.created_at?o.created_at.slice(0,10):''}</div>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:${needReport||canCancel?'14px':'0'}">${o.created_at?o.created_at.slice(0,10):''}</div>
     ${needReport?`
     <div style="background:#f0f7f2;border-radius:8px;padding:12px;margin-bottom:12px">
       <div style="font-size:12px;font-weight:700;color:var(--green-dark);margin-bottom:8px">📮 回報匯款末5碼</div>
@@ -718,13 +742,23 @@ function orderQueryCard(o){
       <input type="number" id="code-${o.order_id}" placeholder="請輸入末5碼" maxlength="5"
         style="width:100%;background:#fff;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-size:16px;text-align:center;letter-spacing:4px;outline:none;font-family:var(--font-body);margin-bottom:10px"
         oninput="this.value=this.value.slice(0,5)">
-      <a id="line-btn-${o.order_id}" href="#"
-        onclick="return buildLineLink('${o.order_id}')"
+      <a href="#" onclick="return buildLineLink('${o.order_id}')"
         style="display:block;padding:13px;background:#06C755;border-radius:8px;color:#fff;font-size:15px;font-weight:700;text-align:center;text-decoration:none">
         📲 一鍵傳送到 LINE
       </a>
     </div>`:''}
+    ${canCancel?`
+    <div style="text-align:right">
+      <a href="#" onclick="return requestCancelOrder('${o.order_id}')"
+        style="font-size:12px;color:var(--text-dim);text-decoration:underline">申請取消訂單</a>
+    </div>`:''}
   </div>`;
+}
+
+function requestCancelOrder(orderId){
+  const msg=encodeURIComponent(`您好，我想取消訂單\n訂單編號：${orderId}\n請協助處理，謝謝！`);
+  window.open(`https://lin.ee/tMag2XG?msg=${msg}`,'_blank');
+  return false;
 }
 
 function buildLineLink(orderId){
@@ -737,14 +771,6 @@ ATM 匯款末5碼：${code}
   window.open(`https://lin.ee/tMag2XG?msg=${msg}`,'_blank');
   return false;
 }
-
-function openQueryScreen(){
-  document.getElementById('success-screen').classList.remove('open');
-  document.getElementById('query-screen').classList.add('open');
-  document.getElementById('query-result').innerHTML='';
-  document.getElementById('query-phone').value='';
-}
-function closeQueryScreen(){document.getElementById('query-screen').classList.remove('open');}
 
 // init
 loadProducts();

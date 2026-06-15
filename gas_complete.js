@@ -43,7 +43,8 @@ const SHEET = {
   REGISTRATIONS: '報名記錄',
   MEMBERS:       '會員',
   POINTS_LOG:    '點數記錄',
-  RETURNS:       '退貨記錄'
+  RETURNS:       '退貨記錄',
+  SETTINGS:      '系統設定'
 };
 
 // 欄位索引（0起算）
@@ -54,35 +55,107 @@ const COL = {
   },
   INVENTORY: { ID:0, NAME:1, QTY:2, UPDATED:3 },
   STOCK_LOG: { ID:0, PID:1, NAME:2, TYPE:3, QTY:4, PRICE:5, PARTNER:6, NOTE:7, CREATED:8 },
-  ORDERS:    { ID:0, CNAME:1, PHONE:2, ADDRESS:3, ITEMS:4, TOTAL:5, PAYMENT:6, STATUS:7, NOTE:8, CREATED:9 },
+  ORDERS: {
+    ID:0, CNAME:1, PHONE:2, ADDRESS:3, ITEMS:4, TOTAL:5, PAYMENT:6, STATUS:7, NOTE:8, CREATED:9,
+    SUBTOTAL:10, SHIPPING_FEE:11, COUPON_CODE:12,
+    CANCELLED_BY:13, CANCELLED_AT:14, CANCEL_REASON:15
+  },
   ACCOUNTS:  { ID:0, DATE:1, TYPE:2, PARTNER:3, ITEMS:4, INCOME:5, EXPENSE:6, PAYMENT:7, STATUS:8, NOTE:9, CREATED:10 },
   BALANCE:   { ITEM:0, AMOUNT:1, UPDATED:2 },
   EVENTS: {
     ID:0, NAME:1, DATE:2, LOCATION:3, DESC:4, CAPACITY:5, REGISTERED:6,
     ACCOM_QUOTA:7, NO_ACCOM_QUOTA:8, FEE_SINGLE:9, FEE_YEARLY:10, FEE_HALF:11,
-    STATUS:12, CREATED:13, IMAGE:14
+    STATUS:12, CREATED:13, IMAGE:14, ACCOM_REGISTERED:15, NO_ACCOM_REGISTERED:16
   },
   REGISTRATIONS: {
     ID:0, EID:1, ENAME:2, NAME:3, PHONE:4, ADDRESS:5, FEE_TYPE:6,
     FEE_AMOUNT:7, FEE_STATUS:8, HEALTH:9, RELIGION:10, SKILLS:11,
-    EMERGENCY_NAME:12, EMERGENCY_PHONE:13, ACCOMMODATION:14, NOTE:15, CREATED:16
+    EMERGENCY_NAME:12, EMERGENCY_PHONE:13, ACCOMMODATION:14, NOTE:15, CREATED:16,
+    GENDER:17, CANCELLED_BY:18, CANCELLED_AT:19
   },
-  MEMBERS:    { ID:0, NAME:1, PHONE:2, BIRTHDAY:3, POINTS:4, TOTAL_SPENT:5, JOINED:6, NOTE:7 },
+  MEMBERS: {
+    ID:0, NAME:1, PHONE:2, BIRTHDAY:3, POINTS:4, TOTAL_SPENT:5, JOINED:6, NOTE:7,
+    MEMBER_LEVEL:8, ANNUAL_SPEND:9, LEVEL_UPDATED_AT:10, BIRTH_DISC_YEAR:11
+  },
   POINTS_LOG: { ID:0, PHONE:1, NAME:2, ACTION:3, POINTS:4, BALANCE:5, NOTE:6, CREATED:7 },
   RETURNS: {
     ID:0, ORDER_ID:1, PHONE:2, NAME:3, PRODUCT_ID:4, PRODUCT_NAME:5,
     QTY:6, REFUND_AMOUNT:7, PAYMENT:8, REASON:9, POINTS_DEDUCTED:10,
     STATUS:11, NOTE:12, CREATED:13
-  }
+  },
+  SETTINGS: { KEY:0, VALUE:1, DESC:2, UPDATED:3 }
 };
 
 const DATA_ROW = 3;
+
+// 系統設定預設值（後台可覆寫）
+const SETTING_DEFAULTS = {
+  shipping_fee:             { value: 80,    desc: '宅配運費（NT$）' },
+  free_shipping_threshold:  { value: 1000,  desc: '免運門檻商品小計（NT$）' },
+  points_earn_rate:         { value: 100,   desc: '消費多少元得1點（運費不計）' },
+  points_redeem_min:        { value: 100,   desc: '最低可兌換點數' },
+  points_redeem_max_rate:   { value: 0.2,   desc: '最高折抵商品金額比例（0.2=20%）' },
+  points_expiry_days:       { value: 365,   desc: '點數效期天數' },
+  birthday_discount_rate:   { value: 0.05,  desc: '生日折扣（0.05=95折）' },
+  birthday_discount_max:    { value: 100,   desc: '生日最高折抵金額（NT$）' },
+  birthday_member_min_days: { value: 30,    desc: '會員建立滿幾天才有生日優惠' },
+  low_stock_notify_hour:    { value: 9,     desc: '低庫存通知時間（整點）' }
+};
+
+// 讀取設定 Map（未設定者用預設值）
+function getSettingsMap_() {
+  try {
+    const rows = getRows(SHEET.SETTINGS);
+    const map  = {};
+    rows.forEach(r => { if (r[COL.SETTINGS.KEY]) map[String(r[COL.SETTINGS.KEY])] = r[COL.SETTINGS.VALUE]; });
+    Object.entries(SETTING_DEFAULTS).forEach(([k, v]) => { if (!(k in map)) map[k] = v.value; });
+    return map;
+  } catch(e) {
+    const map = {};
+    Object.entries(SETTING_DEFAULTS).forEach(([k, v]) => { map[k] = v.value; });
+    return map;
+  }
+}
 
 // ================================================================
 // 入口
 // ================================================================
 function doGet(e)  { return handleRequest(e); }
-function doPost(e) { return handleRequest(e); }
+function doPost(e) {
+  try {
+    const body = e.postData ? JSON.parse(e.postData.contents || '{}') : {};
+    if (Array.isArray(body.events)) { return handleLineWebhook(body); }
+  } catch(err) {}
+  return handleRequest(e);
+}
+
+function handleLineWebhook(body) {
+  (body.events || []).forEach(function(event) {
+    if (event.type !== 'message') return;
+    var props     = PropertiesService.getScriptProperties();
+    var ownerName = props.getProperty('OWNER_NAME') || '養清倉管-幸福緣手作';
+    var autoReply = props.getProperty('AUTO_REPLY') === 'true';
+    var timeStr   = Utilities.formatDate(new Date(event.timestamp), 'Asia/Taipei', 'MM/dd HH:mm');
+    var msgType   = event.message.type;
+    var content   = msgType === 'text' ? event.message.text
+                  : msgType === 'image' ? '【傳送了一張圖片】'
+                  : msgType === 'sticker' ? '【傳送了一個貼圖】'
+                  : '【傳送了' + msgType + '】';
+    sendLineMsg('📩 ' + ownerName + ' 收到新訊息\n時間：' + timeStr + '\n顧客說：' + content);
+    if (autoReply && event.replyToken) {
+      var token = props.getProperty('LINE_TOKEN') || '';
+      if (token) {
+        UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
+          method: 'post',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+          payload: JSON.stringify({ replyToken: event.replyToken, messages: [{ type: 'text', text: '您好！訊息已收到，我們會儘快回覆您。' }] }),
+          muteHttpExceptions: true
+        });
+      }
+    }
+  });
+  return ContentService.createTextOutput(JSON.stringify({ status: 'ok' })).setMimeType(ContentService.MimeType.JSON);
+}
 
 function handleRequest(e) {
   try {
@@ -94,13 +167,16 @@ function handleRequest(e) {
     const adminActions = [
       'addProduct','updateProduct','deleteProduct',
       'stockIn','stockOut','syncInventory',
-      'getOrders','updateOrder','confirmOrderPayment',
+      'getOrders','updateOrder','confirmOrderPayment','cancelOrder','applyPointsDiscount',
       'getAccounts','addAccount','updateAccount',
       'getBalance','refreshBalance',
       'addEvent','updateEvent','deleteEvent',
-      'getRegistrations','updateRegistration',
+      'getRegistrations','updateRegistration','approveRegistration','cancelRegistration',
       'updateMember','addPoints','getPointsLog',
-      'addReturn','getReturns','updateReturn'
+      'addReturn','getReturns','updateReturn',
+      'updateSetting',
+      'getMonthlyReport','getSalesRanking','getInventoryHealth','getMemberStats',
+      'sendLowStockNotification','installTriggers'
     ];
 
     if (adminActions.includes(action) && !validateSession_(p.session_token)) {
@@ -120,37 +196,51 @@ function handleRequest(e) {
 
       case 'getStockLog':        return res(getStockLog(p));
 
-      case 'getOrders':          return res(getOrders(p));
-      case 'addOrder':           return res(addOrder(p));
-      case 'updateOrder':        return res(updateOrder(p));
+      case 'getOrders':              return res(getOrders(p));
+      case 'addOrder':               return res(addOrder(p));
+      case 'updateOrder':            return res(updateOrder(p));
+      case 'cancelOrder':            return res(cancelOrder(p));
+      case 'confirmOrderPayment':    return res(confirmOrderPayment(p));
+      case 'applyPointsDiscount':    return res(applyPointsDiscount(p));
 
-      case 'getAccounts':        return res(getAccounts(p));
-      case 'addAccount':         return res(addAccount(p));
-      case 'updateAccount':      return res(updateAccount(p));
-      case 'getBalance':         return res(getBalance());
-      case 'refreshBalance':     return res(refreshBalance());
+      case 'getAccounts':            return res(getAccounts(p));
+      case 'addAccount':             return res(addAccount(p));
+      case 'updateAccount':          return res(updateAccount(p));
+      case 'getBalance':             return res(getBalance());
+      case 'refreshBalance':         return res(refreshBalance());
 
-      case 'getEvents':          return res(getEvents(p));
-      case 'addEvent':           return res(addEvent(p));
-      case 'updateEvent':        return res(updateEvent(p));
-      case 'deleteEvent':        return res(deleteEvent(p));
+      case 'getEvents':              return res(getEvents(p));
+      case 'addEvent':               return res(addEvent(p));
+      case 'updateEvent':            return res(updateEvent(p));
+      case 'deleteEvent':            return res(deleteEvent(p));
 
-      case 'getRegistrations':   return res(getRegistrations(p));
-      case 'addRegistration':    return res(addRegistration(p));
-      case 'updateRegistration': return res(updateRegistration(p));
+      case 'getRegistrations':       return res(getRegistrations(p));
+      case 'addRegistration':        return res(addRegistration(p));
+      case 'updateRegistration':     return res(updateRegistration(p));
+      case 'approveRegistration':    return res(approveRegistration(p));
+      case 'cancelRegistration':     return res(cancelRegistration(p));
 
-      case 'getMember':          return res(getMember(p));
-      case 'registerMember':     return res(registerMember(p));
-      case 'updateMember':       return res(updateMember(p));
-      case 'addPoints':          return res(addPoints(p));
-      case 'getPointsLog':       return res(getPointsLog(p));
+      case 'getMember':              return res(getMember(p));
+      case 'registerMember':         return res(registerMember(p));
+      case 'updateMember':           return res(updateMember(p));
+      case 'addPoints':              return res(addPoints(p));
+      case 'getPointsLog':           return res(getPointsLog(p));
 
-      case 'confirmOrderPayment': return res(confirmOrderPayment(p));
-      case 'addReturn':          return res(addReturn(p));
-      case 'getReturns':         return res(getReturns(p));
-      case 'updateReturn':       return res(updateReturn(p));
+      case 'addReturn':              return res(addReturn(p));
+      case 'getReturns':             return res(getReturns(p));
+      case 'updateReturn':           return res(updateReturn(p));
 
-      case 'loginAdmin':         return res(loginAdmin(p));
+      case 'getSettings':            return res(getSettings());
+      case 'updateSetting':          return res(updateSetting(p));
+
+      case 'getMonthlyReport':       return res(getMonthlyReport(p));
+      case 'getSalesRanking':        return res(getSalesRanking(p));
+      case 'getInventoryHealth':     return res(getInventoryHealth(p));
+      case 'getMemberStats':         return res(getMemberStats());
+      case 'sendLowStockNotification': return res(sendLowStockNotification());
+      case 'installTriggers':        return res(installTriggers());
+
+      case 'loginAdmin':             return res(loginAdmin(p));
       default:
         return res({ ok: false, error: '未知動作: ' + action });
     }
@@ -412,10 +502,17 @@ function getOrders(p) {
     payment:       r[c.PAYMENT],
     status:        r[c.STATUS],
     note:          r[c.NOTE],
-    created_at:    r[c.CREATED]
+    created_at:    r[c.CREATED],
+    subtotal:      r[c.SUBTOTAL]      || r[c.TOTAL] || 0,
+    shipping_fee:  r[c.SHIPPING_FEE]  || 0,
+    coupon_code:   r[c.COUPON_CODE]   || '',
+    cancelled_by:  r[c.CANCELLED_BY]  || '',
+    cancelled_at:  r[c.CANCELLED_AT]  || '',
+    cancel_reason: r[c.CANCEL_REASON] || ''
   })).filter(x => x.order_id);
 
   if (p.status) list = list.filter(x => x.status === p.status);
+  if (p.phone)  list = list.filter(x => String(x.phone) === String(p.phone));
   list.reverse();
   return { ok: true, data: list };
 }
@@ -425,22 +522,46 @@ const ORDER_TOKEN = 'YC_SHOP_2026';
 function addOrder(p) {
   if (p.token !== ORDER_TOKEN) return { ok: false, error: '驗證失敗' };
   if (!p.customer_name || !p.phone || !p.items) return { ok: false, error: '缺少必要欄位' };
+
+  // 庫存檢查
+  let items;
+  try { items = JSON.parse(p.items); } catch(e) { return { ok: false, error: '訂單資料格式錯誤' }; }
+  for (const item of items) {
+    const inv = findRow(SHEET.INVENTORY, COL.INVENTORY.ID, item.product_id);
+    if (!inv) return { ok: false, error: `商品「${item.name||item.product_id}」不存在` };
+    const stock = parseInt(inv.row[COL.INVENTORY.QTY]) || 0;
+    if (stock < item.qty) {
+      return { ok: false, error: `「${item.name||item.product_id}」庫存不足（剩餘 ${stock} 件，需要 ${item.qty} 件）` };
+    }
+  }
+
+  // 計算小計與運費
+  const settings = getSettingsMap_();
+  const subtotal  = items.reduce((sum, it) => sum + (Number(it.price)||0) * (Number(it.qty)||0), 0);
+  const freeThres = Number(settings.free_shipping_threshold) || 1000;
+  const shipFee   = subtotal >= freeThres ? 0 : (Number(settings.shipping_fee) || 80);
+  const total     = subtotal + shipFee;
+
   const id = 'ORD' + Date.now();
-  getSheet(SHEET.ORDERS).appendRow([
+  const sheet = getSheet(SHEET.ORDERS);
+  sheet.appendRow([
     id, p.customer_name, p.phone, p.address||'',
-    p.items, p.total||0, p.payment||'ATM轉帳',
-    '待確認', p.note||'', now()
+    p.items, total, p.payment||'ATM轉帳',
+    '待確認', p.note||'', now(),
+    subtotal, shipFee, p.coupon_code||'',
+    '', '', ''
   ]);
-  sendLineMsg(`🛒 新訂單！\n客人：${p.customer_name}\n電話：${p.phone}\n金額：NT$ ${Number(p.total||0).toLocaleString()}\n付款：${p.payment||'ATM轉帳'}\n備註：${p.note||'無'}\n時間：${now()}`);
+  sheet.getRange(sheet.getLastRow(), COL.ORDERS.PHONE+1).setNumberFormat('@').setValue(p.phone||'');
+  sendLineMsg(`🛒 新訂單！\n客人：${p.customer_name}\n電話：${p.phone}\n小計：NT$ ${subtotal.toLocaleString()}${shipFee>0?' 運費：NT$ '+shipFee:' 免運'}\n合計：NT$ ${total.toLocaleString()}\n付款：${p.payment||'ATM轉帳'}\n備註：${p.note||'無'}\n時間：${now()}`);
   if (p.auto_deduct === 'true') {
     try {
-      JSON.parse(p.items).forEach(item => {
+      items.forEach(item => {
         stockOut({ product_id: item.product_id, qty: item.qty,
                    price: item.price, partner: p.customer_name, note: '訂單:'+id });
       });
     } catch(e) {}
   }
-  return { ok: true, order_id: id };
+  return { ok: true, order_id: id, subtotal, shipping_fee: shipFee, total };
 }
 
 function updateOrder(p) {
@@ -470,6 +591,70 @@ function updateOrder(p) {
     } catch(e) {}
   }
   return { ok: true };
+}
+
+function cancelOrder(p) {
+  if (!p.order_id) return { ok: false, error: '缺少 order_id' };
+  const found = findRow(SHEET.ORDERS, COL.ORDERS.ID, p.order_id);
+  if (!found) return { ok: false, error: '找不到訂單' };
+  const order = found.row;
+  const c = COL.ORDERS;
+  const status = String(order[c.STATUS]);
+  if (status === '已完成' || status === '已取消') {
+    return { ok: false, error: `此訂單狀態「${status}」無法取消` };
+  }
+  const sheet = getSheet(SHEET.ORDERS);
+  const rn = found.rowNum;
+  sheet.getRange(rn, c.STATUS+1).setValue('已取消');
+  sheet.getRange(rn, c.CANCELLED_BY+1).setValue(p.cancelled_by || '管理員');
+  sheet.getRange(rn, c.CANCELLED_AT+1).setValue(now());
+  sheet.getRange(rn, c.CANCEL_REASON+1).setValue(p.cancel_reason || '');
+  sendLineMsg(`❌ 訂單取消\n訂單：${p.order_id}\n客人：${order[c.CNAME]}\n原因：${p.cancel_reason||'—'}\n時間：${now()}`);
+  return { ok: true };
+}
+
+function applyPointsDiscount(p) {
+  if (!p.order_id || !p.phone || !p.points_to_use) return { ok: false, error: '缺少必要欄位' };
+  const ptsUse = parseInt(p.points_to_use);
+  if (isNaN(ptsUse) || ptsUse <= 0) return { ok: false, error: '點數數量無效' };
+
+  const found = findRow(SHEET.ORDERS, COL.ORDERS.ID, p.order_id);
+  if (!found) return { ok: false, error: '找不到訂單' };
+  const order = found.row;
+  const c = COL.ORDERS;
+  if (String(order[c.STATUS]) === '已取消') return { ok: false, error: '訂單已取消' };
+
+  const settings = getSettingsMap_();
+  const minPts   = Number(settings.points_redeem_min)      || 100;
+  const maxRate  = Number(settings.points_redeem_max_rate)  || 0.2;
+  if (ptsUse < minPts) return { ok: false, error: `最少需使用 ${minPts} 點` };
+
+  // 讀取會員點數
+  const memRows = getRows(SHEET.MEMBERS);
+  const cm = COL.MEMBERS;
+  const memIdx = memRows.findIndex(r => String(r[cm.PHONE]) === String(p.phone));
+  if (memIdx < 0) return { ok: false, error: '找不到會員' };
+  const mem = memRows[memIdx];
+  const balance = Number(mem[cm.POINTS]) || 0;
+  if (balance < ptsUse) return { ok: false, error: `點數不足（現有 ${balance} 點）` };
+
+  const subtotal = Number(order[c.SUBTOTAL]) || Number(order[c.TOTAL]) || 0;
+  const maxDisc  = Math.floor(subtotal * maxRate);
+  if (ptsUse > maxDisc) return { ok: false, error: `最多可折抵 ${maxDisc} 點（商品金額的 ${Math.round(maxRate*100)}%）` };
+
+  // 扣點並更新訂單
+  const newBal = balance - ptsUse;
+  const sheet = getSheet(SHEET.ORDERS);
+  const newTotal = Math.max(0, Number(order[c.TOTAL]) - ptsUse);
+  sheet.getRange(found.rowNum, c.TOTAL+1).setValue(newTotal);
+  sheet.getRange(found.rowNum, c.NOTE+1).setValue((order[c.NOTE]||'') + ` [折抵${ptsUse}點]`);
+
+  const memSheet = getSheet(SHEET.MEMBERS);
+  memSheet.getRange(DATA_ROW + memIdx, cm.POINTS+1).setValue(newBal);
+  const logSheet = getSheet(SHEET.POINTS_LOG);
+  if (logSheet) logSheet.appendRow(['PT'+Date.now(), p.phone, mem[cm.NAME], '折抵消費', -ptsUse, newBal, '訂單折抵：'+p.order_id, now()]);
+
+  return { ok: true, points_used: ptsUse, new_total: newTotal, new_points_balance: newBal };
 }
 
 // ================================================================
@@ -591,9 +776,11 @@ function getEvents(p) {
     fee_single:     r[c.FEE_SINGLE],
     fee_yearly:     r[c.FEE_YEARLY],
     fee_half:       r[c.FEE_HALF],
-    status:         r[c.STATUS],
-    created_at:     r[c.CREATED],
-    image_url:      r[c.IMAGE] || ''
+    status:              r[c.STATUS],
+    created_at:          r[c.CREATED],
+    image_url:           r[c.IMAGE] || '',
+    accom_registered:    Number(r[c.ACCOM_REGISTERED])    || 0,
+    no_accom_registered: Number(r[c.NO_ACCOM_REGISTERED]) || 0
   })).filter(x => x.event_id);
 
   if (p.status) list = list.filter(x => x.status === p.status);
@@ -609,7 +796,7 @@ function addEvent(p) {
     p.accom_quota||0, p.no_accom_quota||0,
     p.fee_single||12000, p.fee_yearly||120000, p.fee_half||132000,
     p.status||'報名中', now(),
-    p.image_url||''
+    p.image_url||'', 0, 0
   ]);
   return { ok: true, event_id: id };
 }
@@ -665,7 +852,10 @@ function getRegistrations(p) {
     emergency_phone: r[c.EMERGENCY_PHONE],
     accommodation:   r[c.ACCOMMODATION],
     note:            r[c.NOTE],
-    created_at:      r[c.CREATED]
+    created_at:      r[c.CREATED],
+    gender:          r[c.GENDER]       || '',
+    cancelled_by:    r[c.CANCELLED_BY] || '',
+    cancelled_at:    r[c.CANCELLED_AT] || ''
   })).filter(x => x.reg_id);
 
   if (p.event_id)   list = list.filter(x => x.event_id   === p.event_id);
@@ -691,16 +881,31 @@ function addRegistration(p) {
                     feeType === '半年繳' ? (event[c.FEE_HALF]   || 132000) :
                                            (event[c.FEE_SINGLE] || 12000);
   const id = genId('R');
-  getSheet(SHEET.REGISTRATIONS).appendRow([
+  const regSheet = getSheet(SHEET.REGISTRATIONS);
+  regSheet.appendRow([
     id, p.event_id, event[c.NAME],
     p.name, p.phone, p.address||'',
-    feeType, feeAmount, '待審核',
+    feeType, feeAmount, '申請中',
     p.health||'', p.religion||'', p.skills||'',
     p.emergency_name||'', p.emergency_phone||'',
-    p.accommodation||'不住宿', p.note||'', now()
+    p.accommodation||'不住宿', p.note||'', now(),
+    p.gender||'', '', ''
   ]);
-  getSheet(SHEET.EVENTS).getRange(found.rowNum, c.REGISTERED+1).setValue(registered + 1);
-  sendLineMsg(`📅 新報名！\n活動：${event[c.NAME]}\n姓名：${p.name}\n電話：${p.phone}\n住宿：${p.accommodation||'不住宿'}\n繳費：${feeType} NT$ ${Number(feeAmount).toLocaleString()}\n時間：${now()}`);
+  const lastReg = regSheet.getLastRow();
+  regSheet.getRange(lastReg, COL.REGISTRATIONS.PHONE+1).setNumberFormat('@').setValue(p.phone||'');
+  regSheet.getRange(lastReg, COL.REGISTRATIONS.EMERGENCY_PHONE+1).setNumberFormat('@').setValue(p.emergency_phone||'');
+  const evSheet = getSheet(SHEET.EVENTS);
+  evSheet.getRange(found.rowNum, c.REGISTERED+1).setValue(registered + 1);
+  // 住宿/不住宿名額分開追蹤
+  const accom = p.accommodation || '不住宿';
+  if (accom === '住宿') {
+    const cur = parseInt(event[c.ACCOM_REGISTERED]) || 0;
+    evSheet.getRange(found.rowNum, c.ACCOM_REGISTERED+1).setValue(cur + 1);
+  } else {
+    const cur = parseInt(event[c.NO_ACCOM_REGISTERED]) || 0;
+    evSheet.getRange(found.rowNum, c.NO_ACCOM_REGISTERED+1).setValue(cur + 1);
+  }
+  sendLineMsg(`📅 新報名！\n活動：${event[c.NAME]}\n姓名：${p.name}\n電話：${p.phone}\n住宿：${accom}\n繳費：${feeType} NT$ ${Number(feeAmount).toLocaleString()}\n時間：${now()}`);
   return { ok: true, reg_id: id, fee_amount: feeAmount };
 }
 
@@ -714,9 +919,8 @@ function updateRegistration(p) {
   if (p.fee_status    !== undefined) sheet.getRange(rn, c.FEE_STATUS+1).setValue(p.fee_status);
   if (p.note          !== undefined) sheet.getRange(rn, c.NOTE+1).setValue(p.note);
   if (p.accommodation !== undefined) sheet.getRange(rn, c.ACCOMMODATION+1).setValue(p.accommodation);
-  if (p.fee_status === '已繳費') {
+  if (p.fee_status === '已付款') {
     addAccount({
-
       date: today(), type: '銷售收款',
       partner: found.row[c.NAME],
       items: '活動報名費 ' + found.row[c.ENAME],
@@ -725,6 +929,70 @@ function updateRegistration(p) {
     });
     refreshBalance();
   }
+  return { ok: true };
+}
+
+function approveRegistration(p) {
+  if (!p.reg_id) return { ok: false, error: '缺少 reg_id' };
+  const found = findRow(SHEET.REGISTRATIONS, COL.REGISTRATIONS.ID, p.reg_id);
+  if (!found) return { ok: false, error: '找不到報名記錄' };
+  const reg  = found.row;
+  const c    = COL.REGISTRATIONS;
+  const stat = String(reg[c.FEE_STATUS]);
+  if (stat !== '申請中' && stat !== '待審核') return { ok: false, error: `目前狀態「${stat}」不可審核` };
+  const newStatus = p.approved === 'true' ? '審核通過' : '未錄取';
+  const sheet = getSheet(SHEET.REGISTRATIONS);
+  sheet.getRange(found.rowNum, c.FEE_STATUS+1).setValue(newStatus);
+  if (p.note !== undefined) sheet.getRange(found.rowNum, c.NOTE+1).setValue(p.note);
+
+  if (newStatus === '審核通過') {
+    // 推 LINE 通知申請人（LINE OA 廣播）
+    const feeName = reg[c.FEE_TYPE];
+    const feeAmt  = Number(reg[c.FEE_AMOUNT]) || 0;
+    sendLineMsg(`✅ 報名審核通過通知\n活動：${reg[c.ENAME]}\n姓名：${reg[c.NAME]}\n費用：${feeName} NT$ ${feeAmt.toLocaleString()}\n請於 7 天內完成繳費，繳費後報名方告確立。\n備註：${p.note||'—'}`);
+    // 更新為待付款
+    sheet.getRange(found.rowNum, c.FEE_STATUS+1).setValue('待付款');
+  } else {
+    sendLineMsg(`📋 報名未錄取通知\n活動：${reg[c.ENAME]}\n姓名：${reg[c.NAME]}\n原因：${p.note||'—'}`);
+  }
+  return { ok: true, new_status: newStatus === '審核通過' ? '待付款' : '未錄取' };
+}
+
+function cancelRegistration(p) {
+  if (!p.reg_id) return { ok: false, error: '缺少 reg_id' };
+  const found = findRow(SHEET.REGISTRATIONS, COL.REGISTRATIONS.ID, p.reg_id);
+  if (!found) return { ok: false, error: '找不到報名記錄' };
+  const reg  = found.row;
+  const c    = COL.REGISTRATIONS;
+  const stat = String(reg[c.FEE_STATUS]);
+  if (stat === '已取消') return { ok: false, error: '此報名已取消' };
+  if (stat === '已完成') return { ok: false, error: '已完成的報名無法取消' };
+
+  const sheet = getSheet(SHEET.REGISTRATIONS);
+  const rn = found.rowNum;
+  sheet.getRange(rn, c.FEE_STATUS+1).setValue('已取消');
+  sheet.getRange(rn, c.CANCELLED_BY+1).setValue(p.cancelled_by || '管理員');
+  sheet.getRange(rn, c.CANCELLED_AT+1).setValue(now());
+  if (p.note !== undefined) sheet.getRange(rn, c.NOTE+1).setValue(p.note);
+
+  // 名額釋放：住宿/不住宿分開計算
+  const evFound = findRow(SHEET.EVENTS, COL.EVENTS.ID, reg[c.EID]);
+  if (evFound) {
+    const ce  = COL.EVENTS;
+    const evSheet = getSheet(SHEET.EVENTS);
+    const total = Math.max(0, (parseInt(evFound.row[ce.REGISTERED])||0) - 1);
+    evSheet.getRange(evFound.rowNum, ce.REGISTERED+1).setValue(total);
+    const accom = String(reg[c.ACCOMMODATION]);
+    if (accom === '住宿') {
+      const cur = parseInt(evFound.row[ce.ACCOM_REGISTERED]) || 0;
+      if (cur > 0) evSheet.getRange(evFound.rowNum, ce.ACCOM_REGISTERED+1).setValue(cur-1);
+    } else {
+      const cur = parseInt(evFound.row[ce.NO_ACCOM_REGISTERED]) || 0;
+      if (cur > 0) evSheet.getRange(evFound.rowNum, ce.NO_ACCOM_REGISTERED+1).setValue(cur-1);
+    }
+  }
+
+  sendLineMsg(`🚫 報名取消\n活動：${reg[c.ENAME]}\n姓名：${reg[c.NAME]}\n原因：${p.note||'—'}\n時間：${now()}`);
   return { ok: true };
 }
 
@@ -739,14 +1007,17 @@ function getMember(p) {
     return {
       ok: true,
       data: rows.map(r => ({
-        member_id:   r[c.ID],
-        name:        r[c.NAME],
-        phone:       r[c.PHONE],
-        birthday:    r[c.BIRTHDAY],
-        points:      Number(r[c.POINTS]) || 0,
-        total_spent: Number(r[c.TOTAL_SPENT]) || 0,
-        joined_at:   r[c.JOINED],
-        note:        r[c.NOTE]
+        member_id:        r[c.ID],
+        name:             r[c.NAME],
+        phone:            r[c.PHONE],
+        birthday:         r[c.BIRTHDAY],
+        points:           Number(r[c.POINTS])       || 0,
+        total_spent:      Number(r[c.TOTAL_SPENT])  || 0,
+        joined_at:        r[c.JOINED],
+        note:             r[c.NOTE],
+        member_level:     r[c.MEMBER_LEVEL]     || '一般',
+        annual_spend:     Number(r[c.ANNUAL_SPEND]) || 0,
+        level_updated_at: r[c.LEVEL_UPDATED_AT] || ''
       })).filter(x => x.member_id)
     };
   }
@@ -764,16 +1035,19 @@ function getMember(p) {
   return {
     ok: true,
     data: {
-      member_id:      member[c.ID],
-      name:           member[c.NAME],
-      phone:          member[c.PHONE],
-      birthday:       member[c.BIRTHDAY],
-      points:         Number(member[c.POINTS]) || 0,
-      total_spent:    Number(member[c.TOTAL_SPENT]) || 0,
-      joined_at:      member[c.JOINED],
-      note:           member[c.NOTE],
-      is_birth_month: birthday && birthday.getMonth() === new Date().getMonth(),
-      recent_orders:  myOrders
+      member_id:        member[c.ID],
+      name:             member[c.NAME],
+      phone:            member[c.PHONE],
+      birthday:         member[c.BIRTHDAY],
+      points:           Number(member[c.POINTS])      || 0,
+      total_spent:      Number(member[c.TOTAL_SPENT]) || 0,
+      joined_at:        member[c.JOINED],
+      note:             member[c.NOTE],
+      member_level:     member[c.MEMBER_LEVEL]    || '一般',
+      annual_spend:     Number(member[c.ANNUAL_SPEND]) || 0,
+      level_updated_at: member[c.LEVEL_UPDATED_AT] || '',
+      is_birth_month:   birthday && birthday.getMonth() === new Date().getMonth(),
+      recent_orders:    myOrders
     }
   };
 }
@@ -786,7 +1060,9 @@ function registerMember(p) {
     return { ok: false, error: '此手機號碼已是會員' };
   }
   const id = 'M' + Date.now();
-  getSheet(SHEET.MEMBERS).appendRow([id, p.name, p.phone, p.birthday||'', 0, 0, now(), p.note||'']);
+  const memSheet = getSheet(SHEET.MEMBERS);
+  memSheet.appendRow([id, p.name, p.phone, p.birthday||'', 0, 0, now(), p.note||'']);
+  memSheet.getRange(memSheet.getLastRow(), c.PHONE+1).setNumberFormat('@').setValue(p.phone||'');
   return { ok: true, member_id: id };
 }
 
@@ -884,14 +1160,17 @@ function confirmOrderPayment(p) {
     status: '已收款', note: ''
   });
 
-  // 加點數（每 NT$100 = 1 點）
+  // 加點數：依商品小計計算（不含運費），每 N 元得 1 點
   let pointsAdded = 0;
   if (p.member_phone && amount > 0) {
-    pointsAdded = Math.floor(amount / 100);
+    const settings   = getSettingsMap_();
+    const earnRate   = Number(settings.points_earn_rate) || 100;
+    const subtotalAmt = Number(order[c.SUBTOTAL]) || amount;
+    pointsAdded = Math.floor(subtotalAmt / earnRate);
     if (pointsAdded > 0) {
       try {
         addPoints({ phone: p.member_phone, points: pointsAdded,
-                    amount: amount, note: '訂單消費：' + p.order_id });
+                    amount: subtotalAmt, note: '訂單消費：' + p.order_id });
       } catch(e) {}
     }
   }
@@ -1012,4 +1291,212 @@ function loginAdmin(p) {
     return { ok: false, error: '建立 session 失敗：' + e.toString() };
   }
   return { ok: true, token: token, expires_in: 21600 };
+}
+
+// ================================================================
+// 系統設定管理
+// ================================================================
+function getSettings() {
+  const rows = getRows(SHEET.SETTINGS);
+  const c    = COL.SETTINGS;
+  const map  = {};
+  rows.forEach(r => { if (r[c.KEY]) map[r[c.KEY]] = { value: r[c.VALUE], desc: r[c.DESC], updated: r[c.UPDATED] }; });
+  // 補上未在表中的預設值
+  Object.entries(SETTING_DEFAULTS).forEach(([k, v]) => {
+    if (!map[k]) map[k] = { value: v.value, desc: v.desc, updated: '' };
+  });
+  return { ok: true, data: map };
+}
+
+function updateSetting(p) {
+  if (!p.key || p.value === undefined) return { ok: false, error: '缺少 key 或 value' };
+  const sheet = getSheet(SHEET.SETTINGS);
+  const rows  = getRows(SHEET.SETTINGS);
+  const c     = COL.SETTINGS;
+  const idx   = rows.findIndex(r => String(r[c.KEY]) === String(p.key));
+  if (idx >= 0) {
+    const rn = DATA_ROW + idx;
+    sheet.getRange(rn, c.VALUE+1).setValue(p.value);
+    sheet.getRange(rn, c.UPDATED+1).setValue(now());
+  } else {
+    const desc = (SETTING_DEFAULTS[p.key] || {}).desc || '';
+    sheet.appendRow([p.key, p.value, desc, now()]);
+  }
+  return { ok: true };
+}
+
+// ================================================================
+// 報表功能
+// ================================================================
+function getMonthlyReport(p) {
+  const month = p.month || Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM');
+  const orders = getRows(SHEET.ORDERS);
+  const c = COL.ORDERS;
+
+  let revenue = 0, orderCount = 0, cancelCount = 0;
+  const productSales = {};
+  orders.forEach(r => {
+    if (!r[c.ID] || !String(r[c.CREATED]).startsWith(month)) return;
+    if (r[c.STATUS] === '已取消') { cancelCount++; return; }
+    orderCount++;
+    revenue += Number(r[c.TOTAL]) || 0;
+    try {
+      JSON.parse(r[c.ITEMS] || '[]').forEach(it => {
+        if (!productSales[it.product_id]) productSales[it.product_id] = { name: it.name, qty: 0, revenue: 0 };
+        productSales[it.product_id].qty     += Number(it.qty)   || 0;
+        productSales[it.product_id].revenue += (Number(it.price)||0) * (Number(it.qty)||0);
+      });
+    } catch(e) {}
+  });
+
+  // 進貨成本
+  const accounts = getRows(SHEET.ACCOUNTS);
+  const ca = COL.ACCOUNTS;
+  let cost = 0;
+  accounts.forEach(r => {
+    if (String(r[ca.TYPE]) === '進貨付款' && String(r[ca.DATE]).startsWith(month)) {
+      cost += Number(r[ca.EXPENSE]) || 0;
+    }
+  });
+
+  const topProducts = Object.values(productSales).sort((a,b) => b.revenue - a.revenue).slice(0,10);
+  return { ok: true, data: { month, order_count: orderCount, cancel_count: cancelCount, revenue, cost, profit: revenue - cost, top_products: topProducts } };
+}
+
+function getSalesRanking(p) {
+  const days   = parseInt(p.days) || 30;
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+  const cutStr = Utilities.formatDate(cutoff, 'Asia/Taipei', 'yyyy-MM-dd');
+  const orders = getRows(SHEET.ORDERS);
+  const c = COL.ORDERS;
+  const rank = {};
+  orders.forEach(r => {
+    if (!r[c.ID] || String(r[c.STATUS]) === '已取消') return;
+    if (String(r[c.CREATED]).slice(0,10) < cutStr) return;
+    try {
+      JSON.parse(r[c.ITEMS] || '[]').forEach(it => {
+        if (!rank[it.product_id]) rank[it.product_id] = { name: it.name||it.product_id, qty: 0, revenue: 0 };
+        rank[it.product_id].qty     += Number(it.qty) || 0;
+        rank[it.product_id].revenue += (Number(it.price)||0) * (Number(it.qty)||0);
+      });
+    } catch(e) {}
+  });
+  const list = Object.entries(rank).map(([id, v]) => ({ product_id: id, ...v }))
+                     .sort((a,b) => b.qty - a.qty).slice(0, parseInt(p.limit)||20);
+  return { ok: true, data: list, days };
+}
+
+function getInventoryHealth(p) {
+  const inv  = getRows(SHEET.INVENTORY);
+  const prod = getRows(SHEET.PRODUCTS);
+  const ci   = COL.INVENTORY;
+  const cp   = COL.PRODUCTS;
+  const prodMap = {};
+  prod.forEach(r => { prodMap[r[cp.ID]] = r; });
+
+  const result = { ok: true, low_stock: [], zero_stock: [], healthy: [], total: 0, total_value: 0 };
+  inv.forEach(r => {
+    if (!r[ci.ID]) return;
+    const qty  = Number(r[ci.QTY]) || 0;
+    const pr   = prodMap[r[ci.ID]] || [];
+    const thr  = Number(pr[cp.THRESHOLD]) || 10;
+    const cost = Number(pr[cp.COST]) || 0;
+    result.total++;
+    result.total_value += qty * cost;
+    const item = { product_id: r[ci.ID], name: r[ci.NAME], qty, threshold: thr };
+    if (qty === 0) result.zero_stock.push(item);
+    else if (qty <= thr) result.low_stock.push(item);
+    else result.healthy.push(item);
+  });
+  return result;
+}
+
+function getMemberStats() {
+  const rows    = getRows(SHEET.MEMBERS);
+  const c       = COL.MEMBERS;
+  const total   = rows.filter(r => r[c.ID]).length;
+  const active  = rows.filter(r => r[c.ID] && (Number(r[c.TOTAL_SPENT])||0) > 0).length;
+  const pts     = rows.reduce((s, r) => s + (Number(r[c.POINTS])||0), 0);
+  const spent   = rows.reduce((s, r) => s + (Number(r[c.TOTAL_SPENT])||0), 0);
+  const now_    = new Date();
+  const bMonth  = rows.filter(r => {
+    if (!r[c.ID] || !r[c.BIRTHDAY]) return false;
+    try { return new Date(r[c.BIRTHDAY]).getMonth() === now_.getMonth(); } catch(e) { return false; }
+  }).length;
+  return { ok: true, data: { total, active, birthday_this_month: bMonth, total_points: pts, total_spent: spent } };
+}
+
+// ================================================================
+// 低庫存通知
+// ================================================================
+function sendLowStockNotification() {
+  const health = getInventoryHealth({});
+  const low    = [...health.zero_stock, ...health.low_stock];
+  if (low.length === 0) return { ok: true, notified: 0 };
+  const lines = low.map(x => x.qty === 0
+    ? `❌ ${x.name}：庫存歸零`
+    : `⚠️ ${x.name}：剩 ${x.qty} 件（門檻 ${x.threshold}）`);
+  sendLineMsg(`📦 低庫存警示（共 ${low.length} 項）\n${lines.join('\n')}\n時間：${now()}`);
+  return { ok: true, notified: low.length };
+}
+
+function sendMonthlyReport() {
+  const month  = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM');
+  const prev   = new Date(); prev.setMonth(prev.getMonth() - 1);
+  const pMonth = Utilities.formatDate(prev, 'Asia/Taipei', 'yyyy-MM');
+  const r      = getMonthlyReport({ month: pMonth }).data;
+  const msg    = `📊 ${pMonth} 月結報表\n訂單數：${r.order_count}（取消 ${r.cancel_count}）\n收入：NT$ ${Number(r.revenue).toLocaleString()}\n進貨成本：NT$ ${Number(r.cost).toLocaleString()}\n毛利：NT$ ${Number(r.profit).toLocaleString()}\n\n熱銷商品 Top 3：\n${(r.top_products||[]).slice(0,3).map((x,i)=>`${i+1}. ${x.name}（${x.qty}件）`).join('\n')||'—'}\n\n報表產生時間：${now()}`;
+  sendLineMsg(msg);
+  return { ok: true };
+}
+
+// ================================================================
+// 定時觸發器安裝
+// ================================================================
+function installTriggers() {
+  // 清除舊觸發器（同名）
+  ScriptApp.getProjectTriggers().forEach(t => {
+    const fn = t.getHandlerFunction();
+    if (fn === 'sendLowStockNotification' || fn === 'sendMonthlyReport') {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+  // 每天早上 9 點：低庫存通知
+  ScriptApp.newTrigger('sendLowStockNotification')
+    .timeBased().everyDays(1).atHour(9).create();
+  // 每月 1 日：月結報表
+  ScriptApp.newTrigger('sendMonthlyReport')
+    .timeBased().onMonthDay(1).atHour(8).create();
+  return { ok: true, triggers: ['每日09:00 低庫存通知', '每月1日08:00 月結報表'] };
+}
+
+// ================================================================
+// 一次性初始化：電話欄位格式設為純文字（避免首字0消失）
+// 在 GAS 編輯器直接點「執行」這個函式即可，只需執行一次
+// ================================================================
+function adminSetupPhoneFormats() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const targets = [
+    { sheet: SHEET.ORDERS,         col: COL.ORDERS.PHONE + 1,                label: '客戶訂單/電話' },
+    { sheet: SHEET.REGISTRATIONS,  col: COL.REGISTRATIONS.PHONE + 1,         label: '報名記錄/電話' },
+    { sheet: SHEET.REGISTRATIONS,  col: COL.REGISTRATIONS.EMERGENCY_PHONE+1, label: '報名記錄/緊急聯絡電話' },
+    { sheet: SHEET.MEMBERS,        col: COL.MEMBERS.PHONE + 1,               label: '會員/電話' },
+    { sheet: SHEET.POINTS_LOG,     col: COL.POINTS_LOG.PHONE + 1,            label: '點數記錄/電話' },
+    { sheet: SHEET.RETURNS,        col: COL.RETURNS.PHONE + 1,               label: '退貨記錄/電話' }
+  ];
+  const done = [];
+  const errors = [];
+  targets.forEach(({ sheet, col, label }) => {
+    try {
+      const s = ss.getSheetByName(sheet);
+      if (!s) { errors.push(label + '（找不到工作表）'); return; }
+      s.getRange(1, col, Math.max(s.getMaxRows(), 100), 1).setNumberFormat('@');
+      done.push(label);
+    } catch(e) {
+      errors.push(label + '：' + e.message);
+    }
+  });
+  Logger.log('✅ 完成：' + done.join('、'));
+  if (errors.length) Logger.log('⚠️ 錯誤：' + errors.join('、'));
+  return { ok: true, done, errors };
 }

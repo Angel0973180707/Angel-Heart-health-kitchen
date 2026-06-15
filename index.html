@@ -122,6 +122,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .order-status{font-size:11px;font-weight:700;padding:3px 8px;border-radius:99px}
 .s-待確認{background:rgba(245,166,35,.15);color:var(--gold)}
 .s-已確認{background:rgba(74,158,255,.15);color:var(--blue)}
+.s-已付款{background:rgba(39,201,130,.15);color:var(--green)}
 .s-已出貨{background:rgba(39,201,130,.15);color:var(--green)}
 .s-已完成{background:rgba(39,201,130,.2);color:var(--green)}
 .s-已取消{background:rgba(224,87,87,.15);color:var(--red)}
@@ -133,10 +134,14 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .reg-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 .reg-card-name{font-size:15px;font-weight:700}
 .reg-status{font-size:11px;font-weight:700;padding:3px 8px;border-radius:99px}
+.rs-申請中{background:rgba(245,166,35,.15);color:var(--gold)}
 .rs-待審核{background:rgba(245,166,35,.15);color:var(--gold)}
-.rs-已錄取{background:rgba(39,201,130,.15);color:var(--green)}
-.rs-已拒絕{background:rgba(224,87,87,.15);color:var(--red)}
-.rs-已繳費{background:rgba(74,158,255,.15);color:var(--blue)}
+.rs-審核通過{background:rgba(74,158,255,.15);color:var(--blue)}
+.rs-待付款{background:rgba(200,150,42,.2);color:#E8A830}
+.rs-已付款{background:rgba(39,201,130,.15);color:var(--green)}
+.rs-已完成{background:rgba(39,201,130,.2);color:var(--green)}
+.rs-未錄取{background:rgba(224,87,87,.15);color:var(--red)}
+.rs-已取消{background:rgba(224,87,87,.1);color:var(--red)}
 .reg-card-meta{font-size:12px;color:var(--dim);margin-top:3px}
 .reg-card-fee{font-size:13px;font-weight:700;color:var(--gold);margin-top:5px}
 .line-copy{background:#06C755;color:#fff;border:none;border-radius:var(--rs);padding:11px;width:100%;font-size:14px;font-weight:700;cursor:pointer;font-family:var(--font);margin-top:8px}
@@ -194,6 +199,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab" onclick="switchTab('orders')"><span class="tab-icon">🛒</span>訂單</div>
   <div class="tab" onclick="switchTab('accounts')"><span class="tab-icon">💰</span>帳本</div>
   <div class="tab" onclick="switchTab('registrations')"><span class="tab-icon">📝</span>報名</div>
+  <div class="tab" onclick="switchTab('reports')"><span class="tab-icon">📊</span>報表</div>
 </div>
 
 <!-- 總覽 -->
@@ -317,14 +323,33 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <button class="btn btn-gold" onclick="openEventModal()" style="margin-bottom:14px;padding:12px">➕ 新增活動</button>
   <div class="filter-row">
     <div class="chip active" onclick="setRegFilter('all',this)">全部</div>
-    <div class="chip" onclick="setRegFilter('待審核',this)">⏳ 待審核</div>
-    <div class="chip" onclick="setRegFilter('已錄取',this)">✅ 已錄取</div>
-    <div class="chip" onclick="setRegFilter('已拒絕',this)">❌ 已拒絕</div>
-    <div class="chip" onclick="setRegFilter('已繳費',this)">💰 已繳費</div>
+    <div class="chip" onclick="setRegFilter('申請中',this)">⏳ 申請中</div>
+    <div class="chip" onclick="setRegFilter('待付款',this)">💳 待付款</div>
+    <div class="chip" onclick="setRegFilter('已付款',this)">✅ 已付款</div>
+    <div class="chip" onclick="setRegFilter('未錄取',this)">❌ 未錄取</div>
+    <div class="chip" onclick="setRegFilter('已取消',this)">🚫 已取消</div>
     <div class="chip" onclick="setRegFilter('住宿',this)">🏠 住宿</div>
     <div class="chip" onclick="setRegFilter('不住宿',this)">🚶 不住宿</div>
   </div>
   <div id="reg-list"><div class="loading">載入中...</div></div>
+</div>
+
+<!-- 報表 -->
+<div class="page" id="page-reports">
+  <div class="stats-grid" id="report-summary">
+    <div class="stat-card"><div class="stat-label">本月訂單</div><div class="stat-value gold" id="r-orders">—</div></div>
+    <div class="stat-card"><div class="stat-label">本月收入</div><div class="stat-value green" id="r-revenue">—</div></div>
+    <div class="stat-card"><div class="stat-label">本月進貨成本</div><div class="stat-value red" id="r-cost">—</div></div>
+    <div class="stat-card"><div class="stat-label">本月毛利</div><div class="stat-value gold" id="r-profit">—</div></div>
+    <div class="stat-card wide"><div class="stat-label">低庫存 / 零庫存</div><div class="stat-value red" id="r-lowstock">— / —</div></div>
+  </div>
+  <div class="section-title">🏆 熱銷排行（近 30 天）</div>
+  <div id="r-ranking"><div class="loading">載入中...</div></div>
+  <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+    <button class="btn btn-gold" onclick="loadReport()">🔄 重新載入報表</button>
+    <button class="btn btn-ghost" onclick="triggerLowStockNotify()">📦 立即推送低庫存通知</button>
+    <button class="btn btn-ghost" onclick="runInstallTriggers()">⏰ 安裝定時通知（每日9點+每月1日）</button>
+  </div>
 </div>
 
 <!-- 會員管理 -->
@@ -510,11 +535,11 @@ function init(){
 }
 
 function switchTab(tab){
-  const tabs=['dashboard','in','out','inventory','history','orders','accounts','registrations','members'];
+  const tabs=['dashboard','in','out','inventory','history','orders','accounts','registrations','reports'];
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',tabs[i]===tab));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById('page-'+tab).classList.add('active');
-  
+  if(tab==='reports')loadReport();
 }
 
 function handleImg(type){
@@ -591,8 +616,8 @@ function renderDashboard(){
   const rl=document.getElementById('recent-list');const recent=cache.stockLog.slice(0,5);
   rl.innerHTML=recent.length?recent.map(h=>histHTML(h)).join(''):`<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-text">尚無記錄</div></div>`;
 
-  // 待審核報名數
-  const pendingRegs=(cache.registrations||[]).filter(r=>r.fee_status==='待審核');
+  // 申請中報名數（含舊版「待審核」）
+  const pendingRegs=(cache.registrations||[]).filter(r=>r.fee_status==='申請中'||r.fee_status==='待審核');
   document.getElementById('s-pending-regs').textContent=pendingRegs.length;
 
   // 新會員數（本月）
@@ -671,22 +696,59 @@ function renderOrders(){
 
 function showOrderModal(oid){
   const o=cache.orders.find(x=>x.order_id===oid);if(!o)return;
+  const subtotal=Number(o.subtotal)||Number(o.total)||0;
+  const shipFee=Number(o.shipping_fee)||0;
   document.getElementById('modal-title').textContent='訂單 '+oid.slice(-8);
   document.getElementById('modal-body').innerHTML=`
     <div class="modal-row"><span class="modal-key">客人姓名</span><span class="modal-val">${o.customer_name}</span></div>
     <div class="modal-row"><span class="modal-key">電話</span><span class="modal-val">${o.phone}</span></div>
     <div class="modal-row"><span class="modal-key">地址</span><span class="modal-val">${o.address||'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">總金額</span><span class="modal-val gold">NT$ ${Number(o.total).toLocaleString()}</span></div>
+    <div class="modal-row"><span class="modal-key">商品小計</span><span class="modal-val">NT$ ${subtotal.toLocaleString()}</span></div>
+    <div class="modal-row"><span class="modal-key">運費</span><span class="modal-val">${shipFee>0?'NT$ '+shipFee.toLocaleString():'免運'}</span></div>
+    <div class="modal-row"><span class="modal-key">實收金額</span><span class="modal-val gold">NT$ ${Number(o.total).toLocaleString()}</span></div>
     <div class="modal-row"><span class="modal-key">付款方式</span><span class="modal-val">${o.payment}</span></div>
     <div class="modal-row"><span class="modal-key">狀態</span><span class="modal-val">${o.status}</span></div>
     <div class="modal-row"><span class="modal-key">備註</span><span class="modal-val">${o.note||'—'}</span></div>
+    ${o.cancel_reason?`<div class="modal-row"><span class="modal-key">取消原因</span><span class="modal-val red">${o.cancel_reason}</span></div>`:''}
     <div class="modal-actions">
-      ${o.status==='待確認'?`<button class="btn btn-gold" onclick="confirmOrder('${oid}',true)">✅ 確認並扣庫存</button><button class="btn btn-ghost" style="margin-top:0" onclick="confirmOrder('${oid}',false)">確認（不扣庫存）</button>`:''}
-      ${o.status==='已確認'?`<button class="btn btn-in" onclick="updOrder('${oid}','已出貨')">🚚 標記已出貨</button>`:''}
+      ${o.status==='待確認'?`
+        <button class="btn btn-gold" onclick="confirmOrder('${oid}',true)">✅ 確認並扣庫存</button>
+        <button class="btn btn-ghost" style="margin-top:0" onclick="confirmOrder('${oid}',false)">確認（不扣庫存）</button>
+      `:''}
+      ${o.status==='已確認'?`
+        <button class="btn btn-in" onclick="updOrder('${oid}','已出貨')">🚚 標記已出貨</button>
+        <div style="background:var(--surface2);border-radius:var(--rs);padding:12px;margin-top:8px">
+          <div style="font-size:12px;color:var(--dim);margin-bottom:8px">💰 確認收款並加點</div>
+          <input type="text" id="pay-phone-${oid}" placeholder="會員手機號碼（加點用，可空白）" value="${o.phone}"
+            style="width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);padding:9px;font-size:14px;font-family:var(--font);outline:none;margin-bottom:8px">
+          <button class="btn btn-gold" onclick="doConfirmPayment('${oid}')">💰 確認收款</button>
+        </div>
+      `:''}
       ${o.status==='已出貨'?`<button class="btn btn-gold" onclick="updOrder('${oid}','已完成')">✅ 標記已完成</button>`:''}
-      ${['待確認','已確認'].includes(o.status)?`<button class="btn" style="background:transparent;border:1px solid var(--red);color:var(--red)" onclick="updOrder('${oid}','已取消')">取消訂單</button>`:''}
+      ${!['已完成','已取消','已付款'].includes(o.status)?`
+        <button class="btn" style="background:transparent;border:1px solid var(--red);color:var(--red)" onclick="doCancelOrder('${oid}')">❌ 取消訂單</button>
+      `:''}
     </div>`;
   document.getElementById('modal-overlay').classList.add('open');
+}
+
+async function doConfirmPayment(oid){
+  const phone=(document.getElementById('pay-phone-'+oid)||{}).value||'';
+  closeModal();showToast('⟳ 確認中...','info');
+  const params={action:'confirmOrderPayment',session_token:SESSION_TOKEN,order_id:oid};
+  if(phone.trim())params.member_phone=phone.trim();
+  const r=await apiPost(params);
+  if(r.ok){showToast(`✅ 收款確認${r.points_added>0?' 加 '+r.points_added+' 點':''}`),'success';syncAll();}
+  else showToast('❌ '+r.error,'error');
+}
+
+async function doCancelOrder(oid){
+  const reason=prompt('取消原因（可空白）：');
+  if(reason===null)return;
+  closeModal();showToast('⟳ 取消中...','info');
+  const r=await apiPost({action:'cancelOrder',session_token:SESSION_TOKEN,order_id:oid,cancel_reason:reason,cancelled_by:'管理員'});
+  if(r.ok){showToast('✅ 訂單已取消','success');syncAll();}
+  else showToast('❌ '+r.error,'error');
 }
 
 async function confirmOrder(oid,deduct){
@@ -808,110 +870,22 @@ function setRegFilter(f,el){
   regFilter=f;
   document.querySelectorAll('#page-registrations .chip').forEach(c=>c.classList.remove('active'));
   el.classList.add('active');
-  renderRegs();
-}
-
-function renderRegs(){
-  let list=regFilter==='all'?cache.registrations:(cache.registrations||[]).filter(r=>r.fee_status===regFilter);
-  const el=document.getElementById('reg-list');
-  if(!list||!list.length){
-    el.innerHTML='<div class="empty-state"><div class="empty-icon">📝</div><div class="empty-text">尚無報名記錄</div></div>';
-    return;
-  }
-  el.innerHTML=list.map(r=>`
-    <div class="reg-card" onclick="showRegModal('${r.reg_id}')">
-      <div class="reg-card-header">
-        <span class="reg-card-name">${r.name}</span>
-        <span class="reg-status rs-${r.fee_status}">${r.fee_status}</span>
-      </div>
-      <div class="reg-card-meta">📞 ${r.phone} · ${r.event_name}</div>
-      <div class="reg-card-meta">💳 ${r.fee_type} · NT$ ${Number(r.fee_amount).toLocaleString()}</div>
-      <div class="reg-card-meta" style="margin-top:3px;font-size:11px;color:var(--muted)">${r.created_at?r.created_at.slice(0,10):''}</div>
-    </div>`).join('');
-}
-
-function showRegModal(rid){
-  const r=(cache.registrations||[]).find(x=>x.reg_id===rid);if(!r)return;
-  document.getElementById('modal-title').textContent=r.name+' 的報名';
-
-  const lineAccept=encodeURIComponent(`您好 ${r.name}！\n\n恭喜您通過「${r.event_name}」報名審核 🎉\n\n請依以下方式完成繳費：\n\n🏦 中華郵政（700）\n帳號：0041336-0597692\n戶名：李秀芳\n金額：NT$ ${Number(r.fee_amount).toLocaleString()}（${r.fee_type}）\n\n請於收到此訊息後 3 天內完成匯款，並回傳末5碼。\n\n期待與您相見 🌿`);
-  const lineReject=encodeURIComponent(`您好 ${r.name}，\n\n感謝您報名「${r.event_name}」。\n很遺憾這次名額有限，您的報名未能錄取。\n\n歡迎繼續關注後續活動，期待下次與您相聚 🌿`);
-
-  document.getElementById('modal-body').innerHTML=`
-    <div class="modal-row"><span class="modal-key">活動</span><span class="modal-val">${r.event_name}</span></div>
-    <div class="modal-row"><span class="modal-key">姓名</span><span class="modal-val">${r.name}</span></div>
-    <div class="modal-row"><span class="modal-key">電話</span><span class="modal-val">${r.phone}</span></div>
-    <div class="modal-row"><span class="modal-key">地址</span><span class="modal-val">${r.address||'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">繳費方式</span><span class="modal-val">${r.fee_type}</span></div>
-    <div class="modal-row"><span class="modal-key">費用</span><span class="modal-val gold">NT$ ${Number(r.fee_amount).toLocaleString()}</span></div>
-    <div class="modal-row"><span class="modal-key">繳費狀態</span><span class="modal-val">${r.fee_status}</span></div>
-    <div class="modal-row"><span class="modal-key">健康狀況</span><span class="modal-val">${r.health||'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">宗教信仰</span><span class="modal-val">${r.religion||'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">專長技能</span><span class="modal-val">${r.skills||'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">緊急聯絡人</span><span class="modal-val">${r.emergency_name} ${r.emergency_phone}</span></div>
-    <div class="modal-row"><span class="modal-key">備註</span><span class="modal-val">${r.note||'—'}</span></div>
-    <div class="modal-actions">
-      ${r.fee_status==='待審核'?`
-        <button class="btn btn-in" onclick="updateReg('${r.reg_id}','已錄取')">✅ 錄取</button>
-        <button class="btn btn-out" style="background:transparent;border:1px solid var(--red);color:var(--red)" onclick="updateReg('${r.reg_id}','已拒絕')">❌ 拒絕</button>
-      `:''}
-      ${r.fee_status==='已錄取'?`
-        <button class="btn btn-gold" onclick="updateReg('${r.reg_id}','已繳費')">💰 標記已繳費</button>
-      `:''}
-      ${r.fee_status==='已錄取'?`
-        <a href="https://lin.ee/tMag2XG" target="_blank" class="line-copy" onclick="copyLineMsg('accept-${r.reg_id}')">
-          📋 複製錄取通知 → 傳 LINE
-        </a>
-        <textarea id="accept-${r.reg_id}" style="position:absolute;opacity:0;pointer-events:none">${decodeURIComponent(lineAccept)}</textarea>
-      `:''}
-      ${r.fee_status==='已拒絕'?`
-        <a href="https://lin.ee/tMag2XG" target="_blank" class="line-copy" style="background:var(--dim)" onclick="copyLineMsg('reject-${r.reg_id}')">
-          📋 複製拒絕通知 → 傳 LINE
-        </a>
-        <textarea id="reject-${r.reg_id}" style="position:absolute;opacity:0;pointer-events:none">${decodeURIComponent(lineReject)}</textarea>
-      `:''}
-    </div>
-  `;
-  document.getElementById('modal-overlay').classList.add('open');
-}
-
-function copyLineMsg(id){
-  const el=document.getElementById(id);
-  if(!el)return;
-  navigator.clipboard.writeText(el.value).then(()=>showToast('✅ 文案已複製','success')).catch(()=>{
-    el.style.opacity='1';el.select();document.execCommand('copy');el.style.opacity='0';
-    showToast('✅ 文案已複製','success');
-  });
-}
-
-async function updateReg(rid,status){
-  closeModal();
-  showToast('⟳ 更新中...','info');
-  const r=await apiPost({action:'updateRegistration',session_token:SESSION_TOKEN,reg_id:rid,fee_status:status});
-  if(r.ok){showToast('✅ 已更新為：'+status,'success');syncAll();}
-  else showToast('❌ '+r.error,'error');
-}
-
-// ── 報名管理 ──
-function setRegFilter(f,el){
-  regFilter=f;
-  document.querySelectorAll('#page-registrations .chip').forEach(c=>c.classList.remove('active'));
-  el.classList.add('active');
   renderRegistrations();
 }
 
 function renderRegistrations(){
   const accomFilters=['住宿','不住宿'];
-  let list=regFilter==='all'?cache.registrations:
-    accomFilters.includes(regFilter)?cache.registrations.filter(r=>r.accommodation===regFilter):
-    cache.registrations.filter(r=>r.fee_status===regFilter);
+  const regs=cache.registrations||[];
+  let list=regFilter==='all'?regs:
+    accomFilters.includes(regFilter)?regs.filter(r=>r.accommodation===regFilter):
+    regs.filter(r=>r.fee_status===regFilter);
   const el=document.getElementById('reg-list');
   if(!list.length){
     el.innerHTML=`<div class="empty-state"><div class="empty-icon">🎫</div><div class="empty-text">尚無報名記錄</div></div>`;
     return;
   }
+  const statusColor={'申請中':'var(--gold)','待審核':'var(--gold)','審核通過':'var(--blue)','待付款':'#E8A830','已付款':'var(--green)','已完成':'var(--green)','未錄取':'var(--red)','已取消':'var(--muted)'};
   el.innerHTML=`<div style="display:flex;flex-direction:column;gap:10px">`+list.map(r=>{
-    const statusColor={'待審核':'var(--gold)','已錄取':'var(--green)','已拒絕':'var(--red)','已繳費':'var(--blue)'};
     const col=statusColor[r.fee_status]||'var(--dim)';
     return `
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px;cursor:pointer" onclick="showRegModal('${r.reg_id}')">
@@ -930,9 +904,9 @@ function renderRegistrations(){
 }
 
 function showRegModal(rid){
-  const r=cache.registrations.find(x=>x.reg_id===rid);
+  const r=(cache.registrations||[]).find(x=>x.reg_id===rid);
   if(!r)return;
-  const lineAccept=`https://lin.ee/tMag2XG?msg=${encodeURIComponent(`親愛的 ${r.name} 您好！
+  const linePayInfo=`https://lin.ee/tMag2XG?msg=${encodeURIComponent(`親愛的 ${r.name} 您好！
 
 🎉 恭喜您已通過「${r.event_name}」報名審核！
 
@@ -945,15 +919,17 @@ function showRegModal(rid){
 戶名：李秀芳
 
 請於收到此訊息後 3 天內完成匯款，並回傳末5碼，我們會盡快確認。
-
 感謝您的參與，期待與您相見 🌿`)}`;
+
   const lineReject=`https://lin.ee/tMag2XG?msg=${encodeURIComponent(`親愛的 ${r.name} 您好！
 
 感謝您報名「${r.event_name}」。
-
 很遺憾本次名額已額滿，無法錄取您的報名。
-
 我們會在下次活動優先通知您，敬請期待 🌿`)}`;
+
+  const canApprove=['申請中','待審核'].includes(r.fee_status);
+  const isPendingPayment=r.fee_status==='待付款';
+  const canCancel=!['已取消','已完成'].includes(r.fee_status);
 
   document.getElementById('modal-title').textContent=r.name+' 的報名';
   document.getElementById('modal-body').innerHTML=`
@@ -962,36 +938,66 @@ function showRegModal(rid){
     <div class="modal-row"><span class="modal-key">姓名</span><span class="modal-val">${r.name}</span></div>
     <div class="modal-row"><span class="modal-key">電話</span><span class="modal-val">${r.phone}</span></div>
     <div class="modal-row"><span class="modal-key">地址</span><span class="modal-val">${r.address||'—'}</span></div>
+    <div class="modal-row"><span class="modal-key">性別</span><span class="modal-val">${r.gender||'—'}</span></div>
+    <div class="modal-row"><span class="modal-key">住宿需求</span><span class="modal-val">${r.accommodation||'—'}</span></div>
     <div class="modal-row"><span class="modal-key">繳費方式</span><span class="modal-val">${r.fee_type}</span></div>
-    <div class="modal-row"><span class="modal-key">費用</span><span class="modal-val">NT$ ${Number(r.fee_amount).toLocaleString()}</span></div>
+    <div class="modal-row"><span class="modal-key">費用</span><span class="modal-val gold">NT$ ${Number(r.fee_amount).toLocaleString()}</span></div>
     <div class="modal-row"><span class="modal-key">狀態</span><span class="modal-val">${r.fee_status}</span></div>
     <div class="modal-row"><span class="modal-key">健康狀況</span><span class="modal-val">${r.health||'—'}</span></div>
     <div class="modal-row"><span class="modal-key">宗教信仰</span><span class="modal-val">${r.religion||'—'}</span></div>
     <div class="modal-row"><span class="modal-key">專長技能</span><span class="modal-val">${r.skills||'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">住宿需求</span><span class="modal-val">${r.accommodation||'—'}</span></div>
     <div class="modal-row"><span class="modal-key">緊急聯絡人</span><span class="modal-val">${r.emergency_name||'—'} ${r.emergency_phone||''}</span></div>
     <div class="modal-row"><span class="modal-key">備註</span><span class="modal-val">${r.note||'—'}</span></div>
     <div class="modal-actions">
-      ${r.fee_status==='待審核'?`
-        <button class="btn btn-in" onclick="updateReg('${rid}','已錄取')">✅ 錄取</button>
-        <button class="btn btn-out" style="background:transparent;border:1px solid var(--red);color:var(--red)" onclick="updateReg('${rid}','已拒絕')">❌ 拒絕</button>
+      ${canApprove?`
+        <button class="btn btn-in" onclick="approveReg('${rid}',true)">✅ 審核通過（發繳費通知）</button>
+        <button class="btn" style="background:transparent;border:1px solid var(--red);color:var(--red)" onclick="approveReg('${rid}',false)">❌ 未錄取</button>
       `:''}
-      ${r.fee_status==='已錄取'?`
-        <button class="btn btn-gold" onclick="updateReg('${rid}','已繳費')">💰 標記已繳費</button>
-      `:''}
-      ${r.fee_status==='已錄取'||r.fee_status==='待審核'?`
-        <a href="${lineAccept}" target="_blank" class="btn" style="background:#06C755;color:#fff;text-decoration:none;text-align:center;display:block;padding:14px;border-radius:var(--rs);font-size:16px;font-weight:700">
-          💬 傳送錄取通知
+      ${isPendingPayment?`
+        <a href="${linePayInfo}" target="_blank" class="btn" style="background:#06C755;color:#fff;text-decoration:none;text-align:center;display:block;padding:14px;border-radius:var(--rs);font-size:16px;font-weight:700">
+          💬 再次傳送繳費通知
         </a>
+        <button class="btn btn-gold" onclick="markRegPaid('${rid}')">💰 確認已收款</button>
       `:''}
-      ${r.fee_status==='已拒絕'?`
-        <a href="${lineReject}" target="_blank" class="btn" style="background:var(--surface2);color:var(--text);text-decoration:none;text-align:center;display:block;padding:14px;border-radius:var(--rs);font-size:16px;font-weight:700">
-          💬 傳送婉拒通知
-        </a>
+      ${r.fee_status==='已付款'?`
+        <button class="btn btn-in" onclick="updateRegStatus('${rid}','已完成')">🎉 標記已完成</button>
+      `:''}
+      ${canCancel?`
+        <button class="btn" style="background:transparent;border:1px solid var(--muted);color:var(--muted);margin-top:4px" onclick="cancelReg('${rid}')">🚫 取消報名</button>
       `:''}
     </div>
   `;
   document.getElementById('modal-overlay').classList.add('open');
+}
+
+async function approveReg(rid,approved){
+  closeModal();showToast('⟳ 處理中...','info');
+  const r=await apiPost({action:'approveRegistration',session_token:SESSION_TOKEN,reg_id:rid,approved:approved?'true':'false'});
+  if(r.ok){showToast(approved?'✅ 已通過審核，LINE 通知已推送':'✅ 已標記未錄取','success');syncAll();}
+  else showToast('❌ '+r.error,'error');
+}
+
+async function markRegPaid(rid){
+  closeModal();showToast('⟳ 更新中...','info');
+  const r=await apiPost({action:'updateRegistration',session_token:SESSION_TOKEN,reg_id:rid,fee_status:'已付款'});
+  if(r.ok){showToast('✅ 已標記已付款','success');syncAll();}
+  else showToast('❌ '+r.error,'error');
+}
+
+async function updateRegStatus(rid,status){
+  closeModal();showToast('⟳ 更新中...','info');
+  const r=await apiPost({action:'updateRegistration',session_token:SESSION_TOKEN,reg_id:rid,fee_status:status});
+  if(r.ok){showToast('✅ 已更新為：'+status,'success');syncAll();}
+  else showToast('❌ '+r.error,'error');
+}
+
+async function cancelReg(rid){
+  const reason=prompt('取消原因（可空白）：');
+  if(reason===null)return;
+  closeModal();showToast('⟳ 取消中...','info');
+  const r=await apiPost({action:'cancelRegistration',session_token:SESSION_TOKEN,reg_id:rid,note:reason||'',cancelled_by:'管理員'});
+  if(r.ok){showToast('✅ 已取消報名','success');syncAll();}
+  else showToast('❌ '+r.error,'error');
 }
 
 // ── 新增活動 ──
@@ -1282,6 +1288,53 @@ async function submitMember(){
     showToast(editingMember?'✅ 已更新會員資料':'✅ 會員新增成功','success');
     closeMemberModal();syncAll();
   } else showToast('❌ '+r.error,'error');
+}
+
+// ── 報表 ──
+async function loadReport(){
+  const thisMonth=new Date().toISOString().slice(0,7);
+  try{
+    const [rep,rank,health]=await Promise.all([
+      api({action:'getMonthlyReport',session_token:SESSION_TOKEN,month:thisMonth}),
+      api({action:'getSalesRanking',session_token:SESSION_TOKEN,days:'30',limit:'10'}),
+      api({action:'getInventoryHealth',session_token:SESSION_TOKEN})
+    ]);
+    if(rep.ok){
+      const d=rep.data;
+      document.getElementById('r-orders').textContent=d.order_count+'（取消'+d.cancel_count+'）';
+      document.getElementById('r-revenue').textContent='NT$ '+Number(d.revenue).toLocaleString();
+      document.getElementById('r-cost').textContent='NT$ '+Number(d.cost).toLocaleString();
+      document.getElementById('r-profit').textContent='NT$ '+Number(d.profit).toLocaleString();
+    }
+    if(health.ok){
+      document.getElementById('r-lowstock').textContent=health.low_stock.length+' / '+health.zero_stock.length;
+    }
+    if(rank.ok&&rank.data.length){
+      document.getElementById('r-ranking').innerHTML=`<div style="display:flex;flex-direction:column;gap:7px">`+
+        rank.data.map((x,i)=>`
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);padding:11px 13px;display:flex;justify-content:space-between;align-items:center">
+            <div><span style="font-size:13px;color:var(--gold);font-weight:800;margin-right:8px">#${i+1}</span><span style="font-size:14px;font-weight:600">${x.name}</span></div>
+            <div style="text-align:right"><div style="font-size:13px;font-weight:700;color:var(--green)">${x.qty} 件</div><div style="font-size:11px;color:var(--dim)">NT$ ${Number(x.revenue).toLocaleString()}</div></div>
+          </div>`).join('')+`</div>`;
+    } else if(rank.ok){
+      document.getElementById('r-ranking').innerHTML='<div class="empty-state"><div class="empty-icon">📊</div><div class="empty-text">近 30 天尚無銷售記錄</div></div>';
+    }
+    showToast('✅ 報表已更新','success');
+  }catch(e){showToast('⚠️ 載入報表失敗','error');}
+}
+
+async function triggerLowStockNotify(){
+  showToast('⟳ 推送中...','info');
+  const r=await apiPost({action:'sendLowStockNotification',session_token:SESSION_TOKEN});
+  if(r.ok)showToast(`✅ 已推送，共 ${r.notified} 項低庫存`,'success');
+  else showToast('❌ '+r.error,'error');
+}
+
+async function runInstallTriggers(){
+  showToast('⟳ 安裝中...','info');
+  const r=await apiPost({action:'installTriggers',session_token:SESSION_TOKEN});
+  if(r.ok)showToast('✅ 已安裝：'+r.triggers.join('、'),'success');
+  else showToast('❌ '+r.error,'error');
 }
 
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
