@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>活動報名後台</title>
+<style>
+:root{
+  --green-dark:#2d7a4f;--green-mid:#3d9962;--green-soft:#6abf8a;
+  --green-pale:#f0faf4;--bg:#f5f7f5;--white:#fff;
+  --border:#d4e8da;--text:#1a2e22;--text-mid:#4a6655;--text-dim:#8aab97;
+  --red:#c0392b;--red-pale:#fdf0ee;--red-border:#e8b4ae;
+  --r:12px;--rs:8px;--font:'Helvetica Neue',Arial,'PingFang TC',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh}
+/* ── TOP BAR ── */
+.topbar{background:var(--green-dark);color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.topbar-title{font-size:16px;font-weight:800}
+.logout-btn{font-size:12px;color:rgba(255,255,255,.7);background:none;border:1px solid rgba(255,255,255,.3);border-radius:6px;padding:4px 10px;cursor:pointer}
+/* ── PAGE ── */
+.page{display:none;padding:16px;max-width:600px;margin:0 auto}
+.page.active{display:block}
+/* ── LOGIN ── */
+.login-wrap{max-width:360px;margin:60px auto;text-align:center}
+.login-icon{font-size:52px;margin-bottom:12px}
+.login-title{font-size:20px;font-weight:800;color:var(--green-dark);margin-bottom:6px}
+.login-sub{font-size:13px;color:var(--text-dim);margin-bottom:28px}
+.login-card{background:var(--white);border:1.5px solid var(--border);border-radius:var(--r);padding:20px}
+.field-label{font-size:12px;font-weight:700;color:var(--text-mid);margin-bottom:6px;display:block}
+.field-input{width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--rs);color:var(--text);font-size:16px;padding:12px 14px;font-family:var(--font);outline:none;letter-spacing:2px;text-align:center}
+.field-input:focus{border-color:var(--green-soft)}
+.primary-btn{width:100%;padding:14px;background:var(--green-dark);border:none;border-radius:var(--rs);color:#fff;font-size:15px;font-weight:800;cursor:pointer;font-family:var(--font);margin-top:12px}
+.primary-btn:active{background:var(--green-mid)}
+/* ── FILTER BAR ── */
+.filter-bar{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.filter-select{flex:1;min-width:120px;background:var(--white);border:1.5px solid var(--border);border-radius:var(--rs);padding:10px 12px;font-size:14px;font-family:var(--font);color:var(--text);outline:none}
+.filter-select:focus{border-color:var(--green-soft)}
+/* ── REG CARD ── */
+.reg-card{background:var(--white);border:1.5px solid var(--border);border-radius:var(--r);padding:14px;margin-bottom:10px}
+.reg-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.reg-name{font-size:15px;font-weight:700;color:var(--text)}
+.status-badge{font-size:11px;font-weight:700;padding:3px 8px;border-radius:99px}
+.status-申請中{background:#fff8e1;color:#c17d11}
+.status-待付款{background:#e8f4fd;color:#1a6fa3}
+.status-已完成{background:#e8f9ee;color:#1a7a3f}
+.status-未錄取,.status-已取消{background:#fdf0ee;color:var(--red)}
+.reg-row{font-size:12px;color:var(--text-mid);margin-bottom:3px}
+.reg-row span{color:var(--text);font-weight:600}
+.reg-actions{display:flex;gap:8px;margin-top:10px}
+.approve-btn{flex:1;padding:10px;background:var(--green-dark);border:none;border-radius:var(--rs);color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font)}
+.reject-btn{flex:1;padding:10px;background:var(--white);border:1.5px solid var(--red-border);border-radius:var(--rs);color:var(--red);font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font)}
+.cancel-btn{padding:10px 14px;background:var(--white);border:1.5px solid var(--border);border-radius:var(--rs);color:var(--text-dim);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font)}
+/* ── EMPTY / LOADING ── */
+.empty-state{text-align:center;padding:40px 16px;color:var(--text-dim);font-size:14px}
+.loading-state{text-align:center;padding:40px 16px;color:var(--text-dim);font-size:14px}
+/* ── MODAL ── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:500;align-items:flex-end;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:var(--white);border-radius:16px 16px 0 0;padding:24px;width:100%;max-width:500px;max-height:90vh;overflow-y:auto}
+.modal-title{font-size:16px;font-weight:800;color:var(--green-dark);margin-bottom:4px}
+.modal-sub{font-size:12px;color:var(--text-dim);margin-bottom:18px}
+.modal-field{margin-bottom:14px}
+.modal-label{font-size:12px;font-weight:700;color:var(--text-mid);margin-bottom:5px;display:block}
+.modal-input{width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--rs);padding:11px 12px;font-size:14px;font-family:var(--font);color:var(--text);outline:none}
+.modal-input:focus{border-color:var(--green-soft)}
+.modal-btns{display:flex;gap:8px;margin-top:18px}
+.modal-confirm{flex:1;padding:13px;background:var(--green-dark);border:none;border-radius:var(--rs);color:#fff;font-size:14px;font-weight:800;cursor:pointer;font-family:var(--font)}
+.modal-cancel{flex:1;padding:13px;background:var(--white);border:1.5px solid var(--border);border-radius:var(--rs);color:var(--text-mid);font-size:14px;font-weight:700;cursor:pointer;font-family:var(--font)}
+.modal-confirm.danger{background:var(--red)}
+/* ── TOAST ── */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a2e22;color:#fff;font-size:13px;padding:10px 20px;border-radius:99px;z-index:999;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
+.toast.show{opacity:1}
+</style>
+</head>
+<body>
+
+<div class="topbar" id="topbar" style="display:none">
+  <div class="topbar-title">🌿 活動報名後台</div>
+  <button class="logout-btn" onclick="logout()">登出</button>
+</div>
+
+<!-- 登入頁 -->
+<div class="page active" id="page-login">
+  <div class="login-wrap">
+    <div class="login-icon">🌿</div>
+    <div class="login-title">活動報名後台</div>
+    <div class="login-sub">請輸入管理員密碼</div>
+    <div class="login-card">
+      <label class="field-label">管理員密碼</label>
+      <input type="password" class="field-input" id="login-pwd" placeholder="••••••"
+        onkeydown="if(event.key==='Enter')doLogin()">
+      <button class="primary-btn" onclick="doLogin()">登入</button>
+    </div>
+  </div>
+</div>
+
+<!-- 主頁 -->
+<div class="page" id="page-main">
+  <div class="filter-bar">
+    <select class="filter-select" id="event-select" onchange="loadRegs()">
+      <option value="">載入活動中...</option>
+    </select>
+    <select class="filter-select" id="status-select" onchange="loadRegs()" style="flex:0 0 auto;width:110px">
+      <option value="申請中">申請中</option>
+      <option value="待付款">待付款</option>
+      <option value="已完成">已完成</option>
+      <option value="未錄取">未錄取</option>
+      <option value="已取消">已取消</option>
+      <option value="">全部</option>
+    </select>
+  </div>
+  <div id="reg-list"><div class="loading-state">載入中...</div></div>
+</div>
+
+<!-- 審核通過 Modal -->
+<div class="modal-overlay" id="modal-approve">
+  <div class="modal">
+    <div class="modal-title">✅ 審核通過</div>
+    <div class="modal-sub" id="approve-sub"></div>
+    <div class="modal-field">
+      <label class="modal-label">銀行名稱</label>
+      <input type="text" class="modal-input" id="approve-bank" placeholder="例：台灣銀行">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label">匯款帳號</label>
+      <input type="text" class="modal-input" id="approve-account" placeholder="例：0123456789012" inputmode="numeric">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label">戶名</label>
+      <input type="text" class="modal-input" id="approve-payee" placeholder="例：林○○">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label">備註（選填）</label>
+      <input type="text" class="modal-input" id="approve-note" placeholder="選填">
+    </div>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal('modal-approve')">取消</button>
+      <button class="modal-confirm" onclick="submitApprove()">發送通知並審核通過</button>
+    </div>
+  </div>
+</div>
+
+<!-- 未錄取 Modal -->
+<div class="modal-overlay" id="modal-reject">
+  <div class="modal">
+    <div class="modal-title">❌ 未錄取</div>
+    <div class="modal-sub" id="reject-sub"></div>
+    <div class="modal-field">
+      <label class="modal-label">未錄取原因（選填）</label>
+      <input type="text" class="modal-input" id="reject-note" placeholder="例：名額已滿">
+    </div>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal('modal-reject')">取消</button>
+      <button class="modal-confirm danger" onclick="submitReject()">確認未錄取並通知</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const GAS_URL='https://script.google.com/macros/s/AKfycbz4-pJ5jWtu9nevKDl98LxRqfwyVdGApEqEzcKKR9LDxanUM5BCneCZttkH3rkxLlUtYA/exec';
+
+let sessionToken=localStorage.getItem('event_admin_token')||'';
+let currentRegId='';
+
+// ── 初始化 ──
+window.addEventListener('load',()=>{
+  if(sessionToken) enterMain();
+});
+
+// ── 登入 ──
+async function doLogin(){
+  const pwd=document.getElementById('login-pwd').value.trim();
+  if(!pwd){showToast('請輸入密碼');return;}
+  const btn=document.querySelector('#page-login .primary-btn');
+  btn.disabled=true;btn.textContent='登入中...';
+  try{
+    const r=await fetch(GAS_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'loginAdmin',password:pwd})});
+    const d=await r.json();
+    if(d.ok){
+      sessionToken=d.token;
+      localStorage.setItem('event_admin_token',sessionToken);
+      enterMain();
+    }else{
+      showToast('密碼錯誤');
+    }
+  }catch(e){showToast('連線失敗，請重試');}
+  btn.disabled=false;btn.textContent='登入';
+}
+
+function enterMain(){
+  document.getElementById('page-login').classList.remove('active');
+  document.getElementById('page-main').classList.add('active');
+  document.getElementById('topbar').style.display='flex';
+  loadEvents();
+}
+
+function logout(){
+  localStorage.removeItem('event_admin_token');
+  sessionToken='';
+  document.getElementById('page-main').classList.remove('active');
+  document.getElementById('page-login').classList.add('active');
+  document.getElementById('topbar').style.display='none';
+  document.getElementById('login-pwd').value='';
+}
+
+// ── 載入活動 ──
+async function loadEvents(){
+  try{
+    const r=await fetch(GAS_URL+'?action=getEvents');
+    const d=await r.json();
+    const sel=document.getElementById('event-select');
+    if(d.ok&&d.data&&d.data.length){
+      // 報名中的活動排前面
+      const sorted=[...d.data].sort((a,b)=>{
+        if(a.status==='報名中'&&b.status!=='報名中')return -1;
+        if(b.status==='報名中'&&a.status!=='報名中')return 1;
+        return 0;
+      });
+      sel.innerHTML=sorted.map(e=>`<option value="${e.id}">[${e.status}] ${e.name}</option>`).join('');
+      loadRegs();
+    }else{
+      sel.innerHTML='<option value="">目前沒有活動</option>';
+      document.getElementById('reg-list').innerHTML='<div class="empty-state">目前沒有活動</div>';
+    }
+  }catch(e){showToast('載入活動失敗');}
+}
+
+// ── 載入報名名單 ──
+async function loadRegs(){
+  const eid=document.getElementById('event-select').value;
+  const status=document.getElementById('status-select').value;
+  if(!eid)return;
+  document.getElementById('reg-list').innerHTML='<div class="loading-state">載入中...</div>';
+  try{
+    const params=new URLSearchParams({action:'getRegistrations',event_id:eid,session_token:sessionToken});
+    if(status)params.set('status',status);
+    const r=await fetch(GAS_URL+'?'+params);
+    const d=await r.json();
+    if(d.auth_required){logout();return;}
+    if(!d.ok){showToast(d.error||'載入失敗');return;}
+    renderRegs(d.data||[]);
+  }catch(e){showToast('載入失敗');}
+}
+
+function renderRegs(list){
+  const el=document.getElementById('reg-list');
+  if(!list.length){el.innerHTML='<div class="empty-state">沒有符合的報名記錄</div>';return;}
+  el.innerHTML=list.map(reg=>{
+    const canAct=reg.fee_status==='申請中'||reg.fee_status==='待審核';
+    const canCancel=reg.fee_status!=='已取消'&&reg.fee_status!=='已完成';
+    return `<div class="reg-card">
+      <div class="reg-header">
+        <div class="reg-name">${reg.name}</div>
+        <div class="status-badge status-${reg.fee_status}">${reg.fee_status}</div>
+      </div>
+      <div class="reg-row">手機：<span>${reg.phone}</span></div>
+      <div class="reg-row">費用：<span>${reg.fee_type} NT$ ${Number(reg.fee_amount||0).toLocaleString()}</span></div>
+      <div class="reg-row">住宿：<span>${reg.accommodation||'不住宿'}</span></div>
+      ${reg.note?`<div class="reg-row">備註：<span>${reg.note}</span></div>`:''}
+      <div class="reg-row" style="font-size:10px;color:var(--text-dim);margin-top:4px">${reg.id}</div>
+      ${canAct?`<div class="reg-actions">
+        <button class="approve-btn" onclick="openApprove('${reg.id}','${reg.name}','${reg.fee_type}',${reg.fee_amount||0})">審核通過</button>
+        <button class="reject-btn" onclick="openReject('${reg.id}','${reg.name}')">未錄取</button>
+      </div>`:''}
+      ${(!canAct&&canCancel)?`<div class="reg-actions">
+        <button class="cancel-btn" onclick="doCancel('${reg.id}','${reg.name}')">取消報名</button>
+      </div>`:''}
+    </div>`;
+  }).join('');
+}
+
+// ── 審核通過 Modal ──
+function openApprove(regId,name,feeType,feeAmt){
+  currentRegId=regId;
+  document.getElementById('approve-sub').textContent=`${name}・${feeType} NT$ ${Number(feeAmt).toLocaleString()}`;
+  document.getElementById('approve-bank').value='';
+  document.getElementById('approve-account').value='';
+  document.getElementById('approve-payee').value='';
+  document.getElementById('approve-note').value='';
+  document.getElementById('modal-approve').classList.add('open');
+}
+
+async function submitApprove(){
+  const bank=document.getElementById('approve-bank').value.trim();
+  const account=document.getElementById('approve-account').value.trim();
+  const payee=document.getElementById('approve-payee').value.trim();
+  const note=document.getElementById('approve-note').value.trim();
+  if(!bank||!account||!payee){showToast('請填寫銀行、帳號、戶名');return;}
+  const btn=document.querySelector('#modal-approve .modal-confirm');
+  btn.disabled=true;btn.textContent='送出中...';
+  try{
+    const r=await fetch(GAS_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'approveRegistration',session_token:sessionToken,
+        reg_id:currentRegId,approved:'true',bank,account,payee,note})});
+    const d=await r.json();
+    if(d.auth_required){logout();return;}
+    if(d.ok){
+      showToast('✅ 已審核通過，LINE 通知已發送');
+      closeModal('modal-approve');
+      loadRegs();
+    }else{showToast(d.error||'操作失敗');}
+  }catch(e){showToast('連線失敗');}
+  btn.disabled=false;btn.textContent='發送通知並審核通過';
+}
+
+// ── 未錄取 Modal ──
+function openReject(regId,name){
+  currentRegId=regId;
+  document.getElementById('reject-sub').textContent=`確認將「${name}」設為未錄取並發送 LINE 通知？`;
+  document.getElementById('reject-note').value='';
+  document.getElementById('modal-reject').classList.add('open');
+}
+
+async function submitReject(){
+  const note=document.getElementById('reject-note').value.trim();
+  const btn=document.querySelector('#modal-reject .modal-confirm');
+  btn.disabled=true;btn.textContent='送出中...';
+  try{
+    const r=await fetch(GAS_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'approveRegistration',session_token:sessionToken,
+        reg_id:currentRegId,approved:'false',note})});
+    const d=await r.json();
+    if(d.auth_required){logout();return;}
+    if(d.ok){
+      showToast('已設為未錄取，LINE 通知已發送');
+      closeModal('modal-reject');
+      loadRegs();
+    }else{showToast(d.error||'操作失敗');}
+  }catch(e){showToast('連線失敗');}
+  btn.disabled=false;btn.textContent='確認未錄取並通知';
+}
+
+// ── 取消報名 ──
+async function doCancel(regId,name){
+  if(!confirm(`確定要取消「${name}」的報名嗎？`))return;
+  try{
+    const r=await fetch(GAS_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'cancelRegistration',session_token:sessionToken,
+        reg_id:regId,cancelled_by:'管理員'})});
+    const d=await r.json();
+    if(d.auth_required){logout();return;}
+    if(d.ok){showToast('已取消報名');loadRegs();}
+    else showToast(d.error||'取消失敗');
+  }catch(e){showToast('連線失敗');}
+}
+
+// ── 工具 ──
+function closeModal(id){document.getElementById(id).classList.remove('open');}
+let _toastTimer;
+function showToast(msg){
+  const el=document.getElementById('toast');
+  el.textContent=msg;el.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer=setTimeout(()=>el.classList.remove('show'),2800);
+}
+</script>
+</body>
+</html>
