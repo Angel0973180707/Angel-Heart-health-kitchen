@@ -1,8 +1,8 @@
 // ================================================================
-// 養清倉管系統 GAS 後台 v2.1
+// 養清倉管系統 GAS 後台 v2.4
 // Spreadsheet ID: 1geF1x3u9T_S6gmJlnLiV6-x77t66WtI4bON_Nr3FH6w
-// 更新日期：2026-06-12
-// v2.1 新增：自動下架、封面圖、點數記錄
+// 更新日期：2026-06-15
+// v2.4 修正：帳務防重複、待收款轉已收款、活動帳本分流、餘額公式修正
 // ================================================================
 
 const SPREADSHEET_ID = '1geF1x3u9T_S6gmJlnLiV6-x77t66WtI4bON_Nr3FH6w';
@@ -41,10 +41,11 @@ const SHEET = {
   BALANCE:       '帳務總覽',
   EVENTS:        '活動主檔',
   REGISTRATIONS: '報名記錄',
-  MEMBERS:       '會員',
-  POINTS_LOG:    '點數記錄',
-  RETURNS:       '退貨記錄',
-  SETTINGS:      '系統設定'
+  MEMBERS:         '會員',
+  POINTS_LOG:      '點數記錄',
+  RETURNS:         '退貨記錄',
+  SETTINGS:        '系統設定',
+  EVENT_ACCOUNTS:  '活動帳本'
 };
 
 // 欄位索引（0起算）
@@ -539,7 +540,8 @@ function addOrder(p) {
   const settings = getSettingsMap_();
   const subtotal  = items.reduce((sum, it) => sum + (Number(it.price)||0) * (Number(it.qty)||0), 0);
   const freeThres = Number(settings.free_shipping_threshold) || 1000;
-  const shipFee   = subtotal >= freeThres ? 0 : (Number(settings.shipping_fee) || 80);
+  const isPickup  = (p.payment === '現場取貨');
+  const shipFee   = isPickup ? 0 : (subtotal >= freeThres ? 0 : (Number(settings.shipping_fee) || 80));
   const total     = subtotal + shipFee;
 
   const id = 'ORD' + Date.now();
@@ -571,6 +573,12 @@ function updateOrder(p) {
   const sheet = getSheet(SHEET.ORDERS);
   const c = COL.ORDERS;
   const rn = found.rowNum;
+  const currentStatus = String(found.row[c.STATUS]);
+  // 防止重複扣庫存：已確認以後的狀態不可再次傳 deduct=true
+  if (p.status === '已確認' && p.deduct === 'true' &&
+      ['已確認','已出貨','已付款','已完成'].includes(currentStatus)) {
+    return { ok: false, error: '訂單已確認，不可重複扣庫存' };
+  }
   if (p.status !== undefined) sheet.getRange(rn, c.STATUS+1).setValue(p.status);
   if (p.note   !== undefined) sheet.getRange(rn, c.NOTE+1).setValue(p.note);
   if (p.status === '已確認' && p.deduct === 'true') {
@@ -581,7 +589,6 @@ function updateOrder(p) {
                    price: item.price, partner: found.row[c.CNAME], note: '訂單:'+p.order_id });
       });
       addAccount({
-  
         date: today(), type: '銷售收款',
         partner: found.row[c.CNAME],
         items: '訂單 ' + p.order_id,
@@ -600,8 +607,8 @@ function cancelOrder(p) {
   const order = found.row;
   const c = COL.ORDERS;
   const status = String(order[c.STATUS]);
-  if (status === '已完成' || status === '已取消') {
-    return { ok: false, error: `此訂單狀態「${status}」無法取消` };
+  if (['已完成', '已取消', '已付款'].includes(status)) {
+    return { ok: false, error: `此訂單狀態「${status}」無法取消，需走退款流程` };
   }
   const sheet = getSheet(SHEET.ORDERS);
   const rn = found.rowNum;
@@ -609,6 +616,38 @@ function cancelOrder(p) {
   sheet.getRange(rn, c.CANCELLED_BY+1).setValue(p.cancelled_by || '管理員');
   sheet.getRange(rn, c.CANCELLED_AT+1).setValue(now());
   sheet.getRange(rn, c.CANCEL_REASON+1).setValue(p.cancel_reason || '');
+
+  // 庫存回補：訂單已確認或已出貨才補
+  if (['已確認', '已出貨'].includes(status)) {
+    try {
+      const orderItems = JSON.parse(order[c.ITEMS] || '[]');
+      const logSheet = getSheet(SHEET.STOCK_LOG);
+      orderItems.forEach(item => {
+        const qty = parseInt(item.qty) || 0;
+        if (!item.product_id || qty <= 0) return;
+        updateQty(item.product_id, qty, 'in');
+        logSheet.appendRow([
+          genId('SL'), item.product_id, item.name || '', '退回',
+          qty, item.price || '', order[c.CNAME] || '', '取消訂單退回：' + p.order_id, now()
+        ]);
+      });
+    } catch(e) {
+      Logger.log('取消訂單庫存回補失敗：' + e.toString());
+    }
+  }
+
+  // 作廢待收款
+  try {
+    const accRows = getRows(SHEET.ACCOUNTS);
+    const ca = COL.ACCOUNTS;
+    const pendingIdx = accRows.findIndex(r =>
+      String(r[ca.ITEMS]).includes(p.order_id) && String(r[ca.STATUS]) === '待收款'
+    );
+    if (pendingIdx >= 0) {
+      getSheet(SHEET.ACCOUNTS).getRange(DATA_ROW + pendingIdx, ca.STATUS+1).setValue('已作廢');
+    }
+  } catch(e) {}
+
   sendLineMsg(`❌ 訂單取消\n訂單：${p.order_id}\n客人：${order[c.CNAME]}\n原因：${p.cancel_reason||'—'}\n時間：${now()}`);
   return { ok: true };
 }
@@ -720,23 +759,31 @@ function getBalance() {
 }
 
 function refreshBalance() {
-  const rows = getRows(SHEET.ACCOUNTS);
-  const c = COL.ACCOUNTS;
-  let totalIncome = 0, totalExpense = 0, receivable = 0, payable = 0;
   const thisMonth = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM');
+  let totalIncome = 0, totalExpense = 0, receivable = 0, payable = 0;
   let monthIncome = 0, monthExpense = 0;
+  const c = COL.ACCOUNTS;
 
-  rows.forEach(r => {
-    const income  = Number(r[c.INCOME])  || 0;
-    const expense = Number(r[c.EXPENSE]) || 0;
-    totalIncome  += income;
-    totalExpense += expense;
-    if (r[c.STATUS] === '待收款') receivable += income;
-    if (r[c.STATUS] === '待付款') payable    += expense;
-    if (String(r[c.DATE]).startsWith(thisMonth)) {
-      monthIncome  += income;
-      monthExpense += expense;
-    }
+  // 商品帳本 + 活動帳本 合計
+  [SHEET.ACCOUNTS, SHEET.EVENT_ACCOUNTS].forEach(sheetName => {
+    try {
+      getRows(sheetName).forEach(r => {
+        if (!r[c.ID]) return;
+        const status  = String(r[c.STATUS] || '');
+        if (status === '已作廢') return;
+        const income  = Number(r[c.INCOME])  || 0;
+        const expense = Number(r[c.EXPENSE]) || 0;
+        // 只計算真正入帳的金額
+        if (status === '已收款') { totalIncome  += income;  }
+        if (status === '已付款' || status === '已完成') { totalExpense += expense; }
+        if (status === '待收款') { receivable   += income;  }
+        if (status === '待付款') { payable       += expense; }
+        if (String(r[c.DATE]).startsWith(thisMonth)) {
+          if (status === '已收款') { monthIncome  += income;  }
+          if (status === '已付款' || status === '已完成') { monthExpense += expense; }
+        }
+      });
+    } catch(e) {}
   });
 
   const sheet = getSheet(SHEET.BALANCE);
@@ -920,13 +967,21 @@ function updateRegistration(p) {
   if (p.note          !== undefined) sheet.getRange(rn, c.NOTE+1).setValue(p.note);
   if (p.accommodation !== undefined) sheet.getRange(rn, c.ACCOMMODATION+1).setValue(p.accommodation);
   if (p.fee_status === '已付款') {
-    addAccount({
-      date: today(), type: '銷售收款',
-      partner: found.row[c.NAME],
-      items: '活動報名費 ' + found.row[c.ENAME],
-      income: found.row[c.FEE_AMOUNT], expense: '',
-      payment: p.payment||'匯款', status: '已收款', note: p.reg_id||''
-    });
+    // 防止重複收款
+    if (String(found.row[c.FEE_STATUS]) === '已付款') {
+      return { ok: false, error: '此報名費已付款，不可重複確認' };
+    }
+    // 寫入活動帳本（獨立於商品帳本）
+    const evtSheet = getSheet(SHEET.EVENT_ACCOUNTS);
+    if (evtSheet) {
+      evtSheet.appendRow([
+        genId('EA'), today(), '活動報名費',
+        found.row[c.NAME],
+        found.row[c.ENAME] + ' / ' + (found.row[c.ID]||''),
+        found.row[c.FEE_AMOUNT], 0,
+        p.payment||'匯款', '已收款', '', now()
+      ]);
+    }
     refreshBalance();
   }
   return { ok: true };
@@ -1142,6 +1197,13 @@ function confirmOrderPayment(p) {
   if (!found) return { ok: false, error: '找不到訂單' };
   const order = found.row;
   const c = COL.ORDERS;
+
+  // 防止重複確認付款
+  const curStatus = String(order[c.STATUS]);
+  if (curStatus === '已付款' || curStatus === '已完成') {
+    return { ok: false, error: '此訂單已付款，不可重複確認' };
+  }
+
   const amount = Number(p.received_amount) || Number(order[c.TOTAL]) || 0;
   const payDate = p.payment_date || today();
 
@@ -1149,16 +1211,28 @@ function confirmOrderPayment(p) {
   const sheet = getSheet(SHEET.ORDERS);
   sheet.getRange(found.rowNum, c.STATUS+1).setValue('已付款');
 
-  // 帳本寫收入
-  addAccount({
-
-    date: payDate, type: '銷售收款',
-    partner: order[c.CNAME],
-    items: '訂單 ' + p.order_id,
-    income: amount, expense: '',
-    payment: order[c.PAYMENT] || 'ATM轉帳',
-    status: '已收款', note: ''
-  });
+  // 待收款 → 已收款（找到就更新，沒找到才新增）
+  const accRows = getRows(SHEET.ACCOUNTS);
+  const ca = COL.ACCOUNTS;
+  const pendingIdx = accRows.findIndex(r =>
+    String(r[ca.ITEMS]).includes(p.order_id) && String(r[ca.STATUS]) === '待收款'
+  );
+  if (pendingIdx >= 0) {
+    const accSheet = getSheet(SHEET.ACCOUNTS);
+    const accRn = DATA_ROW + pendingIdx;
+    accSheet.getRange(accRn, ca.STATUS+1).setValue('已收款');
+    accSheet.getRange(accRn, ca.INCOME+1).setValue(amount);
+    accSheet.getRange(accRn, ca.DATE+1).setValue(payDate);
+  } else {
+    addAccount({
+      date: payDate, type: '銷售收款',
+      partner: order[c.CNAME],
+      items: '訂單 ' + p.order_id,
+      income: amount, expense: '',
+      payment: order[c.PAYMENT] || 'ATM轉帳',
+      status: '已收款', note: ''
+    });
+  }
 
   // 加點數：依商品小計計算（不含運費），每 N 元得 1 點
   let pointsAdded = 0;
@@ -1333,11 +1407,12 @@ function getMonthlyReport(p) {
   const orders = getRows(SHEET.ORDERS);
   const c = COL.ORDERS;
 
-  let revenue = 0, orderCount = 0, cancelCount = 0;
+  let revenue = 0, orderCount = 0, cancelCount = 0, pendingCount = 0;
   const productSales = {};
   orders.forEach(r => {
     if (!r[c.ID] || !String(r[c.CREATED]).startsWith(month)) return;
     if (r[c.STATUS] === '已取消') { cancelCount++; return; }
+    if (!['已付款','已完成'].includes(String(r[c.STATUS]))) { pendingCount++; return; }
     orderCount++;
     revenue += Number(r[c.TOTAL]) || 0;
     try {
@@ -1360,7 +1435,7 @@ function getMonthlyReport(p) {
   });
 
   const topProducts = Object.values(productSales).sort((a,b) => b.revenue - a.revenue).slice(0,10);
-  return { ok: true, data: { month, order_count: orderCount, cancel_count: cancelCount, revenue, cost, profit: revenue - cost, top_products: topProducts } };
+  return { ok: true, data: { month, order_count: orderCount, pending_count: pendingCount, cancel_count: cancelCount, revenue, cost, profit: revenue - cost, top_products: topProducts } };
 }
 
 function getSalesRanking(p) {
@@ -1499,4 +1574,60 @@ function adminSetupPhoneFormats() {
   Logger.log('✅ 完成：' + done.join('、'));
   if (errors.length) Logger.log('⚠️ 錯誤：' + errors.join('、'));
   return { ok: true, done, errors };
+}
+
+// ================================================================
+// Schema 初始化：自動補齊新欄位 + 建立系統設定工作表
+// 在 GAS 編輯器選此函式點「執行」，只需執行一次
+// ================================================================
+function adminSetupSchema() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const HEADER_ROW = 2;
+  const log = [];
+
+  function writeHeaders(sheetName, colStart, headers) {
+    const s = ss.getSheetByName(sheetName);
+    if (!s) { log.push('找不到工作表：' + sheetName); return; }
+    s.getRange(HEADER_ROW, colStart, 1, headers.length).setValues([headers]);
+    log.push(sheetName + ' OK（' + headers.join(', ') + '）');
+  }
+
+  writeHeaders(SHEET.ORDERS,        11, ['subtotal','shipping_fee','coupon_code','cancelled_by','cancelled_at','cancel_reason']);
+  writeHeaders(SHEET.REGISTRATIONS, 18, ['gender','cancelled_by','cancelled_at']);
+  writeHeaders(SHEET.EVENTS,        16, ['accom_registered','no_accom_registered']);
+  writeHeaders(SHEET.MEMBERS,        9, ['member_level','annual_spend','level_updated_at','birth_disc_year']);
+
+  // 活動帳本（與商品帳本同結構）
+  let evtAccSheet = ss.getSheetByName(SHEET.EVENT_ACCOUNTS);
+  if (!evtAccSheet) {
+    evtAccSheet = ss.insertSheet(SHEET.EVENT_ACCOUNTS);
+    log.push('建立工作表：活動帳本');
+  }
+  evtAccSheet.getRange(HEADER_ROW, 1, 1, 11).setValues([['id','date','type','partner','items','income','expense','payment','status','note','created_at']]);
+  log.push('活動帳本 OK');
+
+  let settingsSheet = ss.getSheetByName(SHEET.SETTINGS);
+  if (!settingsSheet) {
+    settingsSheet = ss.insertSheet(SHEET.SETTINGS);
+    log.push('建立工作表：系統設定');
+  }
+  settingsSheet.getRange(HEADER_ROW, 1, 1, 4).setValues([['key','value','desc','updated']]);
+
+  const now = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy/MM/dd HH:mm');
+  const existingData  = settingsSheet.getDataRange().getValues();
+  const existingKeys  = existingData.slice(DATA_ROW - 1).map(r => String(r[0])).filter(k => k);
+  const toAdd = Object.entries(SETTING_DEFAULTS)
+    .filter(([k]) => !existingKeys.includes(k))
+    .map(([k, v]) => [k, v.value, v.desc, now]);
+
+  if (toAdd.length > 0) {
+    const startRow = Math.max(settingsSheet.getLastRow() + 1, DATA_ROW);
+    settingsSheet.getRange(startRow, 1, toAdd.length, 4).setValues(toAdd);
+    log.push('系統設定寫入 ' + toAdd.length + ' 筆預設值');
+  } else {
+    log.push('系統設定預設值已存在，略過');
+  }
+
+  Logger.log(log.join('\n'));
+  return { ok: true, log };
 }
