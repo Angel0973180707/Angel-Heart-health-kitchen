@@ -220,7 +220,7 @@ async function loadEvents(){
         if(b.status==='報名中'&&a.status!=='報名中')return 1;
         return 0;
       });
-      sel.innerHTML=sorted.map(e=>`<option value="${e.id}">[${e.status}] ${e.name}</option>`).join('');
+      sel.innerHTML=sorted.map(e=>`<option value="${e.event_id}">[${e.status}] ${e.name}</option>`).join('');
       loadRegs();
     }else{
       sel.innerHTML='<option value="">目前沒有活動</option>';
@@ -237,7 +237,7 @@ async function loadRegs(){
   document.getElementById('reg-list').innerHTML='<div class="loading-state">載入中...</div>';
   try{
     const params=new URLSearchParams({action:'getRegistrations',event_id:eid,session_token:sessionToken});
-    if(status)params.set('status',status);
+    if(status)params.set('fee_status',status);
     const r=await fetch(GAS_URL+'?'+params);
     const d=await r.json();
     if(d.auth_required){logout();return;}
