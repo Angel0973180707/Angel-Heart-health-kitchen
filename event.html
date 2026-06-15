@@ -280,6 +280,7 @@ const GAS_URL='https://script.google.com/macros/s/AKfycbz4-pJ5jWtu9nevKDl98LxRqf
 
 let events=[];
 let currentEvent=null;
+let _submitting=false;
 let selectedFeeType='單次';
 
 // ── 載入活動 ──
@@ -405,6 +406,11 @@ function showEvent(eid){
   const accom=document.getElementById('f-accommodation');
   if(accom)accom.value='不住宿';
 
+  // 每次切換活動時重設送出旗標與按鈕，避免前次成功後按鈕卡在停用狀態
+  _submitting=false;
+  const btn=document.getElementById('submit-btn');
+  if(btn){btn.disabled=false;btn.textContent='送出報名申請';}
+
   switchPage('detail');
   window.scrollTo(0,0);
 }
@@ -417,6 +423,7 @@ function selectFee(type, el){
 
 // ── 送出報名 ──
 async function submitReg(){
+  if(_submitting)return;
   const name=document.getElementById('f-name').value.trim();
   const phone=document.getElementById('f-phone').value.trim();
   const ename=document.getElementById('f-ename').value.trim();
@@ -429,9 +436,11 @@ async function submitReg(){
                   selectedFeeType==='半年繳'?currentEvent.fee_half:
                   currentEvent.fee_single)||12000;
 
+  _submitting=true;
   const btn=document.getElementById('submit-btn');
   btn.disabled=true;btn.textContent='送出中...';
   showLoading();
+  let ok=false;
 
   try{
     const params=new URLSearchParams({
@@ -455,7 +464,8 @@ async function submitReg(){
     const data=await r.json();
 
     if(data.ok){
-      // 成功頁
+      ok=true;
+      // 成功頁（按鈕保持停用，防止重複送出）
       document.getElementById('success-info').innerHTML=`
         <div class="info-box-title">📋 報名資料確認</div>
         <div class="info-row"><span class="info-key">活動</span><span class="info-val">${currentEvent.name}</span></div>
@@ -473,7 +483,7 @@ async function submitReg(){
     showToast('網路錯誤，請重試','error');
   }
   hideLoading();
-  btn.disabled=false;btn.textContent='送出報名申請';
+  if(!ok){btn.disabled=false;btn.textContent='送出報名申請';_submitting=false;}
 }
 
 // ── 頁面切換 ──
