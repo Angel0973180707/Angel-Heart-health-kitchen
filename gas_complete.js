@@ -1631,3 +1631,179 @@ function adminSetupSchema() {
   Logger.log(log.join('\n'));
   return { ok: true, log };
 }
+
+// ================================================================
+// 付款流程自動驗收測試（在 GAS 編輯器執行，測完自動清理）
+// ================================================================
+function adminRunPaymentTest() {
+  const log = [];
+  const errors = [];
+  let testOrderId1 = null, testOrderId2 = null;
+  const TEST_PHONE = '0900000001';
+  const TEST_NAME  = '【測試用戶】';
+
+  function pass(msg) { log.push('✅ ' + msg); }
+  function fail(msg) { errors.push('❌ ' + msg); log.push('❌ ' + msg); }
+  function info(msg) { log.push('   ' + msg); }
+
+  try {
+    // ── 找第一個有庫存的商品 ──
+    const invRows = getRows(SHEET.INVENTORY);
+    const ci = COL.INVENTORY;
+    const invItem = invRows.find(r => r[ci.ID] && Number(r[ci.QTY]) >= 2);
+    if (!invItem) { fail('找不到庫存 ≥ 2 的商品，無法測試'); Logger.log(log.join('\n')); return; }
+    const pid  = String(invItem[ci.ID]);
+    const pname = String(invItem[ci.NAME]);
+    const qtyBefore = Number(invItem[ci.QTY]);
+    info('測試商品：' + pname + '（' + pid + '），目前庫存 ' + qtyBefore);
+
+    // ── 確保測試會員存在 ──
+    const memRows = getRows(SHEET.MEMBERS);
+    const cm = COL.MEMBERS;
+    const memIdx = memRows.findIndex(r => String(r[cm.PHONE]) === TEST_PHONE);
+    let ptsBefore = 0;
+    if (memIdx < 0) {
+      registerMember({ name: TEST_NAME, phone: TEST_PHONE });
+      info('已建立測試會員');
+    } else {
+      ptsBefore = Number(memRows[memIdx][cm.POINTS]) || 0;
+    }
+    info('測試會員點數（測試前）：' + ptsBefore);
+
+    // ── 場景 A：正常下單 → 確認 → 付款 → 重複付款應被擋 ──
+    info('');
+    info('=== 場景 A：付款流程 ===');
+
+    const orderItems = JSON.stringify([{ product_id: pid, name: pname, qty: 1, price: 100 }]);
+    const r1 = addOrder({ token: ORDER_TOKEN, customer_name: TEST_NAME, phone: TEST_PHONE,
+                          address: '測試地址', items: orderItems, payment: 'ATM轉帳', note: '自動測試A' });
+    if (!r1.ok) { fail('建立訂單 A 失敗：' + r1.error); throw new Error('stop'); }
+    testOrderId1 = r1.order_id;
+    pass('建立訂單 A：' + testOrderId1 + '（小計 ' + r1.subtotal + '，運費 ' + r1.shipping_fee + '）');
+
+    const r2 = updateOrder({ order_id: testOrderId1, status: '已確認', deduct: 'true', session_token: 'skip' });
+    if (!r2.ok) { fail('確認訂單失敗：' + r2.error); throw new Error('stop'); }
+    pass('確認訂單並扣庫存');
+
+    // 驗證庫存只扣一次
+    const qtyAfterConfirm = Number(findRow(SHEET.INVENTORY, COL.INVENTORY.ID, pid).row[COL.INVENTORY.QTY]);
+    if (qtyAfterConfirm === qtyBefore - 1) pass('庫存正確扣 1（' + qtyBefore + ' → ' + qtyAfterConfirm + '）');
+    else fail('庫存數量異常（預期 ' + (qtyBefore-1) + '，實際 ' + qtyAfterConfirm + '）');
+
+    // 重複確認應被擋
+    const r2b = updateOrder({ order_id: testOrderId1, status: '已確認', deduct: 'true', session_token: 'skip' });
+    if (!r2b.ok) pass('重複扣庫存被擋：' + r2b.error);
+    else fail('重複扣庫存未被擋！');
+
+    // 確認付款
+    const r3 = confirmOrderPayment({ order_id: testOrderId1, member_phone: TEST_PHONE });
+    if (!r3.ok) { fail('確認付款失敗：' + r3.error); throw new Error('stop'); }
+    pass('確認付款成功，加點 ' + r3.points_added);
+
+    // 重複確認付款應被擋
+    const r3b = confirmOrderPayment({ order_id: testOrderId1 });
+    if (!r3b.ok) pass('重複確認付款被擋：' + r3b.error);
+    else fail('重複確認付款未被擋！');
+
+    // 驗證帳本：只有一筆已收款，待收款已結清
+    const accRows = getRows(SHEET.ACCOUNTS);
+    const ca = COL.ACCOUNTS;
+    const relatedAcc = accRows.filter(r => String(r[ca.ITEMS]).includes(testOrderId1));
+    const paid   = relatedAcc.filter(r => String(r[ca.STATUS]) === '已收款');
+    const pending = relatedAcc.filter(r => String(r[ca.STATUS]) === '待收款');
+    if (paid.length === 1)   pass('帳本只有 1 筆已收款');
+    else fail('帳本已收款筆數異常：' + paid.length);
+    if (pending.length === 0) pass('待收款已結清（0 筆）');
+    else fail('仍有 ' + pending.length + ' 筆待收款未結清');
+
+    // 驗證點數只加一次
+    const memRowsAfter = getRows(SHEET.MEMBERS);
+    const memAfter = memRowsAfter.find(r => String(r[cm.PHONE]) === TEST_PHONE);
+    const ptsAfter = memAfter ? Number(memAfter[cm.POINTS]) : 0;
+    if (ptsAfter >= ptsBefore) pass('會員點數正確：' + ptsBefore + ' → ' + ptsAfter);
+    else fail('點數異常（前 ' + ptsBefore + '，後 ' + ptsAfter + '）');
+
+    // ── 場景 B：下單 → 確認 → 取消 → 待收款應作廢 ──
+    info('');
+    info('=== 場景 B：取消訂單 ===');
+
+    const r4 = addOrder({ token: ORDER_TOKEN, customer_name: TEST_NAME, phone: TEST_PHONE,
+                          address: '測試地址', items: orderItems, payment: 'ATM轉帳', note: '自動測試B' });
+    if (!r4.ok) { fail('建立訂單 B 失敗：' + r4.error); throw new Error('stop'); }
+    testOrderId2 = r4.order_id;
+    pass('建立訂單 B：' + testOrderId2);
+
+    updateOrder({ order_id: testOrderId2, status: '已確認', deduct: 'true', session_token: 'skip' });
+    pass('確認訂單 B 並扣庫存');
+
+    const r5 = cancelOrder({ order_id: testOrderId2, cancel_reason: '自動測試取消', cancelled_by: '測試程式' });
+    if (!r5.ok) { fail('取消訂單 B 失敗：' + r5.error); throw new Error('stop'); }
+    pass('取消訂單 B');
+
+    // 驗證待收款已作廢
+    const accRows2 = getRows(SHEET.ACCOUNTS);
+    const relatedB = accRows2.filter(r => String(r[ca.ITEMS]).includes(testOrderId2));
+    const voided = relatedB.filter(r => String(r[ca.STATUS]) === '已作廢');
+    if (voided.length >= 1) pass('待收款已作廢（' + voided.length + ' 筆）');
+    else fail('待收款未被作廢，仍殘留 ' + relatedB.map(r=>r[ca.STATUS]).join('/'));
+
+    // 驗證庫存已還回
+    const qtyAfterCancel = Number(findRow(SHEET.INVENTORY, COL.INVENTORY.ID, pid).row[COL.INVENTORY.QTY]);
+    if (qtyAfterCancel === qtyAfterConfirm) pass('庫存取消後還回（目前 ' + qtyAfterCancel + '）');
+    else fail('庫存還回異常（預期 ' + qtyAfterConfirm + '，實際 ' + qtyAfterCancel + '）');
+
+  } catch(e) {
+    if (e.message !== 'stop') fail('例外：' + e.toString());
+  } finally {
+    // ── 清理測試資料 ──
+    info('');
+    info('=== 清理測試資料 ===');
+    [testOrderId1, testOrderId2].filter(Boolean).forEach(oid => {
+      try {
+        const f = findRow(SHEET.ORDERS, COL.ORDERS.ID, oid);
+        if (f) {
+          getSheet(SHEET.ORDERS).deleteRow(f.rowNum);
+          info('刪除測試訂單 ' + oid);
+        }
+      } catch(e) {}
+    });
+    // 清理帳本測試資料
+    try {
+      const accSheet = getSheet(SHEET.ACCOUNTS);
+      const accRows3 = getRows(SHEET.ACCOUNTS);
+      const ca2 = COL.ACCOUNTS;
+      const toDelete = [];
+      accRows3.forEach((r, i) => {
+        if (String(r[ca2.ITEMS]).includes(testOrderId1) ||
+            String(r[ca2.ITEMS]).includes(testOrderId2)) {
+          toDelete.push(DATA_ROW + i);
+        }
+      });
+      toDelete.reverse().forEach(rn => accSheet.deleteRow(rn));
+      if (toDelete.length) info('刪除帳本測試資料 ' + toDelete.length + ' 筆');
+    } catch(e) {}
+    // 清理點數記錄
+    try {
+      const ptSheet = getSheet(SHEET.POINTS_LOG);
+      const ptRows = getRows(SHEET.POINTS_LOG);
+      const cp = COL.POINTS_LOG;
+      const toDel = [];
+      ptRows.forEach((r, i) => {
+        if (String(r[cp.PHONE]) === TEST_PHONE &&
+            (String(r[cp.NOTE]).includes(testOrderId1) || String(r[cp.NOTE]).includes(testOrderId2))) {
+          toDel.push(DATA_ROW + i);
+        }
+      });
+      toDel.reverse().forEach(rn => ptSheet.deleteRow(rn));
+      if (toDel.length) info('刪除點數記錄 ' + toDel.length + ' 筆');
+    } catch(e) {}
+    info('清理完成');
+  }
+
+  const summary = errors.length === 0
+    ? '✅ 全部通過（' + log.filter(l=>l.startsWith('✅')).length + ' 項）'
+    : '⚠️ 有 ' + errors.length + ' 項失敗';
+  log.unshift('=== 付款流程驗收測試 ' + summary + ' ===');
+  Logger.log(log.join('\n'));
+  return { ok: errors.length === 0, summary, log };
+}
