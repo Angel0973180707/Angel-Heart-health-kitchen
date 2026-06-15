@@ -588,8 +588,17 @@ function calcShipping(subtotal){
 function renderCheckoutItems(){
   const items=Object.values(cart);
   const subtotal=items.reduce((s,{product:p,qty})=>s+Number(p.retail_price)*qty,0);
-  const shipFee=calcShipping(subtotal);
+  const isPickup=selectedPayment==='現場取貨';
+  const shipFee=isPickup?0:calcShipping(subtotal);
   const total=subtotal+shipFee;
+  let shipLabel,shipText,shipStyle;
+  if(isPickup){
+    shipLabel='取貨方式';shipText='現場取貨（免運）';shipStyle='color:var(--green-soft)';
+  }else if(shipFee===0){
+    shipLabel='運費';shipText='免運';shipStyle='color:var(--green-soft)';
+  }else{
+    shipLabel='運費';shipText='NT$ '+shipFee.toLocaleString();shipStyle='';
+  }
   document.getElementById('checkout-items').innerHTML=
     items.map(({product:p,qty})=>`
       <div class="order-summary-item">
@@ -601,8 +610,8 @@ function renderCheckoutItems(){
       <span class="order-item-price">NT$ ${subtotal.toLocaleString()}</span>
     </div>
     <div class="order-summary-item" style="color:var(--text-mid)">
-      <span class="order-item-name">運費${shipFee===0?'（滿 NT$'+FREE_SHIP_THRESHOLD.toLocaleString()+' 免運）':''}</span>
-      <span class="order-item-price" style="${shipFee===0?'color:var(--green-soft)':''}">${shipFee===0?'免運':'NT$ '+shipFee.toLocaleString()}</span>
+      <span class="order-item-name">${shipLabel}</span>
+      <span class="order-item-price" style="${shipStyle}">${shipText}</span>
     </div>
     <div class="order-total-row">
       <span class="order-total-label">合計</span>
@@ -614,11 +623,11 @@ function selectPayment(type){
   selectedPayment=type;
   document.getElementById('pay-atm').classList.toggle('selected',type==='ATM轉帳');
   document.getElementById('pay-pickup').classList.toggle('selected',type==='現場取貨');
-  // 更新 radio dot
   document.querySelectorAll('.payment-radio').forEach(r=>r.innerHTML='');
   const sel=type==='ATM轉帳'?document.getElementById('pay-atm'):document.getElementById('pay-pickup');
   sel.querySelector('.payment-radio').innerHTML='<div class="payment-radio-dot"></div>';
   document.getElementById('atm-info').style.display=type==='ATM轉帳'?'block':'none';
+  renderCheckoutItems();
 }
 
 async function submitOrder(){
