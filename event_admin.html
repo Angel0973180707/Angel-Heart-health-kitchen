@@ -172,10 +172,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   </div>
 </div>
 
-<!-- 報名成功文案 Modal -->
+<!-- 回覆文案 Modal -->
 <div class="modal-overlay" id="modal-copy-msg">
   <div class="modal">
-    <div class="modal-title">📋 報名成功文案</div>
+    <div class="modal-title">📋 回覆文案</div>
     <div class="modal-sub">複製後貼給學員</div>
     <textarea id="copy-msg-text"
       style="width:100%;min-height:220px;background:var(--white);border:1.5px solid var(--border);border-radius:var(--rs);padding:12px;font-size:13px;font-family:var(--font);color:var(--text);line-height:1.8;resize:vertical;outline:none"></textarea>
@@ -194,6 +194,7 @@ const GAS_URL='https://script.google.com/macros/s/AKfycbz4-pJ5jWtu9nevKDl98LxRqf
 let sessionToken=localStorage.getItem('event_admin_token')||'';
 let currentRegId='';
 let currentRegData=null;
+let currentApproveData=null;
 let eventsMap={};
 
 // ── 初始化 ──
@@ -316,6 +317,7 @@ function renderRegs(list){
 // ── 審核通過 Modal ──
 function openApprove(regId,name,feeType,feeAmt){
   currentRegId=regId;
+  currentApproveData={name,feeType,feeAmt};
   document.getElementById('approve-sub').textContent=`${name}・${feeType} NT$ ${Number(feeAmt).toLocaleString()}`;
   document.getElementById('approve-bank').value='中華郵政 700';
   document.getElementById('approve-account').value='0041336-0597692';
@@ -341,6 +343,7 @@ async function submitApprove(){
     if(d.ok){
       showToast('✅ 已審核通過，請手動通知學員');
       closeModal('modal-approve');
+      showPaymentNoticeMsg(currentApproveData,{bank,account,payee,note});
       loadRegs();
     }else{showToast(d.error||'操作失敗');}
   }catch(e){showToast('連線失敗');}
@@ -414,6 +417,37 @@ async function submitConfirmPayment(){
     }else{showToast(d.error||'操作失敗');}
   }catch(e){showToast('連線失敗');}
   btn.disabled=false;btn.textContent='確認收款並產生文案';
+}
+
+function showPaymentNoticeMsg(reg,pay){
+  const eid=document.getElementById('event-select').value;
+  const ev=eventsMap[eid]||{};
+  const name=reg?.name||'';
+  const eventName=ev.name||'金門心文明健康旅療營';
+  const feeType=reg?.feeType||'';
+  const feeAmt=Number(reg?.feeAmt||0).toLocaleString();
+  const msg=`您好，${name} 您的「${eventName}」報名已審核通過。
+
+請於 3 天內完成繳費：
+
+郵局代號：700
+帳號：${pay.account}
+戶名：${pay.payee}
+備註：美心良田社區總體營造工作坊
+　　　心文明健康旅療專用帳戶
+
+繳費金額：
+${feeType}：NT$ ${feeAmt}
+
+繳費完成後，請回覆：
+1. 匯款截圖或帳號末五碼
+2. 報名姓名
+3. 報名住宿類型
+
+我們確認收款後，會通知您報名完成。`;
+
+  document.getElementById('copy-msg-text').value=msg;
+  document.getElementById('modal-copy-msg').classList.add('open');
 }
 
 function showCopyMsg(reg){
