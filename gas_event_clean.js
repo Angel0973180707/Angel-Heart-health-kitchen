@@ -67,7 +67,8 @@ const COL = {
   EVENTS: {
     ID:0, NAME:1, DATE:2, LOCATION:3, DESC:4, CAPACITY:5, REGISTERED:6,
     ACCOM_QUOTA:7, NO_ACCOM_QUOTA:8, FEE_SINGLE:9, FEE_YEARLY:10, FEE_HALF:11,
-    STATUS:12, CREATED:13, IMAGE:14, ACCOM_REGISTERED:15, NO_ACCOM_REGISTERED:16
+    STATUS:12, CREATED:13, IMAGE:14, ACCOM_REGISTERED:15, NO_ACCOM_REGISTERED:16,
+    FEE_ACCOM:17, FEE_NO_ACCOM:18
   },
   REGISTRATIONS: {
     ID:0, EID:1, ENAME:2, NAME:3, PHONE:4, ADDRESS:5, FEE_TYPE:6,
@@ -177,7 +178,8 @@ function handleRequest(e) {
       'getAccounts','addAccount','updateAccount',
       'getBalance','refreshBalance',
       'addEvent','updateEvent','deleteEvent',
-      'getRegistrations','updateRegistration','approveRegistration','cancelRegistration',
+      'getRegistrations','updateRegistration','approveRegistration','cancelRegistration','refundCancelRegistration',
+      'adminSyncEventCounts',
       'updateMember','addPoints','getPointsLog',
       'addReturn','getReturns','updateReturn',
       'updateSetting',
@@ -227,6 +229,8 @@ function handleRequest(e) {
       case 'updateRegistration':     return res(updateRegistration(p));
       case 'approveRegistration':    return res(approveRegistration(p));
       case 'cancelRegistration':     return res(cancelRegistration(p));
+      case 'refundCancelRegistration': return res(refundCancelRegistration(p));
+      case 'adminSyncEventCounts':   return res(adminSyncEventCounts_(p));
 
       case 'getMember':              return res(getMember(p));
       case 'registerMember':         return res(registerMember(p));
@@ -255,6 +259,7 @@ function handleRequest(e) {
       case 'adminTestOldCodeCompatibility': return res(adminTestOldCodeCompatibility());
 
       case 'loginAdmin':             return res(loginAdmin(p));
+      case 'loginEventAdmin':        return res(loginEventAdmin(p));
       default:
         return res({ ok: false, error: '未知動作: ' + action });
     }
@@ -937,7 +942,9 @@ function getEvents(p) {
     created_at:          r[c.CREATED],
     image_url:           r[c.IMAGE] || '',
     accom_registered:    Number(r[c.ACCOM_REGISTERED])    || 0,
-    no_accom_registered: Number(r[c.NO_ACCOM_REGISTERED]) || 0
+    no_accom_registered: Number(r[c.NO_ACCOM_REGISTERED]) || 0,
+    fee_accom:    Number(r[c.FEE_ACCOM])    || 0,
+    fee_no_accom: Number(r[c.FEE_NO_ACCOM]) || 0
   })).filter(x => x.event_id);
 
   if (p.status) list = list.filter(x => x.status === p.status);
@@ -953,7 +960,8 @@ function addEvent(p) {
     p.accom_quota||0, p.no_accom_quota||0,
     p.fee_single||12000, p.fee_yearly||120000, p.fee_half||132000,
     p.status||'報名中', now(),
-    p.image_url||'', 0, 0
+    p.image_url||'', 0, 0,
+    p.fee_accom||'', p.fee_no_accom||''
   ]);
   return { ok: true, event_id: id };
 }
@@ -974,7 +982,9 @@ function updateEvent(p) {
   if (p.fee_single  !== undefined) sheet.getRange(rn, c.FEE_SINGLE+1).setValue(p.fee_single);
   if (p.fee_yearly  !== undefined) sheet.getRange(rn, c.FEE_YEARLY+1).setValue(p.fee_yearly);
   if (p.fee_half    !== undefined) sheet.getRange(rn, c.FEE_HALF+1).setValue(p.fee_half);
-  if (p.image_url   !== undefined) sheet.getRange(rn, c.IMAGE+1).setValue(p.image_url);
+  if (p.image_url    !== undefined) sheet.getRange(rn, c.IMAGE+1).setValue(p.image_url);
+  if (p.fee_accom    !== undefined) sheet.getRange(rn, c.FEE_ACCOM+1).setValue(p.fee_accom);
+  if (p.fee_no_accom !== undefined) sheet.getRange(rn, c.FEE_NO_ACCOM+1).setValue(p.fee_no_accom);
   return { ok: true };
 }
 
@@ -1049,15 +1059,38 @@ function addRegistration(p) {
     );
     if (duplicate) return { ok: false, error: '此姓名與手機號碼已報名本活動' };
 
-    // 名額檢查
+    // accom 在名額檢查前定義
+    const accom = p.accommodation || '不住宿';
+
+    // 住宿/不住宿分開名額檢查
+    if (accom === '住宿') {
+      const q = parseInt(event[c.ACCOM_QUOTA])      || 0;
+      const r = parseInt(event[c.ACCOM_REGISTERED]) || 0;
+      if (q > 0 && r >= q) return { ok: false, error: '住宿名額已額滿' };
+    } else {
+      const q = parseInt(event[c.NO_ACCOM_QUOTA])      || 0;
+      const r = parseInt(event[c.NO_ACCOM_REGISTERED]) || 0;
+      if (q > 0 && r >= q) return { ok: false, error: '不住宿名額已額滿' };
+    }
     const capacity   = parseInt(event[c.CAPACITY])   || 0;
     const registered = parseInt(event[c.REGISTERED]) || 0;
     if (capacity > 0 && registered >= capacity) return { ok: false, error: '報名人數已額滿' };
 
-    const feeType   = p.fee_type || '單次';
-    const feeAmount = feeType === '年繳'   ? (event[c.FEE_YEARLY] || 120000) :
-                      feeType === '半年繳' ? (event[c.FEE_HALF]   || 132000) :
-                                             (event[c.FEE_SINGLE] || 12000);
+    // 後端重算費用，不信任前端 fee_amount
+    // 兩邊都有值才啟用住宿分開定價，否則 fallback 舊邏輯
+    const feeAccom   = Number(event[c.FEE_ACCOM])    || 0;
+    const feeNoAccom = Number(event[c.FEE_NO_ACCOM]) || 0;
+    let feeType, feeAmount;
+    if (feeAccom > 0 && feeNoAccom > 0 && accom === '住宿') {
+      feeType = '住宿';   feeAmount = feeAccom;
+    } else if (feeAccom > 0 && feeNoAccom > 0 && accom !== '住宿') {
+      feeType = '不住宿'; feeAmount = feeNoAccom;
+    } else {
+      feeType = p.fee_type || '單次';
+      feeAmount = feeType === '年繳'   ? (event[c.FEE_YEARLY] || 120000) :
+                 feeType === '半年繳' ? (event[c.FEE_HALF]   || 132000) :
+                                         (event[c.FEE_SINGLE] || 12000);
+    }
     const id = genId('R');
     const regSheet = getSheet(SHEET.REGISTRATIONS);
     regSheet.appendRow([
@@ -1076,7 +1109,6 @@ function addRegistration(p) {
     // 名額更新（已在鎖內，資料一致）
     const evSheet = getSheet(SHEET.EVENTS);
     evSheet.getRange(found.rowNum, c.REGISTERED+1).setValue(registered + 1);
-    const accom = p.accommodation || '不住宿';
     if (accom === '住宿') {
       const cur = parseInt(event[c.ACCOM_REGISTERED]) || 0;
       evSheet.getRange(found.rowNum, c.ACCOM_REGISTERED+1).setValue(cur + 1);
@@ -1094,100 +1126,285 @@ function addRegistration(p) {
 
 function updateRegistration(p) {
   if (!p.reg_id) return { ok: false, error: '缺少 reg_id' };
+
+  // 住宿選項修改需同步名額，暫不允許（取消後重新報名）
+  if (p.accommodation !== undefined)
+    return { ok: false, error: '住宿選項不可修改，如需調整請取消後重新報名' };
+
+  // ── 確認收款（有鎖路徑）──
+  if (p.fee_status === '已付款') {
+    const lock = _acquireLock_();
+    if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
+    try {
+      // 取鎖後重讀，避免 TOCTOU
+      const found = findRow(SHEET.REGISTRATIONS, COL.REGISTRATIONS.ID, p.reg_id);
+      if (!found) return { ok: false, error: '找不到報名記錄' };
+      const c         = COL.REGISTRATIONS;
+      const curStatus = String(found.row[c.FEE_STATUS]);
+
+      // 冪等：已付款直接擋
+      if (curStatus === '已付款')
+        return { ok: false, error: '此報名費已付款，不可重複確認' };
+      // 白名單：只允許 待付款 → 已付款
+      if (curStatus !== '待付款')
+        return { ok: false, error: `狀態「${curStatus}」不可確認收款，僅允許待付款` };
+
+      // EVENT_ACCOUNTS 冪等：精確比對 NOTE = '[REG:reg_id]'，不用 includes 避免 ID 誤撞
+      const NOTE_MARKER   = '[REG:' + p.reg_id + ']';
+      const evtRows       = getRows(SHEET.EVENT_ACCOUNTS);
+      const ca            = COL.ACCOUNTS;
+      const alreadyBooked = evtRows.some(r =>
+        String(r[ca.NOTE]) === NOTE_MARKER && String(r[ca.STATUS]) !== '已作廢'
+      );
+
+      if (!alreadyBooked) {
+        const evtSheet = getSheet(SHEET.EVENT_ACCOUNTS);
+        if (evtSheet) {
+          evtSheet.appendRow([
+            genId('EA'), today(), '活動報名費',
+            found.row[c.NAME],
+            found.row[c.ENAME],
+            found.row[c.FEE_AMOUNT], 0,
+            p.payment || '匯款', '已收款', NOTE_MARKER, now()
+          ]);
+        }
+      }
+      // 不論帳本是否新增都執行，確保餘額正確
+      refreshBalance();
+
+      // 所有副作用完成後才寫狀態（最後一步）
+      const sheet = getSheet(SHEET.REGISTRATIONS);
+      sheet.getRange(found.rowNum, c.FEE_STATUS + 1).setValue('已付款');
+      if (p.note !== undefined) sheet.getRange(found.rowNum, c.NOTE + 1).setValue(p.note);
+      return { ok: true };
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  // ── 一般欄位更新（僅備註，無鎖）──
   const found = findRow(SHEET.REGISTRATIONS, COL.REGISTRATIONS.ID, p.reg_id);
   if (!found) return { ok: false, error: '找不到報名記錄' };
   const sheet = getSheet(SHEET.REGISTRATIONS);
-  const c = COL.REGISTRATIONS;
-  const rn = found.rowNum;
-  if (p.fee_status    !== undefined) sheet.getRange(rn, c.FEE_STATUS+1).setValue(p.fee_status);
-  if (p.note          !== undefined) sheet.getRange(rn, c.NOTE+1).setValue(p.note);
-  if (p.accommodation !== undefined) sheet.getRange(rn, c.ACCOMMODATION+1).setValue(p.accommodation);
-  if (p.fee_status === '已付款') {
-    // 防止重複收款
-    if (String(found.row[c.FEE_STATUS]) === '已付款') {
-      return { ok: false, error: '此報名費已付款，不可重複確認' };
-    }
-    // 寫入活動帳本（獨立於商品帳本）
-    const evtSheet = getSheet(SHEET.EVENT_ACCOUNTS);
-    if (evtSheet) {
-      evtSheet.appendRow([
-        genId('EA'), today(), '活動報名費',
-        found.row[c.NAME],
-        found.row[c.ENAME] + ' / ' + (found.row[c.ID]||''),
-        found.row[c.FEE_AMOUNT], 0,
-        p.payment||'匯款', '已收款', '', now()
-      ]);
-    }
-    refreshBalance();
-  }
+  const c     = COL.REGISTRATIONS;
+  if (p.note !== undefined) sheet.getRange(found.rowNum, c.NOTE + 1).setValue(p.note);
   return { ok: true };
 }
 
 function approveRegistration(p) {
   if (!p.reg_id) return { ok: false, error: '缺少 reg_id' };
-  const found = findRow(SHEET.REGISTRATIONS, COL.REGISTRATIONS.ID, p.reg_id);
-  if (!found) return { ok: false, error: '找不到報名記錄' };
-  const reg  = found.row;
-  const c    = COL.REGISTRATIONS;
-  const stat = String(reg[c.FEE_STATUS]);
-  if (stat !== '申請中' && stat !== '待審核') return { ok: false, error: `目前狀態「${stat}」不可審核` };
-  const newStatus = p.approved === 'true' ? '審核通過' : '未錄取';
-  const sheet = getSheet(SHEET.REGISTRATIONS);
-  sheet.getRange(found.rowNum, c.FEE_STATUS+1).setValue(newStatus);
-  if (p.note !== undefined) sheet.getRange(found.rowNum, c.NOTE+1).setValue(p.note);
 
-  if (newStatus === '審核通過') {
-    // 推 LINE 通知申請人（LINE OA 廣播）
-    const feeName = reg[c.FEE_TYPE];
-    const feeAmt  = Number(reg[c.FEE_AMOUNT]) || 0;
-    const payLine = (p.bank || p.account || p.payee)
-      ? `\n\n💳 繳費資訊\n銀行：${p.bank||'—'}\n帳號：${p.account||'—'}\n戶名：${p.payee||'—'}`
-      : '';
-    sendLineMsg(`✅ 報名審核通過通知\n活動：${reg[c.ENAME]}\n姓名：${reg[c.NAME]}\n費用：${feeName} NT$ ${feeAmt.toLocaleString()}${payLine}\n\n請於 7 天內完成繳費，繳費後請回傳截圖至此 LINE。\n備註：${p.note||'—'}`);
-    // 更新為待付款
-    sheet.getRange(found.rowNum, c.FEE_STATUS+1).setValue('待付款');
-  } else {
-    sendLineMsg(`📋 報名未錄取通知\n活動：${reg[c.ENAME]}\n姓名：${reg[c.NAME]}\n原因：${p.note||'—'}`);
+  let result, lineMsg;
+  const lock = _acquireLock_();
+  if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
+  try {
+    const found = findRow(SHEET.REGISTRATIONS, COL.REGISTRATIONS.ID, p.reg_id);
+    if (!found) { result = { ok: false, error: '找不到報名記錄' }; return result; }
+    const reg   = found.row;
+    const c     = COL.REGISTRATIONS;
+    const stat  = String(reg[c.FEE_STATUS]);
+    const sheet = getSheet(SHEET.REGISTRATIONS);
+
+    // ── 審核通過路徑 ──
+    if (p.approved === 'true') {
+      // 冪等：已是待付款
+      if (stat === '待付款') { result = { ok: true, idempotent: true, new_status: '待付款' }; return result; }
+      if (stat !== '申請中' && stat !== '待審核') {
+        result = { ok: false, error: `目前狀態「${stat}」不可審核通過` };
+        return result;
+      }
+      if (p.note !== undefined) sheet.getRange(found.rowNum, c.NOTE + 1).setValue(p.note);
+      // 先寫狀態（授權行為），組訊息；LINE 推播在 lock 釋放後執行
+      sheet.getRange(found.rowNum, c.FEE_STATUS + 1).setValue('待付款');
+      const feeName = reg[c.FEE_TYPE];
+      const feeAmt  = Number(reg[c.FEE_AMOUNT]) || 0;
+      const payLine = (p.bank || p.account || p.payee)
+        ? `\n💳 繳費資訊\n銀行：${p.bank||'—'}\n帳號：${p.account||'—'}\n戶名：${p.payee||'—'}`
+        : '';
+      lineMsg = `✅ 審核通過（管理員通知）\n活動：${reg[c.ENAME]}\n姓名：${reg[c.NAME]}\n費用：${feeName} NT$ ${feeAmt.toLocaleString()}${payLine}\n請手動通知學員於 3 天內繳費。\n備註：${p.note||'—'}`;
+      result = { ok: true, new_status: '待付款' };
+
+    // ── 未錄取路徑 ──
+    } else {
+      // 冪等：已是未錄取，重新 sync 後回傳 ok
+      if (stat === '未錄取') {
+        _syncEventRegistrationCounts_(String(reg[c.EID]));
+        result = { ok: true, idempotent: true, new_status: '未錄取' };
+        return result;
+      }
+      if (stat !== '申請中' && stat !== '待審核') {
+        result = { ok: false, error: `目前狀態「${stat}」不可設為未錄取` };
+        return result;
+      }
+      if (p.note !== undefined) sheet.getRange(found.rowNum, c.NOTE + 1).setValue(p.note);
+      // 先寫狀態，再重算名額（sync 冪等，失敗可補呼叫 adminSyncEventCounts）
+      sheet.getRange(found.rowNum, c.FEE_STATUS + 1).setValue('未錄取');
+      _syncEventRegistrationCounts_(String(reg[c.EID]));
+      // 組訊息；LINE 推播在 lock 釋放後執行
+      lineMsg = `📋 未錄取（管理員通知）\n活動：${reg[c.ENAME]}\n姓名：${reg[c.NAME]}\n原因：${p.note||'—'}`;
+      result = { ok: true, new_status: '未錄取' };
+    }
+  } finally {
+    lock.releaseLock();
   }
-  return { ok: true, new_status: newStatus === '審核通過' ? '待付款' : '未錄取' };
+  if (lineMsg) sendLineMsg(lineMsg);
+  return result;
+}
+
+// ── 活動名額重算（呼叫前必須持有 ScriptLock）──────────────────────────
+// 排除「已取消」與「未錄取」，只寫三欄，冪等安全
+function _syncEventRegistrationCounts_(eventId) {
+  const evFound = findRow(SHEET.EVENTS, COL.EVENTS.ID, eventId);
+  if (!evFound) return { ok: false, error: '找不到活動：' + eventId };
+
+  const regs     = getRows(SHEET.REGISTRATIONS);
+  const cr       = COL.REGISTRATIONS;
+  const EXCLUDED = ['已取消', '未錄取'];
+  let registered = 0, accom = 0, noAccom = 0;
+
+  regs.forEach(r => {
+    if (String(r[cr.EID]) !== String(eventId)) return;
+    if (EXCLUDED.includes(String(r[cr.FEE_STATUS]))) return;
+    registered++;
+    if (String(r[cr.ACCOMMODATION]) === '住宿') accom++;
+    else noAccom++;
+  });
+
+  const ce      = COL.EVENTS;
+  const evSheet = getSheet(SHEET.EVENTS);
+  evSheet.getRange(evFound.rowNum, ce.REGISTERED + 1).setValue(registered);
+  // ACCOM_REGISTERED(col 15+1=16) 與 NO_ACCOM_REGISTERED(col 16+1=17) 相鄰，合併寫入
+  evSheet.getRange(evFound.rowNum, ce.ACCOM_REGISTERED + 1, 1, 2)
+         .setValues([[accom, noAccom]]);
+
+  return { ok: true, registered, accom_registered: accom, no_accom_registered: noAccom };
+}
+
+// 管理員動作：獨立修復用（自行取鎖，可在 sync 失敗後補呼叫）
+function adminSyncEventCounts_(p) {
+  if (!p.event_id) return { ok: false, error: '缺少 event_id' };
+  const lock = _acquireLock_();
+  if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
+  try {
+    return _syncEventRegistrationCounts_(p.event_id);
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function cancelRegistration(p) {
   if (!p.reg_id) return { ok: false, error: '缺少 reg_id' };
-  const found = findRow(SHEET.REGISTRATIONS, COL.REGISTRATIONS.ID, p.reg_id);
-  if (!found) return { ok: false, error: '找不到報名記錄' };
-  const reg  = found.row;
-  const c    = COL.REGISTRATIONS;
-  const stat = String(reg[c.FEE_STATUS]);
-  if (stat === '已取消') return { ok: false, error: '此報名已取消' };
-  if (stat === '已完成') return { ok: false, error: '已完成的報名無法取消' };
 
-  const sheet = getSheet(SHEET.REGISTRATIONS);
-  const rn = found.rowNum;
-  sheet.getRange(rn, c.FEE_STATUS+1).setValue('已取消');
-  sheet.getRange(rn, c.CANCELLED_BY+1).setValue(p.cancelled_by || '管理員');
-  sheet.getRange(rn, c.CANCELLED_AT+1).setValue(now());
-  if (p.note !== undefined) sheet.getRange(rn, c.NOTE+1).setValue(p.note);
+  let result, lineMsg;
+  const lock = _acquireLock_();
+  if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
+  try {
+    const found = findRow(SHEET.REGISTRATIONS, COL.REGISTRATIONS.ID, p.reg_id);
+    if (!found) { result = { ok: false, error: '找不到報名記錄' }; return result; }
+    const reg  = found.row;
+    const c    = COL.REGISTRATIONS;
+    const stat = String(reg[c.FEE_STATUS]);
 
-  // 名額釋放：住宿/不住宿分開計算
-  const evFound = findRow(SHEET.EVENTS, COL.EVENTS.ID, reg[c.EID]);
-  if (evFound) {
-    const ce  = COL.EVENTS;
-    const evSheet = getSheet(SHEET.EVENTS);
-    const total = Math.max(0, (parseInt(evFound.row[ce.REGISTERED])||0) - 1);
-    evSheet.getRange(evFound.rowNum, ce.REGISTERED+1).setValue(total);
-    const accom = String(reg[c.ACCOMMODATION]);
-    if (accom === '住宿') {
-      const cur = parseInt(evFound.row[ce.ACCOM_REGISTERED]) || 0;
-      if (cur > 0) evSheet.getRange(evFound.rowNum, ce.ACCOM_REGISTERED+1).setValue(cur-1);
-    } else {
-      const cur = parseInt(evFound.row[ce.NO_ACCOM_REGISTERED]) || 0;
-      if (cur > 0) evSheet.getRange(evFound.rowNum, ce.NO_ACCOM_REGISTERED+1).setValue(cur-1);
+    // 已取消：重新 sync（修復可能殘留的名額錯誤），冪等回傳 ok
+    if (stat === '已取消') {
+      _syncEventRegistrationCounts_(String(reg[c.EID]));
+      result = { ok: true, idempotent: true };
+      return result;
     }
-  }
+    // 已付款/已完成：須走退款流程
+    if (stat === '已付款' || stat === '已完成') {
+      result = { ok: false, error: `狀態「${stat}」不可直接取消，請先辦理退款流程` };
+      return result;
+    }
+    // 允許：申請中、待付款、待審核、未錄取
 
-  sendLineMsg(`🚫 報名取消\n活動：${reg[c.ENAME]}\n姓名：${reg[c.NAME]}\n原因：${p.note||'—'}\n時間：${now()}`);
-  return { ok: true };
+    const sheet = getSheet(SHEET.REGISTRATIONS);
+    const rn = found.rowNum;
+    // 先寫狀態（授權行為）
+    sheet.getRange(rn, c.FEE_STATUS + 1).setValue('已取消');
+    sheet.getRange(rn, c.CANCELLED_BY + 1).setValue(p.cancelled_by || '管理員');
+    sheet.getRange(rn, c.CANCELLED_AT + 1).setValue(now());
+    if (p.note !== undefined) sheet.getRange(rn, c.NOTE + 1).setValue(p.note);
+
+    // 重算名額（冪等，已取消與未錄取自動排除；sync 失敗可補呼叫 adminSyncEventCounts）
+    _syncEventRegistrationCounts_(String(reg[c.EID]));
+
+    // 組訊息，lock 釋放後再送出（避免 LINE 網路請求拖住全域 lock）
+    lineMsg = `🚫 報名取消（管理員通知）\n活動：${reg[c.ENAME]}\n姓名：${reg[c.NAME]}\n原因：${p.note||'—'}\n時間：${now()}`;
+    result = { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
+  if (lineMsg) sendLineMsg(lineMsg);
+  return result;
+}
+
+function refundCancelRegistration(p) {
+  if (!p.reg_id) return { ok: false, error: '缺少 reg_id' };
+
+  let result, lineMsg;
+  const lock = _acquireLock_();
+  if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
+  try {
+    const found = findRow(SHEET.REGISTRATIONS, COL.REGISTRATIONS.ID, p.reg_id);
+    if (!found) { result = { ok: false, error: '找不到報名記錄' }; return result; }
+    const reg  = found.row;
+    const c    = COL.REGISTRATIONS;
+    const stat = String(reg[c.FEE_STATUS]);
+
+    if (stat === '已取消') {
+      _syncEventRegistrationCounts_(String(reg[c.EID]));
+      result = { ok: true, idempotent: true, new_status: '已取消' };
+      return result;
+    }
+    if (stat !== '已付款') {
+      result = { ok: false, error: `狀態「${stat}」不可走取消退款，僅允許已付款` };
+      return result;
+    }
+
+    const refundAmount = Number(p.refund_amount) || Number(reg[c.FEE_AMOUNT]) || 0;
+    if (refundAmount <= 0) {
+      result = { ok: false, error: '退款金額必須大於 0' };
+      return result;
+    }
+
+    const marker  = '[REFUND:' + p.reg_id + ']';
+    const evtRows = getRows(SHEET.EVENT_ACCOUNTS);
+    const ca      = COL.ACCOUNTS;
+    const alreadyRefunded = evtRows.some(r =>
+      String(r[ca.NOTE]).indexOf(marker) >= 0 && String(r[ca.STATUS]) !== '已作廢'
+    );
+
+    if (!alreadyRefunded) {
+      const evtSheet = getSheet(SHEET.EVENT_ACCOUNTS);
+      evtSheet.appendRow([
+        genId('EA'), today(), '活動退款',
+        reg[c.NAME],
+        reg[c.ENAME] + ' / 報名取消退款',
+        0, refundAmount,
+        p.payment || '匯款', '已付款',
+        marker + ' ' + (p.note || '已付款取消退款'),
+        now()
+      ]);
+    }
+
+    const sheet = getSheet(SHEET.REGISTRATIONS);
+    const cancelNote = p.note || ('已付款取消，人工退款完成；活動帳本 ' + marker);
+    sheet.getRange(found.rowNum, c.FEE_STATUS + 1).setValue('已取消');
+    sheet.getRange(found.rowNum, c.CANCELLED_BY + 1).setValue(p.cancelled_by || '管理員');
+    sheet.getRange(found.rowNum, c.CANCELLED_AT + 1).setValue(now());
+    sheet.getRange(found.rowNum, c.NOTE + 1).setValue(cancelNote);
+
+    _syncEventRegistrationCounts_(String(reg[c.EID]));
+    refreshBalance();
+
+    lineMsg = `↩️ 活動取消退款\n活動：${reg[c.ENAME]}\n姓名：${reg[c.NAME]}\n退款：NT$ ${refundAmount.toLocaleString()}\n報名編號：${p.reg_id}\n時間：${now()}`;
+    result = { ok: true, new_status: '已取消', refund_amount: refundAmount };
+  } finally {
+    lock.releaseLock();
+  }
+  if (lineMsg) sendLineMsg(lineMsg);
+  return result;
 }
 
 // ================================================================
@@ -1759,6 +1976,22 @@ function loginAdmin(p) {
   return { ok: true, token: token, expires_in: 21600 };
 }
 
+function loginEventAdmin(p) {
+  var props = PropertiesService.getScriptProperties();
+  var correctPwd = props.getProperty('EVENT_ADMIN_PASSWORD') || '';
+  if (!correctPwd) return { ok: false, error: '系統尚未設定活動後台密碼，請聯繫管理員' };
+  if (!p.password || p.password !== correctPwd) {
+    return { ok: false, error: '密碼錯誤，請重試' };
+  }
+  var token = Utilities.getUuid();
+  try {
+    CacheService.getScriptCache().put('session:' + token, '1', 21600);
+  } catch(e) {
+    return { ok: false, error: '建立 session 失敗：' + e.toString() };
+  }
+  return { ok: true, token: token, expires_in: 21600 };
+}
+
 // ================================================================
 // 系統設定管理
 // ================================================================
@@ -2020,6 +2253,310 @@ function adminTestOldCodeCompatibility() {
 }
 
 // ================================================================
+// 活動報名 v26 自動驗收測試
+// 在 GAS 編輯器選取此函式直接執行，不加入 router
+// 測試完成後自動清理測試資料
+// ================================================================
+function adminTestEventRegistrationV26_() {
+  var pass    = [];
+  var fail    = [];
+  var cleanup = [];
+  var errors  = [];
+
+  // ── 測試資料（時間戳尾碼，避免前次殘留擋住） ─────────────────
+  var ts    = Utilities.formatDate(new Date(), 'Asia/Taipei', 'HHmmss');
+  var stamp = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyyMMdd_HHmmss');
+  var name  = 'TEST_V26_' + stamp;
+  var phone1 = '0999' + ts;   // 主線 T01–T11
+  var phone2 = '0998' + ts;   // 副線 T16
+
+  var eventId        = null;
+  var regId1         = null;
+  var regId2         = null;
+  var snapRegistered = 0;
+  var snapAccom      = 0;
+  var snapNoAccom    = 0;
+
+  // ── Helpers（定義在外層，try/finally 都可用） ─────────────────
+  function _pass(tag, msg) {
+    var s = tag + ': ' + msg;
+    pass.push(s);
+    Logger.log('✅ ' + s);
+  }
+  function _fail(tag, msg) {
+    var s = tag + ': ' + msg;
+    fail.push(s);
+    Logger.log('❌ ' + s);
+  }
+  function _regStatus(rid) {
+    var f = findRow(SHEET.REGISTRATIONS, COL.REGISTRATIONS.ID, rid);
+    return f ? String(f.row[COL.REGISTRATIONS.FEE_STATUS]) : '(not found)';
+  }
+  function _evCounts() {
+    var f = findRow(SHEET.EVENTS, COL.EVENTS.ID, eventId);
+    if (!f) return null;
+    var ce = COL.EVENTS;
+    return {
+      registered: Number(f.row[ce.REGISTERED])          || 0,
+      accom:      Number(f.row[ce.ACCOM_REGISTERED])    || 0,
+      noAccom:    Number(f.row[ce.NO_ACCOM_REGISTERED]) || 0
+    };
+  }
+  function _eaRows(matchFn) {
+    return getRows(SHEET.EVENT_ACCOUNTS).filter(matchFn);
+  }
+  // 先讀全列，再從底部往上刪，避免 deleteRow 後列號位移
+  function _delRows(sheetName, matchFn, label) {
+    try {
+      var sheet   = getSheet(sheetName);
+      var lastRow = sheet.getLastRow();
+      if (lastRow < DATA_ROW) { cleanup.push(label + ': 無資料列'); return; }
+      var lastCol = sheet.getLastColumn();
+      var allData = sheet.getRange(DATA_ROW, 1, lastRow - DATA_ROW + 1, lastCol).getValues();
+      var toDelete = [];
+      for (var idx = 0; idx < allData.length; idx++) {
+        if (matchFn(allData[idx])) toDelete.push(idx + DATA_ROW);
+      }
+      for (var k = toDelete.length - 1; k >= 0; k--) {
+        sheet.deleteRow(toDelete[k]);
+      }
+      cleanup.push(label + ': ' + (toDelete.length > 0 ? '已刪 ' + toDelete.length + ' 列' : '無符合列'));
+    } catch(e2) { errors.push('cleanup [' + label + ']: ' + e2.toString()); }
+  }
+
+  Logger.log('=== V26 TEST START ===');
+  Logger.log('name:   ' + name);
+  Logger.log('phone1: ' + phone1 + '（主線 T01-T11）');
+  Logger.log('phone2: ' + phone2 + '（副線 T16）');
+
+  try {
+    var ce = COL.EVENTS;
+    var cr = COL.REGISTRATIONS;
+    var ca = COL.ACCOUNTS;
+
+    // ── Step 0: 找第一個報名中活動 ──────────────────────────────
+    var evRows = getRows(SHEET.EVENTS);
+    var evFound = null;
+    for (var ei = 0; ei < evRows.length; ei++) {
+      if (String(evRows[ei][ce.STATUS]) === '報名中' && evRows[ei][ce.ID]) {
+        evFound = evRows[ei]; break;
+      }
+    }
+    if (!evFound) {
+      return { ok: false, pass: pass, fail: ['Step0: 找不到 status=報名中 的活動'], cleanup: cleanup, errors: errors };
+    }
+    eventId = String(evFound[ce.ID]);
+    Logger.log('eventId: ' + eventId);
+
+    // ── Step 0b: 費用欄位 + 不住宿名額驗證 ─────────────────────
+    var feeA = Number(evFound[ce.FEE_ACCOM])           || 0;
+    var feeN = Number(evFound[ce.FEE_NO_ACCOM])        || 0;
+    var qN   = Number(evFound[ce.NO_ACCOM_QUOTA])      || 0;
+    var rN   = Number(evFound[ce.NO_ACCOM_REGISTERED]) || 0;
+    if (feeA !== 12000)
+      return { ok: false, pass: pass, fail: ['Step0b: fee_accom=' + feeA + '，預期 12000'], cleanup: cleanup, errors: errors };
+    if (feeN !== 10000)
+      return { ok: false, pass: pass, fail: ['Step0b: fee_no_accom=' + feeN + '，預期 10000'], cleanup: cleanup, errors: errors };
+    if (qN <= rN)
+      return { ok: false, pass: pass, fail: ['Step0b: 不住宿名額不足 quota=' + qN + ' registered=' + rN], cleanup: cleanup, errors: errors };
+    _pass('Step0b', 'fee_accom=12000 fee_no_accom=10000 不住宿餘額=' + (qN - rN));
+
+    // ── Step 0c: 快照活動名額 ────────────────────────────────────
+    snapRegistered = Number(evFound[ce.REGISTERED])          || 0;
+    snapAccom      = Number(evFound[ce.ACCOM_REGISTERED])    || 0;
+    snapNoAccom    = Number(evFound[ce.NO_ACCOM_REGISTERED]) || 0;
+    Logger.log('snap: registered=' + snapRegistered + ' accom=' + snapAccom + ' no_accom=' + snapNoAccom);
+
+    // ══ T01：不住宿報名 ══════════════════════════════════════════
+    var r01 = addRegistration({
+      token: REG_TOKEN,
+      event_id: eventId, name: name, phone: phone1,
+      accommodation: '不住宿', note: '[V26_TEST]',
+      emergency_name: 'V26_TEST_EC', emergency_phone: '0999000099'
+    });
+    if (!r01.ok) { _fail('T01', r01.error || 'addRegistration 失敗'); throw new Error('T01 失敗，中止主線'); }
+    regId1 = String(r01.reg_id);
+    Logger.log('regId1: ' + regId1);
+    var rRow1 = findRow(SHEET.REGISTRATIONS, cr.ID, regId1);
+    var ft1   = rRow1 ? String(rRow1.row[cr.FEE_TYPE])   : '';
+    var fa1   = rRow1 ? Number(rRow1.row[cr.FEE_AMOUNT]) : 0;
+    (ft1 === '不住宿' && fa1 === 10000)
+      ? _pass('T01', 'fee_type=不住宿 fee_amount=10000 regId1=' + regId1)
+      : _fail('T01', 'fee_type=' + ft1 + ' fee_amount=' + fa1 + '（預期 不住宿/10000）');
+
+    // ══ T06：審核通過 ════════════════════════════════════════════
+    var r06 = approveRegistration({ reg_id: regId1, approved: 'true' });
+    if (!r06.ok) { _fail('T06', r06.error || 'approveRegistration 失敗'); }
+    else {
+      var s06 = _regStatus(regId1);
+      s06 === '待付款' ? _pass('T06', 'status=待付款') : _fail('T06', 'status=' + s06 + '（預期待付款）');
+    }
+
+    // ══ T08：確認收款 ════════════════════════════════════════════
+    var m1  = '[REG:'    + regId1 + ']';
+    var rm1 = '[REFUND:' + regId1 + ']';
+    var r08 = updateRegistration({ reg_id: regId1, fee_status: '已付款' });
+    if (!r08.ok) { _fail('T08', r08.error || 'updateRegistration 失敗'); }
+    else {
+      var s08  = _regStatus(regId1);
+      var ea08 = _eaRows(function(r) { return String(r[ca.NOTE]) === m1; });
+      if      (s08 !== '已付款')   _fail('T08', 'status=' + s08 + '（預期已付款）');
+      else if (ea08.length !== 1)  _fail('T08', 'EA[REG:regId1] 筆數=' + ea08.length + '（預期1）');
+      else if (Number(ea08[0][ca.INCOME]) !== 10000) _fail('T08', 'INCOME=' + ea08[0][ca.INCOME] + '（預期10000）');
+      else    _pass('T08', 'status=已付款 EA[REG:regId1] income=10000 status=已收款');
+    }
+
+    // ══ T09：重複確認收款被擋 ════════════════════════════════════
+    var r09   = updateRegistration({ reg_id: regId1, fee_status: '已付款' });
+    var cnt09 = _eaRows(function(r) { return String(r[ca.NOTE]) === m1; }).length;
+    if   (r09.ok)        _fail('T09', '重複確認收款未被擋');
+    else if (cnt09 !== 1) _fail('T09', 'EA[REG:regId1] 筆數=' + cnt09 + '（預期仍為1）');
+    else  _pass('T09', '重複確認收款被擋 EA冪等=1筆 error=' + r09.error);
+
+    // ══ T11a：已付款取消退款 ═════════════════════════════════════
+    var r11  = refundCancelRegistration({ reg_id: regId1, refund_amount: 10000 });
+    if (!r11.ok) { _fail('T11a', r11.error || 'refundCancelRegistration 失敗'); }
+    else {
+      var s11   = _regStatus(regId1);
+      var ref11 = _eaRows(function(r) { return String(r[ca.NOTE]).indexOf(rm1) === 0; });
+      if      (s11 !== '已取消')    _fail('T11a', 'status=' + s11 + '（預期已取消）');
+      else if (ref11.length !== 1)  _fail('T11a', 'EA[REFUND:regId1] 筆數=' + ref11.length + '（預期1）');
+      else if (Number(ref11[0][ca.EXPENSE]) !== 10000) _fail('T11a', 'EXPENSE=' + ref11[0][ca.EXPENSE] + '（預期10000）');
+      else    _pass('T11a', 'status=已取消 EA[REFUND:regId1] expense=10000');
+    }
+
+    // ══ T11b 第一段：退款後立即驗名額（refundCancelRegistration 內已 sync）
+    var cnts11 = _evCounts();
+    if (!cnts11) { _fail('T11b', '找不到活動列'); }
+    else if (cnts11.registered === snapRegistered && cnts11.noAccom === snapNoAccom && cnts11.accom === snapAccom) {
+      _pass('T11b', '名額回到快照 registered=' + cnts11.registered + ' no_accom=' + cnts11.noAccom);
+    } else {
+      _fail('T11b', '名額未回快照 got ' + cnts11.registered + '/' + cnts11.noAccom + ' snap ' + snapRegistered + '/' + snapNoAccom);
+    }
+
+    // ══ T16a：副線報名 ═══════════════════════════════════════════
+    var r16a = addRegistration({
+      token: REG_TOKEN,
+      event_id: eventId, name: name, phone: phone2,
+      accommodation: '不住宿', note: '[V26_TEST]',
+      emergency_name: 'V26_TEST_EC', emergency_phone: '0999000099'
+    });
+    if (!r16a.ok) { _fail('T16a', r16a.error || 'addRegistration 失敗'); throw new Error('T16a 失敗，中止副線'); }
+    regId2 = String(r16a.reg_id);
+    Logger.log('regId2: ' + regId2);
+    _pass('T16a', 'regId2=' + regId2);
+
+    // ══ T16b：審核通過 ═══════════════════════════════════════════
+    var r16b = approveRegistration({ reg_id: regId2, approved: 'true' });
+    r16b.ok ? _pass('T16b', 'status=待付款') : _fail('T16b', r16b.error || 'approveRegistration 失敗');
+
+    // ══ T16c：確認收款 + 驗 EA ═══════════════════════════════════
+    var m2   = '[REG:'    + regId2 + ']';
+    var rm2  = '[REFUND:' + regId2 + ']';
+    var r16c = updateRegistration({ reg_id: regId2, fee_status: '已付款' });
+    if (!r16c.ok) { _fail('T16c', r16c.error || 'updateRegistration 失敗'); }
+    else {
+      var ea16c = _eaRows(function(r) { return String(r[ca.NOTE]) === m2; });
+      (ea16c.length === 1 && Number(ea16c[0][ca.INCOME]) === 10000)
+        ? _pass('T16c', 'EA[REG:regId2] income=10000 筆數=1')
+        : _fail('T16c', '筆數=' + ea16c.length + (ea16c[0] ? ' income=' + ea16c[0][ca.INCOME] : ''));
+    }
+
+    // ══ T16d：已付款直接取消被擋 ═════════════════════════════════
+    var r16d = cancelRegistration({ reg_id: regId2 });
+    if (r16d.ok) {
+      _fail('T16d', 'cancelRegistration 未被擋（已付款不可直接取消）');
+    } else if (r16d.error && (r16d.error.indexOf('已付款') >= 0 || r16d.error.indexOf('退款') >= 0)) {
+      _pass('T16d', '被擋 error=' + r16d.error);
+    } else {
+      _fail('T16d', '被擋但訊息不符 error=' + (r16d.error || ''));
+    }
+
+    // ══ T16e：退款清理 + 驗帳 ════════════════════════════════════
+    var r16e = refundCancelRegistration({ reg_id: regId2, refund_amount: 10000 });
+    if (!r16e.ok) { _fail('T16e', r16e.error || 'refundCancelRegistration 失敗'); }
+    else {
+      var eaAll  = getRows(SHEET.EVENT_ACCOUNTS);
+      var ref16e = eaAll.filter(function(r) { return String(r[ca.NOTE]).indexOf(rm2) === 0; });
+      var reg16e = eaAll.filter(function(r) { return String(r[ca.NOTE]) === m2; });
+      (ref16e.length === 1 && Number(ref16e[0][ca.EXPENSE]) === 10000 && reg16e.length === 1)
+        ? _pass('T16e', 'EA[REFUND:regId2] expense=10000 [REG:regId2] 仍=1（不重複）')
+        : _fail('T16e', '[REFUND]=' + ref16e.length + ' [REG]=' + reg16e.length);
+    }
+
+  } catch(e) {
+    errors.push('測試例外：' + e.toString());
+    Logger.log('EXCEPTION: ' + e.toString());
+  } finally {
+    Logger.log('--- CLEANUP START ---');
+    Logger.log('regId1=' + regId1 + ' regId2=' + regId2 + ' eventId=' + eventId);
+
+    var crC = COL.REGISTRATIONS;
+    var caC = COL.ACCOUNTS;
+
+    // 1-2: 刪測試報名記錄（精確比對 ID）
+    if (regId1) _delRows(SHEET.REGISTRATIONS, function(r) { return String(r[crC.ID]) === regId1; }, 'REGISTRATIONS/regId1');
+    if (regId2) _delRows(SHEET.REGISTRATIONS, function(r) { return String(r[crC.ID]) === regId2; }, 'REGISTRATIONS/regId2');
+    // 3-4: 刪活動帳本收入（嚴格 === 比對）
+    if (regId1) _delRows(SHEET.EVENT_ACCOUNTS, function(r) { return String(r[caC.NOTE]) === '[REG:'+regId1+']'; }, '[REG:regId1]');
+    if (regId2) _delRows(SHEET.EVENT_ACCOUNTS, function(r) { return String(r[caC.NOTE]) === '[REG:'+regId2+']'; }, '[REG:regId2]');
+    // 5-6: 刪活動帳本退款（startsWith 比對，因 NOTE 含附帶文字）
+    if (regId1) _delRows(SHEET.EVENT_ACCOUNTS, function(r) { return String(r[caC.NOTE]).indexOf('[REFUND:'+regId1+']') === 0; }, '[REFUND:regId1]');
+    if (regId2) _delRows(SHEET.EVENT_ACCOUNTS, function(r) { return String(r[caC.NOTE]).indexOf('[REFUND:'+regId2+']') === 0; }, '[REFUND:regId2]');
+
+    // 7: adminSyncEventCounts_（自行取鎖，安全）
+    // 只有真正建過報名記錄才需要 sync，前置檢查失敗（regId 皆 null）則跳過
+    if (eventId && (regId1 || regId2)) {
+      try {
+        var sync = adminSyncEventCounts_({ event_id: eventId });
+        cleanup.push('adminSyncEventCounts: ' + JSON.stringify(sync));
+      } catch(e2) { errors.push('cleanup adminSyncEventCounts: ' + e2.toString()); }
+    }
+
+    // 8: 最終驗證 — 名額回快照 + EA 無殘留
+    if (eventId && (regId1 || regId2)) {
+      try {
+        var evFinal = findRow(SHEET.EVENTS, COL.EVENTS.ID, eventId);
+        if (evFinal) {
+          var ce2 = COL.EVENTS;
+          var rowF = evFinal.row;
+          var rF = Number(rowF[ce2.REGISTERED])          || 0;
+          var aF = Number(rowF[ce2.ACCOM_REGISTERED])    || 0;
+          var nF = Number(rowF[ce2.NO_ACCOM_REGISTERED]) || 0;
+          Logger.log('FINAL quota: registered=' + rF + ' accom=' + aF + ' no_accom=' + nF +
+                     ' (snap ' + snapRegistered + '/' + snapAccom + '/' + snapNoAccom + ')');
+          (rF === snapRegistered && aF === snapAccom && nF === snapNoAccom)
+            ? pass.push('FINAL: 名額回到快照 registered=' + rF + ' accom=' + aF + ' no_accom=' + nF)
+            : fail.push('FINAL: 名額未回快照 got ' + rF+'/'+aF+'/'+nF + ' snap ' + snapRegistered+'/'+snapAccom+'/'+snapNoAccom);
+
+          var eaFinal = getRows(SHEET.EVENT_ACCOUNTS);
+          var leftover = eaFinal.filter(function(r) {
+            var n = String(r[caC.NOTE]);
+            return (regId1 && (n === '[REG:'+regId1+']' || n.indexOf('[REFUND:'+regId1+']') === 0)) ||
+                   (regId2 && (n === '[REG:'+regId2+']' || n.indexOf('[REFUND:'+regId2+']') === 0));
+          });
+          leftover.length === 0
+            ? pass.push('FINAL: EVENT_ACCOUNTS 測試資料已全部清除')
+            : fail.push('FINAL: EVENT_ACCOUNTS 仍有 ' + leftover.length + ' 筆測試資料殘留');
+        } else {
+          errors.push('FINAL: 找不到活動列 eventId=' + eventId);
+        }
+      } catch(e2) { errors.push('cleanup 最終驗證: ' + e2.toString()); }
+    }
+    Logger.log('--- CLEANUP END ---');
+  }
+
+  var ok = fail.length === 0 && errors.length === 0;
+  var result = { ok: ok, pass: pass, fail: fail, cleanup: cleanup, errors: errors };
+  Logger.log('=== V26 TEST END ok=' + ok + ' pass=' + pass.length + ' fail=' + fail.length + ' errors=' + errors.length + ' ===');
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+// 讓 GAS 下拉選單看得到（底線結尾函式不會出現）
+function runTestEventRegistrationV26() { return adminTestEventRegistrationV26_(); }
+
+// ================================================================
 // 一次性初始化：電話欄位格式設為純文字（避免首字0消失）
 // 在 GAS 編輯器直接點「執行」這個函式即可，只需執行一次
 // ================================================================
@@ -2092,6 +2629,10 @@ function adminSetupSchema() {
   _ensureLastCol_(SHEET.POINTS_LOG, 'ref_id');
   _ensureLastCol_(SHEET.RETURNS,    'actual_points_deducted');
   _ensureLastCol_(SHEET.RETURNS,    'points_shortfall');
+
+  // P0：活動住宿/不住宿分開收費
+  _ensureLastCol_(SHEET.EVENTS, 'fee_accom');
+  _ensureLastCol_(SHEET.EVENTS, 'fee_no_accom');
 
   // 退貨處理記錄（新工作表）
   let retStepsSheet = ss.getSheetByName(SHEET.RETURN_STEPS);
