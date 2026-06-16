@@ -772,7 +772,7 @@ function requestCancelOrder(orderId){
 
 function buildLineLink(orderId){
   const code=document.getElementById('code-'+orderId).value.trim();
-  if(!code||code.length<4){showToast('請輸入正確的末5碼','error');return false;}
+  if(!code||code.length<5){showToast('請輸入匯款帳號後五碼','error');return false;}
   const msg=encodeURIComponent(`您好，我要回報匯款末5碼
 訂單編號：${orderId}
 ATM 匯款末5碼：${code}

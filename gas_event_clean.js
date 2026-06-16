@@ -695,6 +695,7 @@ function updateOrder(p) {
     } finally {
       lock.releaseLock();
     }
+    try { refreshBalance(); } catch(e) {}
   }
   return { ok: true };
 }
@@ -754,6 +755,7 @@ function cancelOrder(p) {
     }
   } catch(e) {}
 
+  try { refreshBalance(); } catch(e2) {}
   sendLineMsg(`❌ 訂單取消\n訂單：${p.order_id}\n客人：${order[c.CNAME]}\n原因：${p.cancel_reason||'—'}\n時間：${now()}`);
   return { ok: true };
 }
@@ -1577,10 +1579,20 @@ function confirmOrderPayment(p) {
   const order = found.row;
   const c = COL.ORDERS;
 
-  // 防止重複確認付款
+  // 白名單：只允許「已確認」或「已出貨」狀態確認付款
   const curStatus = String(order[c.STATUS]);
-  if (curStatus === '已付款' || curStatus === '已完成') {
-    return { ok: false, error: '此訂單已付款，不可重複確認' };
+  const ALLOW_PAYMENT = ['已確認', '已出貨'];
+  if (!ALLOW_PAYMENT.includes(curStatus)) {
+    if (curStatus === '已付款' || curStatus === '已完成') {
+      return { ok: false, error: '此訂單已付款，不可重複確認' };
+    }
+    if (curStatus === '待確認') {
+      return { ok: false, error: '請先確認訂單並扣庫存後，再確認付款' };
+    }
+    if (curStatus === '已取消') {
+      return { ok: false, error: '已取消訂單不可確認付款' };
+    }
+    return { ok: false, error: '訂單狀態不可確認付款：' + curStatus };
   }
 
   const lock = _acquireLock_();
