@@ -193,7 +193,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 
     <!-- 繳費方式 -->
     <div class="section-card" id="fee-section">
-      <div class="section-label">💳 選擇繳費方式</div>
+      <div class="section-label">💰 報名費用</div>
       <div class="fee-cards" id="fee-cards"></div>
       <div style="background:#fff8ec;border:1.5px solid #e8d5a0;border-radius:8px;padding:12px;margin-top:12px">
         <div style="font-size:12px;color:#8B6914;line-height:1.8">
@@ -358,8 +358,9 @@ function eventCard(e){
       ${e.description?`<div class="event-desc">${e.description.replace(/\n/g,' ')}</div>`:''}
       <div class="event-footer">
         <div class="event-fee-wrap">
-          <div class="event-fee-label">單次費用</div>
-          <div class="event-fee">NT$ ${Number(e.fee_single).toLocaleString()}</div>
+          ${(Number(e.fee_accom)>0&&Number(e.fee_no_accom)>0)
+            ?`<div class="event-fee-label">報名費用</div><div class="event-fee">NT$ ${Math.min(Number(e.fee_accom),Number(e.fee_no_accom)).toLocaleString()} 起</div>`
+            :`<div class="event-fee-label">單次費用</div><div class="event-fee">NT$ ${Number(e.fee_single).toLocaleString()}</div>`}
           ${remain?`<div class="event-capacity">${remain}</div>`:''}
         </div>
         <button class="register-btn${isFull?' full':''}" onclick="event.stopPropagation();showEvent('${e.event_id}')">
@@ -393,23 +394,6 @@ function showEvent(eid){
     ${e.description?`<div class="detail-desc">${e.description}</div>`:''}
   `;
 
-  // 繳費選項
-  document.getElementById('fee-cards').innerHTML=`
-    <div class="fee-card selected" id="fee-single" onclick="selectFee('單次',this)">
-      <div class="fee-card-label">單次</div>
-      <div class="fee-card-amount">NT$ ${Number(e.fee_single).toLocaleString()}</div>
-    </div>
-    <div class="fee-card" id="fee-yearly" onclick="selectFee('年繳',this)">
-      <div class="fee-card-label">年繳</div>
-      <div class="fee-card-amount">NT$ ${Number(e.fee_yearly).toLocaleString()}</div>
-      <div class="fee-card-note">省 NT$ ${(Number(e.fee_half)-Number(e.fee_yearly)).toLocaleString()}</div>
-    </div>
-    <div class="fee-card" id="fee-half" onclick="selectFee('半年繳',this)">
-      <div class="fee-card-label">半年繳</div>
-      <div class="fee-card-amount">NT$ ${Number(e.fee_half).toLocaleString()}</div>
-    </div>
-  `;
-
   // 清空表單
   ['f-name','f-phone','f-address','f-health','f-religion','f-skills','f-ename','f-ephone','f-note'].forEach(id=>{
     const el=document.getElementById(id);
@@ -418,7 +402,45 @@ function showEvent(eid){
   const gender=document.getElementById('f-gender');
   if(gender)gender.value='';
   const accom=document.getElementById('f-accommodation');
-  if(accom)accom.value='不住宿';
+
+  // P0：住宿/不住宿費用聯動（兩邊都有值才啟用，否則 fallback）
+  const _fA=Number(e.fee_accom)||0, _fN=Number(e.fee_no_accom)||0;
+  const _qA=Number(e.accom_quota)||0, _qN=Number(e.no_accom_quota)||0;
+  const _rA=Number(e.accom_registered)||0, _rN=Number(e.no_accom_registered)||0;
+  const _useAccomFee=_fA>0&&_fN>0;
+  if(accom){
+    if(_useAccomFee){
+      const lA=_qA>0?`，剩餘 ${Math.max(0,_qA-_rA)} / ${_qA}`:'';
+      const lN=_qN>0?`，剩餘 ${Math.max(0,_qN-_rN)} / ${_qN}`:'';
+      accom.innerHTML=`<option value="不住宿">不住宿 NT$ ${_fN.toLocaleString()}${lN}</option>`+
+                      `<option value="住宿">住宿 NT$ ${_fA.toLocaleString()}${lA}</option>`;
+    }else{
+      accom.innerHTML='<option value="不住宿">不住宿</option><option value="住宿">住宿</option>';
+    }
+    accom.value='不住宿';
+    accom.onchange=updateFeeDisplay;
+  }
+  if(_useAccomFee){
+    document.getElementById('fee-cards').innerHTML=
+      `<div class="fee-card selected" style="pointer-events:none">`+
+      `<div class="fee-card-label" id="fee-type-label">不住宿</div>`+
+      `<div class="fee-card-amount" id="fee-amount-display">NT$ ${_fN.toLocaleString()}</div>`+
+      `<div class="fee-card-note">依上方住宿選擇自動更新</div></div>`;
+    updateFeeDisplay();
+  }else{
+    selectedFeeType='單次';
+    document.getElementById('fee-cards').innerHTML=
+      `<div class="fee-card selected" id="fee-single" onclick="selectFee('單次',this)">`+
+      `<div class="fee-card-label">單次</div>`+
+      `<div class="fee-card-amount">NT$ ${Number(e.fee_single).toLocaleString()}</div></div>`+
+      `<div class="fee-card" id="fee-yearly" onclick="selectFee('年繳',this)">`+
+      `<div class="fee-card-label">年繳</div>`+
+      `<div class="fee-card-amount">NT$ ${Number(e.fee_yearly).toLocaleString()}</div>`+
+      `<div class="fee-card-note">省 NT$ ${(Number(e.fee_half)-Number(e.fee_yearly)).toLocaleString()}</div></div>`+
+      `<div class="fee-card" id="fee-half" onclick="selectFee('半年繳',this)">`+
+      `<div class="fee-card-label">半年繳</div>`+
+      `<div class="fee-card-amount">NT$ ${Number(e.fee_half).toLocaleString()}</div></div>`;
+  }
 
   // 每次切換活動時重設送出旗標與按鈕，避免前次成功後按鈕卡在停用狀態
   _submitting=false;
@@ -435,6 +457,17 @@ function selectFee(type, el){
   el.classList.add('selected');
 }
 
+function updateFeeDisplay(){
+  if(!currentEvent)return;
+  const label=document.getElementById('fee-type-label');
+  const amount=document.getElementById('fee-amount-display');
+  if(!label||!amount)return;
+  const val=document.getElementById('f-accommodation')?.value||'不住宿';
+  const fee=val==='住宿'?Number(currentEvent.fee_accom):Number(currentEvent.fee_no_accom);
+  label.textContent=val;
+  amount.textContent='NT$ '+fee.toLocaleString();
+}
+
 // ── 送出報名 ──
 async function submitReg(){
   if(_submitting)return;
@@ -446,9 +479,13 @@ async function submitReg(){
   if(!ename||!ephone){showToast('請填寫緊急聯絡人資料','error');return;}
   if(!currentEvent){showToast('活動資料錯誤','error');return;}
 
-  const feeAmount=Number(selectedFeeType==='年繳'?currentEvent.fee_yearly:
-                  selectedFeeType==='半年繳'?currentEvent.fee_half:
-                  currentEvent.fee_single)||12000;
+  const accomVal=document.getElementById('f-accommodation').value||'不住宿';
+  const _fa=Number(currentEvent.fee_accom)||0, _fn=Number(currentEvent.fee_no_accom)||0;
+  const feeAmount=(_fa>0&&_fn>0)
+    ?(accomVal==='住宿'?_fa:_fn)
+    :(Number(selectedFeeType==='年繳'?currentEvent.fee_yearly:
+             selectedFeeType==='半年繳'?currentEvent.fee_half:
+             currentEvent.fee_single)||12000);
 
   _submitting=true;
   const btn=document.getElementById('submit-btn');
@@ -485,8 +522,9 @@ async function submitReg(){
         <div class="info-row"><span class="info-key">活動</span><span class="info-val">${currentEvent.name}</span></div>
         <div class="info-row"><span class="info-key">姓名</span><span class="info-val">${name}</span></div>
         <div class="info-row"><span class="info-key">電話</span><span class="info-val">${phone}</span></div>
-        <div class="info-row"><span class="info-key">繳費方式</span><span class="info-val">${selectedFeeType}</span></div>
-        <div class="info-row"><span class="info-key">費用</span><span class="info-val" style="color:var(--green-dark)">NT$ ${Number(feeAmount).toLocaleString()}</span></div>
+        <div class="info-row"><span class="info-key">住宿</span><span class="info-val">${accomVal}</span></div>
+        <div class="info-row"><span class="info-key">報名費用</span><span class="info-val" style="color:var(--green-dark)">NT$ ${Number(feeAmount).toLocaleString()}</span></div>
+        <div style="font-size:11px;color:#8B6914;padding:6px 0 2px">💡 審核通過後另行通知繳款</div>
         <div class="info-row" style="border:none"><span class="info-key">報名編號</span><span class="info-val" style="font-size:11px">${data.reg_id||'—'}</span></div>
       `;
       document.getElementById('success-screen').classList.add('open');

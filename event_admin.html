@@ -43,6 +43,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .status-badge{font-size:11px;font-weight:700;padding:3px 8px;border-radius:99px}
 .status-申請中{background:#fff8e1;color:#c17d11}
 .status-待付款{background:#e8f4fd;color:#1a6fa3}
+.status-已付款{background:#e8f9ee;color:#1a7a3f}
 .status-已完成{background:#e8f9ee;color:#1a7a3f}
 .status-未錄取,.status-已取消{background:#fdf0ee;color:var(--red)}
 .reg-row{font-size:12px;color:var(--text-mid);margin-bottom:3px}
@@ -104,6 +105,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <select class="filter-select" id="status-select" onchange="loadRegs()" style="flex:0 0 auto;width:110px">
       <option value="申請中">申請中</option>
       <option value="待付款">待付款</option>
+      <option value="已付款">已付款</option>
       <option value="已完成">已完成</option>
       <option value="未錄取">未錄取</option>
       <option value="已取消">已取消</option>
@@ -136,7 +138,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     </div>
     <div class="modal-btns">
       <button class="modal-cancel" onclick="closeModal('modal-approve')">取消</button>
-      <button class="modal-confirm" onclick="submitApprove()">發送通知並審核通過</button>
+      <button class="modal-confirm" onclick="submitApprove()">審核通過</button>
     </div>
   </div>
 </div>
@@ -152,7 +154,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     </div>
     <div class="modal-btns">
       <button class="modal-cancel" onclick="closeModal('modal-reject')">取消</button>
-      <button class="modal-confirm danger" onclick="submitReject()">確認未錄取並通知</button>
+      <button class="modal-confirm danger" onclick="submitReject()">確認未錄取</button>
     </div>
   </div>
 </div>
@@ -162,6 +164,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="modal">
     <div class="modal-title">💰 確認收款</div>
     <div class="modal-sub" id="confirm-pay-sub"></div>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">確認後請複製下方文案，手動貼給學員。</div>
     <div class="modal-btns">
       <button class="modal-cancel" onclick="closeModal('modal-confirm-pay')">取消</button>
       <button class="modal-confirm" onclick="submitConfirmPayment()">確認收款並產生文案</button>
@@ -284,7 +287,7 @@ function renderRegs(list){
   el.innerHTML=list.map((reg,idx)=>{
     const canAct=reg.fee_status==='申請中'||reg.fee_status==='待審核';
     const canConfirm=reg.fee_status==='待付款';
-    const canCancel=reg.fee_status!=='已取消'&&reg.fee_status!=='已完成';
+    const canCancel=reg.fee_status==='申請中'||reg.fee_status==='待付款'||reg.fee_status==='待審核';
     return `<div class="reg-card">
       <div class="reg-header">
         <div class="reg-name">${reg.name}</div>
@@ -336,18 +339,18 @@ async function submitApprove(){
     const d=await r.json();
     if(d.auth_required){logout();return;}
     if(d.ok){
-      showToast('✅ 已審核通過，LINE 通知已發送');
+      showToast('✅ 已審核通過，請手動通知學員');
       closeModal('modal-approve');
       loadRegs();
     }else{showToast(d.error||'操作失敗');}
   }catch(e){showToast('連線失敗');}
-  btn.disabled=false;btn.textContent='發送通知並審核通過';
+  btn.disabled=false;btn.textContent='審核通過';
 }
 
 // ── 未錄取 Modal ──
 function openReject(regId,name){
   currentRegId=regId;
-  document.getElementById('reject-sub').textContent=`確認將「${name}」設為未錄取並發送 LINE 通知？`;
+  document.getElementById('reject-sub').textContent=`確認將「${name}」設為未錄取？請手動通知學員`;
   document.getElementById('reject-note').value='';
   document.getElementById('modal-reject').classList.add('open');
 }
@@ -363,12 +366,12 @@ async function submitReject(){
     const d=await r.json();
     if(d.auth_required){logout();return;}
     if(d.ok){
-      showToast('已設為未錄取，LINE 通知已發送');
+      showToast('已設為未錄取，請手動通知學員');
       closeModal('modal-reject');
       loadRegs();
     }else{showToast(d.error||'操作失敗');}
   }catch(e){showToast('連線失敗');}
-  btn.disabled=false;btn.textContent='確認未錄取並通知';
+  btn.disabled=false;btn.textContent='確認未錄取';
 }
 
 // ── 取消報名 ──
@@ -401,7 +404,7 @@ async function submitConfirmPayment(){
   try{
     const r=await fetch(GAS_URL,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'updateRegistration',session_token:sessionToken,
-        reg_id:currentRegId,fee_status:'已完成'})});
+        reg_id:currentRegId,fee_status:'已付款'})});
     const d=await r.json();
     if(d.auth_required){logout();return;}
     if(d.ok){
