@@ -288,6 +288,7 @@ function renderRegs(list){
   el.innerHTML=list.map((reg,idx)=>{
     const canAct=reg.fee_status==='申請中'||reg.fee_status==='待審核';
     const canConfirm=reg.fee_status==='待付款';
+    const canRefund=reg.fee_status==='已付款';
     const canCancel=reg.fee_status==='申請中'||reg.fee_status==='待付款'||reg.fee_status==='待審核';
     return `<div class="reg-card">
       <div class="reg-header">
@@ -306,6 +307,9 @@ function renderRegs(list){
       ${canConfirm?`<div class="reg-actions">
         <button class="approve-btn" onclick="openConfirmPayment(${idx})">💰 確認收款</button>
         <button class="cancel-btn" onclick="doCancel('${reg.reg_id||reg.id}','${reg.name}')">取消報名</button>
+      </div>`:''}
+      ${canRefund?`<div class="reg-actions">
+        <button class="reject-btn" onclick="doRefundCancel(${idx})">取消退款</button>
       </div>`:''}
       ${(!canAct&&!canConfirm&&canCancel)?`<div class="reg-actions">
         <button class="cancel-btn" onclick="doCancel('${reg.reg_id||reg.id}','${reg.name}')">取消報名</button>
@@ -391,6 +395,31 @@ async function doCancel(regId,name){
   }catch(e){showToast('連線失敗');}
 }
 
+async function doRefundCancel(idx){
+  const reg=_regsCache[idx];
+  const regId=reg.reg_id||reg.id;
+  const name=reg.name||'';
+  const defaultAmt=Number(reg.fee_amount||0);
+  const input=prompt(`請輸入「${name}」退款金額`, String(defaultAmt));
+  if(input===null)return;
+  const refundAmount=Number(String(input).replace(/,/g,''));
+  if(!refundAmount||refundAmount<=0){showToast('退款金額必須大於 0');return;}
+  if(!confirm(`確認已人工退款給「${name}」NT$ ${refundAmount.toLocaleString()}，並釋出名額？`))return;
+  try{
+    const note=`已付款取消，人工退款完成；退款金額 NT$ ${refundAmount.toLocaleString()}`;
+    const r=await fetch(GAS_URL,{method:'POST',
+      body:JSON.stringify({action:'refundCancelRegistration',session_token:sessionToken,
+        reg_id:regId,refund_amount:refundAmount,payment:'匯款',cancelled_by:'管理員',note})});
+    const d=await r.json();
+    if(d.auth_required){logout();return;}
+    if(d.ok){
+      showToast('已取消退款並釋出名額');
+      showRefundCancelMsg(reg,refundAmount);
+      loadRegs();
+    }else{showToast(d.error||'取消退款失敗');}
+  }catch(e){showToast('連線失敗');}
+}
+
 // ── 確認收款 ──
 function openConfirmPayment(idx){
   currentRegData=_regsCache[idx];
@@ -473,6 +502,29 @@ function showCopyMsg(reg){
 費用：${feeType} NT$ ${feeAmt}
 
 🌿 感謝您的信任與支持，期待與您相見！
+如有任何問題，歡迎隨時透過 LINE 與我們聯繫。`;
+
+  document.getElementById('copy-msg-text').value=msg;
+  document.getElementById('modal-copy-msg').classList.add('open');
+}
+
+function showRefundCancelMsg(reg,refundAmount){
+  const eid=document.getElementById('event-select').value;
+  const ev=eventsMap[eid]||{};
+  const name=reg.name||'';
+  const eventName=reg.event_name||ev.name||'';
+  const feeType=reg.fee_type||'';
+  const msg=`↩️ 取消報名與退款完成通知
+
+親愛的 ${name} 您好，
+
+您的「${eventName}」取消報名與退款已處理完成。
+
+退款資料
+住宿/類型：${feeType}
+退款金額：NT$ ${Number(refundAmount).toLocaleString()}
+退款方式：匯款
+
 如有任何問題，歡迎隨時透過 LINE 與我們聯繫。`;
 
   document.getElementById('copy-msg-text').value=msg;
