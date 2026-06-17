@@ -169,6 +169,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .empty-text{font-size:14px}
 .loading{text-align:center;padding:30px;color:var(--dim);font-size:14px}
 @media(min-width:600px){.page,.tabs{max-width:480px;margin-left:auto;margin-right:auto}.topbar{left:50%;transform:translateX(-50%);position:sticky;width:100%;max-width:480px}}
+.ps-上架{background:rgba(39,201,130,.15);color:var(--green)}
+.ps-下架{background:rgba(245,166,35,.15);color:var(--gold)}
+.ps-停用{background:rgba(224,87,87,.15);color:var(--red)}
 </style>
 </head>
 <body>
@@ -200,6 +203,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab" onclick="switchTab('accounts')"><span class="tab-icon">💰</span>帳本</div>
   <div class="tab" onclick="switchTab('registrations')"><span class="tab-icon">📝</span>報名</div>
   <div class="tab" onclick="switchTab('reports')"><span class="tab-icon">📊</span>報表</div>
+  <div class="tab" onclick="switchTab('products')"><span class="tab-icon">🏷️</span>商品</div>
 </div>
 
 <!-- 總覽 -->
@@ -349,6 +353,54 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <button class="btn btn-gold" onclick="loadReport()">🔄 重新載入報表</button>
     <button class="btn btn-ghost" onclick="triggerLowStockNotify()">📦 立即推送低庫存通知</button>
     <button class="btn btn-ghost" onclick="runInstallTriggers()">⏰ 安裝定時通知（每日9點+每月1日）</button>
+  </div>
+</div>
+
+<!-- 商品管理 -->
+<div class="page" id="page-products">
+  <button class="btn btn-gold" onclick="openAddProductModal()" style="margin-bottom:14px;padding:12px">➕ 新增商品</button>
+  <div class="filter-row">
+    <div class="chip active" onclick="setProdFilter('all',this)">全部</div>
+    <div class="chip" onclick="setProdFilter('上架',this)">上架</div>
+    <div class="chip" onclick="setProdFilter('下架',this)">下架</div>
+    <div class="chip" onclick="setProdFilter('停用',this)">停用</div>
+  </div>
+  <div class="search-wrap"><span class="search-icon">🔍</span><input type="text" id="prod-search" placeholder="搜尋商品名稱或分類..." oninput="renderProducts()"></div>
+  <div id="prod-list"><div class="loading">載入中...</div></div>
+</div>
+
+<!-- 商品 Modal -->
+<div class="modal-overlay" id="prod-modal-overlay" onclick="closeProdModal(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="prod-modal-title">新增商品</div>
+      <button class="modal-close" onclick="closeProdModal()">✕</button>
+    </div>
+    <div class="field" id="prod-id-row" style="display:none">
+      <label>商品ID（不可修改）</label>
+      <input type="text" id="pm-id" disabled style="background:var(--surface2);color:var(--muted)">
+    </div>
+    <div class="field"><label>商品名稱 *</label><input type="text" id="pm-name" placeholder="例：有機薑黃粉"></div>
+    <div class="field"><label>商品代碼</label><input type="text" id="pm-code" placeholder="可留空"></div>
+    <div class="field"><label>分類</label>
+      <input type="text" id="pm-category" list="dl-prod-cats" placeholder="例：養生調理">
+      <datalist id="dl-prod-cats"></datalist>
+    </div>
+    <div class="field"><label>成本價（NT$）</label><input type="number" id="pm-cost" placeholder="0" min="0"></div>
+    <div class="field"><label>售價（NT$）*</label><input type="number" id="pm-price" placeholder="0" min="0"></div>
+    <div class="field"><label>圖片 URL</label><input type="text" id="pm-image" placeholder="https://..."></div>
+    <div class="field"><label>商品說明</label><textarea id="pm-desc" rows="3" placeholder="商品描述..."></textarea></div>
+    <div class="field"><label>低庫存警戒值</label><input type="number" id="pm-threshold" placeholder="10" min="0"></div>
+    <div class="field" id="pm-status-row" style="display:none"><label>狀態</label>
+      <select id="pm-status">
+        <option value="上架">上架</option>
+        <option value="下架">下架</option>
+        <option value="停用">停用</option>
+      </select>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
+      <button class="btn btn-gold" onclick="saveProdModal()">儲存</button>
+    </div>
   </div>
 </div>
 
@@ -525,7 +577,7 @@ async function syncAll(){
   btn.textContent='⟳ 同步';btn.classList.remove('syncing');
 }
 
-function renderAll(){renderDashboard();renderInventory();renderHistory();renderOrders();renderAccounts();renderRegistrations();renderMembers();}
+function renderAll(){renderDashboard();renderInventory();renderHistory();renderOrders();renderAccounts();renderRegistrations();renderMembers();renderProducts();}
 
 function init(){
   document.getElementById('topbar-date').textContent=new Date().toLocaleDateString('zh-TW',{weekday:'short',month:'long',day:'numeric'});
@@ -535,7 +587,7 @@ function init(){
 }
 
 function switchTab(tab){
-  const tabs=['dashboard','in','out','inventory','history','orders','accounts','registrations','reports'];
+  const tabs=['dashboard','in','out','inventory','history','orders','accounts','registrations','reports','products'];
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',tabs[i]===tab));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById('page-'+tab).classList.add('active');
@@ -1335,6 +1387,153 @@ async function runInstallTriggers(){
   const r=await apiPost({action:'installTriggers',session_token:SESSION_TOKEN});
   if(r.ok)showToast('✅ 已安裝：'+r.triggers.join('、'),'success');
   else showToast('❌ '+r.error,'error');
+}
+
+// ── P1-A 商品管理 ──
+let prodFilter = 'all';
+let editingProduct = null;
+
+function setProdFilter(f, el) {
+  prodFilter = f;
+  document.querySelectorAll('#page-products .chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  renderProducts();
+}
+
+function renderProducts() {
+  const q = (document.getElementById('prod-search')?.value || '').toLowerCase();
+  let list = [...(cache.products || [])];
+  if (prodFilter !== 'all') list = list.filter(p => p.status === prodFilter);
+  if (q) list = list.filter(p =>
+    (p.name || '').toLowerCase().includes(q) ||
+    (p.category || '').toLowerCase().includes(q)
+  );
+
+  const cats = [...new Set((cache.products || []).map(p => p.category).filter(Boolean))];
+  const dl = document.getElementById('dl-prod-cats');
+  if (dl) dl.innerHTML = cats.map(c => `<option value="${c}">`).join('');
+
+  const el = document.getElementById('prod-list');
+  if (!el) return;
+  if (!list.length) {
+    el.innerHTML = '<div class="loading">沒有符合的商品</div>';
+    return;
+  }
+  el.innerHTML = list.map(p => {
+    const toggleBtn = p.status === '上架'
+      ? `<button class="btn btn-ghost" style="width:auto;padding:8px 14px;font-size:13px" onclick="toggleProdStatus('${p.product_id}','下架')">下架</button>`
+      : `<button class="btn btn-ghost" style="width:auto;padding:8px 14px;font-size:13px" onclick="toggleProdStatus('${p.product_id}','上架')">上架</button>`;
+    const disableBtn = p.status !== '停用'
+      ? `<button class="btn btn-ghost" style="width:auto;padding:8px 14px;font-size:13px;color:var(--red)" onclick="disableProduct('${p.product_id}')">停用</button>`
+      : '';
+    return `
+    <div class="order-card">
+      <div class="order-header">
+        <span class="order-name" style="font-size:14px">${p.name}</span>
+        <span class="order-status ps-${p.status}">${p.status || '—'}</span>
+      </div>
+      <div class="order-meta">分類：${p.category || '—'} ｜ 售價：NT$ ${Number(p.retail_price || 0).toLocaleString()} ｜ 成本：NT$ ${Number(p.cost_price || 0).toLocaleString()}</div>
+      ${p.image_url ? `<div style="font-size:11px;color:var(--muted);margin-top:4px;word-break:break-all">🖼 ${p.image_url}</div>` : ''}
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-gold" style="width:auto;padding:8px 14px;font-size:13px" onclick="openEditProductModal('${p.product_id}')">✏️ 編輯</button>
+        ${toggleBtn}${disableBtn}
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px">ID：${p.product_id}</div>
+    </div>`;
+  }).join('');
+}
+
+function openAddProductModal() {
+  editingProduct = null;
+  document.getElementById('prod-modal-title').textContent = '新增商品';
+  document.getElementById('prod-id-row').style.display = 'none';
+  document.getElementById('pm-status-row').style.display = 'none';
+  ['pm-name','pm-code','pm-category','pm-cost','pm-price','pm-image','pm-desc'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('pm-threshold').value = '10';
+  document.getElementById('prod-modal-overlay').classList.add('open');
+}
+
+function openEditProductModal(pid) {
+  const p = (cache.products || []).find(x => x.product_id === pid);
+  if (!p) return;
+  editingProduct = pid;
+  document.getElementById('prod-modal-title').textContent = '編輯商品';
+  document.getElementById('prod-id-row').style.display = '';
+  document.getElementById('pm-status-row').style.display = '';
+  document.getElementById('pm-id').value        = p.product_id;
+  document.getElementById('pm-name').value      = p.name || '';
+  document.getElementById('pm-code').value      = p.code || '';
+  document.getElementById('pm-category').value  = p.category || '';
+  document.getElementById('pm-cost').value      = p.cost_price || '';
+  document.getElementById('pm-price').value     = p.retail_price || '';
+  document.getElementById('pm-image').value     = p.image_url || '';
+  document.getElementById('pm-desc').value      = p.description || '';
+  document.getElementById('pm-threshold').value = p.threshold || '10';
+  document.getElementById('pm-status').value    = p.status || '上架';
+  document.getElementById('prod-modal-overlay').classList.add('open');
+}
+
+function closeProdModal(e) {
+  if (e && e.target !== document.getElementById('prod-modal-overlay')) return;
+  document.getElementById('prod-modal-overlay').classList.remove('open');
+  editingProduct = null;
+}
+
+async function saveProdModal() {
+  const name  = document.getElementById('pm-name').value.trim();
+  const price = document.getElementById('pm-price').value.trim();
+  if (!name)  { showToast('請填寫商品名稱', 'error'); return; }
+  if (!price) { showToast('請填寫售價', 'error'); return; }
+  const params = {
+    session_token: SESSION_TOKEN,
+    name,
+    code:         document.getElementById('pm-code').value.trim(),
+    category:     document.getElementById('pm-category').value.trim(),
+    cost_price:   document.getElementById('pm-cost').value.trim(),
+    retail_price: price,
+    image_url:    document.getElementById('pm-image').value.trim(),
+    description:  document.getElementById('pm-desc').value.trim(),
+    threshold:    document.getElementById('pm-threshold').value.trim() || '10'
+  };
+  if (editingProduct) {
+    params.action     = 'updateProduct';
+    params.product_id = editingProduct;
+    params.status     = document.getElementById('pm-status').value;
+  } else {
+    params.action = 'addProduct';
+  }
+  try {
+    const r = await apiPost(params);
+    if (r.ok) {
+      showToast(editingProduct ? '✅ 商品已更新' : '✅ 商品已新增', 'success');
+      document.getElementById('prod-modal-overlay').classList.remove('open');
+      editingProduct = null;
+      syncAll();
+    } else {
+      showToast('❌ ' + r.error, 'error');
+    }
+  } catch(e) { showToast('⚠️ 網路錯誤', 'error'); }
+}
+
+async function toggleProdStatus(pid, newStatus) {
+  try {
+    const r = await apiPost({ action: 'updateProduct', session_token: SESSION_TOKEN,
+                              product_id: pid, status: newStatus });
+    if (r.ok) { showToast('✅ 已' + newStatus, 'success'); syncAll(); }
+    else showToast('❌ ' + r.error, 'error');
+  } catch(e) { showToast('⚠️ 網路錯誤', 'error'); }
+}
+
+async function disableProduct(pid) {
+  if (!confirm('確定要停用此商品？停用後可在後台重新上架。')) return;
+  try {
+    const r = await apiPost({ action: 'updateProduct', session_token: SESSION_TOKEN,
+                              product_id: pid, status: '停用' });
+    if (r.ok) { showToast('✅ 已停用', 'success'); syncAll(); }
+    else showToast('❌ ' + r.error, 'error');
+  } catch(e) { showToast('⚠️ 網路錯誤', 'error'); }
 }
 
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});

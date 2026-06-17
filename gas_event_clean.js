@@ -401,10 +401,7 @@ function updateProduct(p) {
 
 function deleteProduct(p) {
   if (!p.product_id) return { ok: false, error: '缺少 product_id' };
-  const found = findRow(SHEET.PRODUCTS, COL.PRODUCTS.ID, p.product_id);
-  if (!found) return { ok: false, error: '找不到商品' };
-  getSheet(SHEET.PRODUCTS).deleteRow(found.rowNum);
-  return { ok: true };
+  return updateProduct({ product_id: p.product_id, status: '下架' });
 }
 
 // ================================================================
