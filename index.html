@@ -506,7 +506,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 
 <script>
 const GAS_URL='https://script.google.com/macros/s/AKfycbz4-pJ5jWtu9nevKDl98LxRqfwyVdGApEqEzcKKR9LDxanUM5BCneCZttkH3rkxLlUtYA/exec';
-let SESSION_TOKEN=sessionStorage.getItem('yc_admin_token')||'';
+let SESSION_TOKEN=localStorage.getItem('yc_admin_token')||'';
 let cache={products:[],inventory:[],stockLog:[],orders:[],accounts:[],balance:{},registrations:[],members:[]};
 let invFilter='all',histFilter='all',orderFilter='all',accFilter='all',regFilter='all',memberFilter='all';
 let imgData={in:null};
@@ -521,13 +521,13 @@ async function unlock(){
   try{
     const r=await fetch(GAS_URL+'?'+new URLSearchParams({action:'loginAdmin',password:pwd}).toString());
     const data=await r.json();
-    if(data.ok&&data.token){SESSION_TOKEN=data.token;sessionStorage.setItem('yc_admin_token',data.token);enterApp();}
+    if(data.ok&&data.token){SESSION_TOKEN=data.token;localStorage.setItem('yc_admin_token',data.token);enterApp();}
     else{lockErr.textContent=data.error||'密碼錯誤，請重試';document.getElementById('lock-pwd').value='';}
   }catch(e){lockErr.textContent='網路錯誤，請稍後再試';}
 }
 
 function handleAuthError(){
-  SESSION_TOKEN='';sessionStorage.removeItem('yc_admin_token');
+  SESSION_TOKEN='';localStorage.removeItem('yc_admin_token');
   document.getElementById('main-app').style.display='none';
   document.getElementById('lock-screen').style.display='';
   document.getElementById('lock-err').textContent='Session 已過期，請重新登入';
