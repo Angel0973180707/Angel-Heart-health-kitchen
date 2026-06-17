@@ -232,7 +232,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-hei
 <div class="cat-tabs" id="cat-tabs">
   <div class="cat-chip active" onclick="setCategory('all',this)">全部</div>
   <div class="cat-chip" onclick="setCategory('養生調理',this)">養生調理</div>
-  <div class="cat-chip" onclick="setCategory('養生調味料',this)">調味料</div>
+  <div class="cat-chip" onclick="setCategory('廚房料理區',this)">廚房料理區</div>
   <div class="cat-chip" onclick="setCategory('養生沖調飲品',this)">飲品</div>
   <div class="cat-chip" onclick="setCategory('健康食品',this)">健康食品</div>
   <div class="cat-chip" onclick="setCategory('清潔用品',this)">清潔用品</div>
@@ -468,7 +468,7 @@ function renderProducts(){
 }
 
 function getCatEmoji(cat){
-  const map={'養生調理':'🫙','養生調味料':'🧂','養生沖調飲品':'🍵','健康食品':'💊','清潔用品':'🧴','能量用品':'✨'};
+  const map={'養生調理':'🫙','廚房料理區':'🧂','養生沖調飲品':'🍵','健康食品':'💊','清潔用品':'🧴','能量用品':'✨'};
   return map[cat]||'📦';
 }
 
