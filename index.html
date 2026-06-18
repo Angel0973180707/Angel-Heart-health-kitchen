@@ -521,13 +521,13 @@ async function unlock(){
   try{
     const r=await fetch(GAS_URL+'?'+new URLSearchParams({action:'loginAdmin',password:pwd}).toString());
     const data=await r.json();
-    if(data.ok&&data.token){SESSION_TOKEN=data.token;localStorage.setItem('yc_admin_token',data.token);enterApp();}
+    if(data.ok&&data.token){SESSION_TOKEN=data.token;localStorage.setItem('yc_admin_token',data.token);localStorage.setItem('yc_admin_login_time',Date.now().toString());enterApp();}
     else{lockErr.textContent=data.error||'密碼錯誤，請重試';document.getElementById('lock-pwd').value='';}
   }catch(e){lockErr.textContent='網路錯誤，請稍後再試';}
 }
 
 function handleAuthError(){
-  SESSION_TOKEN='';localStorage.removeItem('yc_admin_token');
+  SESSION_TOKEN='';localStorage.removeItem('yc_admin_token');localStorage.removeItem('yc_admin_login_time');
   document.getElementById('main-app').style.display='none';
   document.getElementById('lock-screen').style.display='';
   document.getElementById('lock-err').textContent='Session 已過期，請重新登入';
@@ -1535,6 +1535,20 @@ async function disableProduct(pid) {
     else showToast('❌ ' + r.error, 'error');
   } catch(e) { showToast('⚠️ 網路錯誤', 'error'); }
 }
+
+// 頁面載入時自動恢復登入（6 小時內）
+(function(){
+  const token     = localStorage.getItem('yc_admin_token');
+  const loginTime = Number(localStorage.getItem('yc_admin_login_time') || 0);
+  const valid     = token && loginTime && (Date.now() - loginTime) < 21600000;
+  if (valid) {
+    SESSION_TOKEN = token;
+    enterApp();
+  } else {
+    localStorage.removeItem('yc_admin_token');
+    localStorage.removeItem('yc_admin_login_time');
+  }
+})();
 
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
 </script>
