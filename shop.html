@@ -647,16 +647,20 @@ async function submitOrder(){
   btn.disabled=true;btn.textContent='送出中...';
 
   try{
-    const r=await fetch(GAS_URL+'?'+new URLSearchParams({
-      action:'addOrder',
-      token:'YC_SHOP_2026',
-      customer_name:name,
-      phone,
-      address:document.getElementById('f-address').value.trim(),
-      items:itemsJson,
-      payment:selectedPayment,
-      note:document.getElementById('f-note').value.trim()
-    }).toString());
+    const r=await fetch(GAS_URL,{
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({
+        action:'addOrder',
+        token:'YC_SHOP_2026',
+        customer_name:name,
+        phone,
+        address:document.getElementById('f-address').value.trim(),
+        items:itemsJson,
+        payment:selectedPayment,
+        note:document.getElementById('f-note').value.trim()
+      })
+    });
     const data=await r.json();
     if(data.ok){
       document.getElementById('checkout-screen').classList.remove('open');
@@ -710,10 +714,10 @@ async function queryOrders(){
   const el=document.getElementById('query-result');
   el.innerHTML='<div class="loading">查詢中...</div>';
   try{
-    const r=await fetch(GAS_URL+'?action=getOrders&phone='+encodeURIComponent(phone));
+    const r=await fetch(GAS_URL+'?action=queryOrdersByPhone&token=YC_SHOP_2026&phone='+encodeURIComponent(phone));
     const data=await r.json();
     if(!data.ok){el.innerHTML='<div class="empty-state"><div class="empty-icon">😔</div><div class="empty-text">查詢失敗，請重試</div></div>';return;}
-    const orders=(data.data||[]).filter(o=>String(o.phone)===String(phone));
+    const orders=data.data||[];
     if(!orders.length){
       el.innerHTML='<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-text">查無訂單<br><span style="font-size:12px">請確認手機號碼是否正確</span></div></div>';
       return;

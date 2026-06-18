@@ -208,6 +208,7 @@ function handleRequest(e) {
 
       case 'getOrders':              return res(getOrders(p));
       case 'addOrder':               return res(addOrder(p));
+      case 'queryOrdersByPhone':     return res(queryOrdersByPhone(p));
       case 'addPosSale':             return res(addPosSale(p));
       case 'updateOrder':            return res(updateOrder(p));
       case 'cancelOrder':            return res(cancelOrder(p));
@@ -606,50 +607,89 @@ function getOrders(p) {
 
 const ORDER_TOKEN = 'YC_SHOP_2026';
 
+// 前台查詢訂單（公開端點，僅回傳白名單欄位，不含地址/備註/取消原因）
+function queryOrdersByPhone(p) {
+  if (p.token !== ORDER_TOKEN) return { ok: false, error: '驗證失敗' };
+  if (!p.phone) return { ok: false, error: '請輸入手機號碼' };
+  const rows = getRows(SHEET.ORDERS);
+  const c = COL.ORDERS;
+  const list = rows
+    .filter(r => r[c.ID] && String(r[c.PHONE]) === String(p.phone))
+    .map(r => ({
+      order_id:     r[c.ID],
+      customer_name:r[c.CNAME],
+      phone:        r[c.PHONE],
+      total:        r[c.TOTAL],
+      payment:      r[c.PAYMENT],
+      status:       r[c.STATUS],
+      created_at:   r[c.CREATED],
+      subtotal:     r[c.SUBTOTAL]     || r[c.TOTAL] || 0,
+      shipping_fee: r[c.SHIPPING_FEE] || 0
+    }))
+    .reverse();
+  return { ok: true, data: list };
+}
+
 function addOrder(p) {
   if (p.token !== ORDER_TOKEN) return { ok: false, error: '驗證失敗' };
   if (!p.customer_name || !p.phone || !p.items) return { ok: false, error: '缺少必要欄位' };
 
-  // 庫存檢查
   let items;
   try { items = JSON.parse(p.items); } catch(e) { return { ok: false, error: '訂單資料格式錯誤' }; }
+  if (!items.length) return { ok: false, error: '購物車是空的' };
+
+  // lock 外快速擋：數量格式
   for (const item of items) {
-    const inv = findRow(SHEET.INVENTORY, COL.INVENTORY.ID, item.product_id);
-    if (!inv) return { ok: false, error: `商品「${item.name||item.product_id}」不存在` };
-    const stock = parseInt(inv.row[COL.INVENTORY.QTY]) || 0;
-    if (stock < item.qty) {
-      return { ok: false, error: `「${item.name||item.product_id}」庫存不足（剩餘 ${stock} 件，需要 ${item.qty} 件）` };
+    const qty = parseInt(item.qty);
+    if (!item.product_id) return { ok: false, error: '商品缺少 product_id' };
+    if (!qty || qty <= 0 || qty !== parseFloat(item.qty))
+      return { ok: false, error: '「'+(item.name||item.product_id)+'」數量必須為正整數' };
+  }
+
+  const lock = _acquireLock_();
+  if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
+  try {
+    // 後端重算價格 + lock 內驗商品/庫存（送單時庫存快照，非正式保留；後台確認才扣庫存）
+    const backendItems = [];
+    var backendSubtotal = 0;
+    for (const item of items) {
+      const qty = parseInt(item.qty);
+      const prodRow = findRow(SHEET.PRODUCTS, COL.PRODUCTS.ID, item.product_id);
+      if (!prodRow) return { ok: false, error: '商品「'+(item.name||item.product_id)+'」不存在' };
+      const prodStatus = String(prodRow.row[COL.PRODUCTS.STATUS] || '');
+      if (prodStatus !== '上架')
+        return { ok: false, error: '商品「'+(item.name||item.product_id)+'」狀態非上架（'+prodStatus+'）' };
+      const rp = Number(prodRow.row[COL.PRODUCTS.PRICE]) || 0;
+      const invRow = findRow(SHEET.INVENTORY, COL.INVENTORY.ID, item.product_id);
+      if (!invRow) return { ok: false, error: '商品「'+(item.name||item.product_id)+'」無庫存記錄' };
+      const stock = parseInt(invRow.row[COL.INVENTORY.QTY]) || 0;
+      if (stock < qty)
+        return { ok: false, error: '「'+(item.name||item.product_id)+'」庫存不足（剩餘 '+stock+' 件，需要 '+qty+' 件）' };
+      backendItems.push({ product_id: item.product_id, name: item.name || String(prodRow.row[COL.PRODUCTS.NAME]), qty, price: rp });
+      backendSubtotal += rp * qty;
     }
-  }
 
-  // 計算小計與運費
-  const settings = getSettingsMap_();
-  const subtotal  = items.reduce((sum, it) => sum + (Number(it.price)||0) * (Number(it.qty)||0), 0);
-  const freeThres = Number(settings.free_shipping_threshold) || 1000;
-  const isPickup  = (p.payment === '現場取貨');
-  const shipFee   = isPickup ? 0 : (subtotal >= freeThres ? 0 : (Number(settings.shipping_fee) || 80));
-  const total     = subtotal + shipFee;
+    const settings = getSettingsMap_();
+    const freeThres = Number(settings.free_shipping_threshold) || 1000;
+    const isPickup  = (p.payment === '現場取貨');
+    const shipFee   = isPickup ? 0 : (backendSubtotal >= freeThres ? 0 : (Number(settings.shipping_fee) || 80));
+    const total     = backendSubtotal + shipFee;
 
-  const id = 'ORD' + Date.now();
-  const sheet = getSheet(SHEET.ORDERS);
-  sheet.appendRow([
-    id, p.customer_name, p.phone, p.address||'',
-    p.items, total, p.payment||'ATM轉帳',
-    '待確認', p.note||'', now(),
-    subtotal, shipFee, p.coupon_code||'',
-    '', '', ''
-  ]);
-  sheet.getRange(sheet.getLastRow(), COL.ORDERS.PHONE+1).setNumberFormat('@').setValue(p.phone||'');
-  sendLineMsg(`🛒 新訂單！\n客人：${p.customer_name}\n電話：${p.phone}\n小計：NT$ ${subtotal.toLocaleString()}${shipFee>0?' 運費：NT$ '+shipFee:' 免運'}\n合計：NT$ ${total.toLocaleString()}\n付款：${p.payment||'ATM轉帳'}\n備註：${p.note||'無'}\n時間：${now()}`);
-  if (p.auto_deduct === 'true') {
-    try {
-      items.forEach(item => {
-        stockOut({ product_id: item.product_id, qty: item.qty,
-                   price: item.price, partner: p.customer_name, note: '訂單:'+id });
-      });
-    } catch(e) {}
+    const id = 'ORD' + Date.now();
+    const sheet = getSheet(SHEET.ORDERS);
+    sheet.appendRow([
+      id, p.customer_name, p.phone, p.address||'',
+      JSON.stringify(backendItems), total, p.payment||'ATM轉帳',
+      '待確認', p.note||'', now(),
+      backendSubtotal, shipFee, p.coupon_code||'',
+      '', '', ''
+    ]);
+    sheet.getRange(sheet.getLastRow(), COL.ORDERS.PHONE+1).setNumberFormat('@').setValue(p.phone||'');
+    sendLineMsg(`🛒 新訂單！\n客人：${p.customer_name}\n電話：${p.phone}\n小計：NT$ ${backendSubtotal.toLocaleString()}${shipFee>0?' 運費：NT$ '+shipFee:' 免運'}\n合計：NT$ ${total.toLocaleString()}\n付款：${p.payment||'ATM轉帳'}\n備註：${p.note||'無'}\n時間：${now()}`);
+    return { ok: true, order_id: id, subtotal: backendSubtotal, shipping_fee: shipFee, total };
+  } finally {
+    lock.releaseLock();
   }
-  return { ok: true, order_id: id, subtotal, shipping_fee: shipFee, total };
 }
 
 // ================================================================
