@@ -297,6 +297,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 
 <!-- 訂單 -->
 <div class="page" id="page-orders">
+  <button class="btn btn-gold" onclick="openPosModal()" style="margin-bottom:14px;padding:12px;width:100%">🏪 現場銷售 / 快速結帳</button>
   <div class="filter-row">
     <div class="chip active" onclick="setOrderFilter('all',this)">全部</div>
     <div class="chip" onclick="setOrderFilter('待確認',this)">待確認</div>
@@ -353,6 +354,62 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <button class="btn btn-gold" onclick="loadReport()">🔄 重新載入報表</button>
     <button class="btn btn-ghost" onclick="triggerLowStockNotify()">📦 立即推送低庫存通知</button>
     <button class="btn btn-ghost" onclick="runInstallTriggers()">⏰ 安裝定時通知（每日9點+每月1日）</button>
+  </div>
+</div>
+
+<!-- POS 現場銷售 modal -->
+<div class="modal-overlay" id="pos-modal-overlay" onclick="closePosModal(event)">
+  <div class="modal" style="max-height:92vh;overflow-y:auto;display:flex;flex-direction:column;gap:0">
+    <div class="modal-header">
+      <div class="modal-title">🏪 現場銷售</div>
+      <button class="modal-close" onclick="closePosModal(null,true)">✕</button>
+    </div>
+    <input type="text" id="pos-search" placeholder="🔍 搜尋商品名稱..." oninput="renderPosProducts()" style="margin-bottom:8px">
+    <div id="pos-product-list" style="max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:10px"></div>
+    <div class="section-title" style="margin:0 0 6px">購物車</div>
+    <div id="pos-cart" style="margin-bottom:10px"></div>
+    <div style="background:var(--bg-card);border-radius:10px;padding:12px;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+        <span style="color:var(--text-mid)">小計</span><span id="pos-subtotal-disp">NT$ 0</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="color:var(--text-mid)">折扣</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="number" id="pos-discount" value="0" min="0" style="width:80px;text-align:right;padding:4px 8px" oninput="updatePosSummary()">
+          <button class="btn btn-ghost" style="padding:4px 10px;font-size:12px" onclick="posRoundDown()">抹零</button>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-weight:800;font-size:18px">
+        <span>合計</span><span id="pos-total-disp" style="color:var(--green)">NT$ 0</span>
+      </div>
+    </div>
+    <div class="section-label" style="margin-bottom:6px">付款方式</div>
+    <div class="filter-row" id="pos-payment-chips" style="margin-bottom:12px;flex-wrap:wrap">
+      <div class="chip active" onclick="setPosPayment('現金',this)">現金</div>
+      <div class="chip" onclick="setPosPayment('轉帳',this)">轉帳</div>
+      <div class="chip" onclick="setPosPayment('LINE Pay',this)">LINE Pay</div>
+      <div class="chip" onclick="setPosPayment('刷卡',this)">刷卡</div>
+      <div class="chip" onclick="setPosPayment('其他',this)">其他</div>
+    </div>
+    <input type="text" id="pos-cname" placeholder="客人姓名（選填）" style="margin-bottom:8px">
+    <input type="text" id="pos-phone" inputmode="numeric" maxlength="10" placeholder="手機（選填，填了加點）" style="margin-bottom:8px">
+    <input type="text" id="pos-note" placeholder="備註（選填）" style="margin-bottom:14px">
+    <button class="btn btn-gold" id="pos-submit-btn" onclick="submitPosSale()" style="width:100%;padding:14px;font-size:16px">完成銷售</button>
+  </div>
+</div>
+
+<!-- POS 收據 modal -->
+<div class="modal-overlay" id="pos-receipt-overlay" onclick="closePosReceipt(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">✅ 銷售完成</div>
+      <button class="modal-close" onclick="closePosReceipt(null,true)">✕</button>
+    </div>
+    <pre id="pos-receipt-text" style="font-size:13px;background:var(--bg-card);padding:12px;border-radius:8px;white-space:pre-wrap;word-break:break-all;line-height:1.7"></pre>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn btn-gold" style="flex:1" onclick="copyPosReceipt()">複製收據</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="closePosReceipt(null,true)">關閉</button>
+    </div>
   </div>
 </div>
 
@@ -1534,6 +1591,152 @@ async function disableProduct(pid) {
     if (r.ok) { showToast('✅ 已停用', 'success'); syncAll(); }
     else showToast('❌ ' + r.error, 'error');
   } catch(e) { showToast('⚠️ 網路錯誤', 'error'); }
+}
+
+// ── POS 現場銷售 ──
+let posCart = [];
+let posPayment = '現金';
+
+function openPosModal() {
+  posCart = []; posPayment = '現金';
+  document.getElementById('pos-discount').value = '0';
+  document.getElementById('pos-cname').value = '';
+  document.getElementById('pos-phone').value = '';
+  document.getElementById('pos-note').value = '';
+  document.getElementById('pos-search').value = '';
+  document.querySelectorAll('#pos-payment-chips .chip').forEach((c,i) => c.classList.toggle('active', i===0));
+  renderPosProducts(); renderPosCart(); updatePosSummary();
+  document.getElementById('pos-modal-overlay').classList.add('open');
+}
+function closePosModal(e, force) {
+  if (force || e?.target === document.getElementById('pos-modal-overlay'))
+    document.getElementById('pos-modal-overlay').classList.remove('open');
+}
+function setPosPayment(val, el) {
+  posPayment = val;
+  document.querySelectorAll('#pos-payment-chips .chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+}
+function renderPosProducts() {
+  const q = (document.getElementById('pos-search').value || '').toLowerCase();
+  const list = (cache.inventory || []).filter(p =>
+    p.status === '上架' && Number(p.qty) > 0 &&
+    (!q || (p.name||'').toLowerCase().includes(q))
+  );
+  const el = document.getElementById('pos-product-list');
+  if (!list.length) { el.innerHTML = '<div style="padding:12px;color:var(--muted);font-size:13px">無符合商品</div>'; return; }
+  el.innerHTML = list.map(p => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border)">
+      <div>
+        <div style="font-weight:600;font-size:14px">${p.name}</div>
+        <div style="font-size:12px;color:var(--muted)">${p.category||'未分類'} · NT$ ${Number(p.retail_price||0).toLocaleString()} · 庫存 ${p.qty}</div>
+      </div>
+      <button class="btn btn-ghost" style="padding:4px 12px;flex-shrink:0" onclick="addToPosCart('${p.product_id}')">＋</button>
+    </div>`).join('');
+}
+function addToPosCart(pid) {
+  const prod = (cache.inventory || []).find(p => p.product_id === pid);
+  if (!prod) return;
+  const existing = posCart.find(c => c.product_id === pid);
+  if (existing) { existing.qty++; }
+  else posCart.push({ product_id: pid, name: prod.name, price: Number(prod.retail_price||0), qty: 1 });
+  renderPosCart(); updatePosSummary();
+}
+function renderPosCart() {
+  const el = document.getElementById('pos-cart');
+  if (!posCart.length) { el.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:6px 0">尚未加入商品</div>'; return; }
+  el.innerHTML = posCart.map((it, i) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px">${it.name}</div>
+        <div style="font-size:12px;color:var(--muted)">NT$ ${it.price.toLocaleString()} × ${it.qty} = NT$ ${(it.price*it.qty).toLocaleString()}</div>
+      </div>
+      <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+        <button class="btn btn-ghost" style="padding:2px 8px" onclick="changePosQty(${i},-1)">－</button>
+        <span style="min-width:20px;text-align:center">${it.qty}</span>
+        <button class="btn btn-ghost" style="padding:2px 8px" onclick="changePosQty(${i},1)">＋</button>
+        <button class="btn" style="padding:2px 8px;background:transparent;color:var(--red)" onclick="removePosItem(${i})">✕</button>
+      </div>
+    </div>`).join('');
+}
+function changePosQty(i, delta) {
+  posCart[i].qty = Math.max(1, posCart[i].qty + delta);
+  renderPosCart(); updatePosSummary();
+}
+function removePosItem(i) { posCart.splice(i, 1); renderPosCart(); updatePosSummary(); }
+function updatePosSummary() {
+  const subtotal = posCart.reduce((s, it) => s + it.price * it.qty, 0);
+  const discount = Math.max(0, Number(document.getElementById('pos-discount').value) || 0);
+  const total = Math.max(0, subtotal - discount);
+  document.getElementById('pos-subtotal-disp').textContent = 'NT$ ' + subtotal.toLocaleString();
+  document.getElementById('pos-total-disp').textContent = 'NT$ ' + total.toLocaleString();
+}
+function posRoundDown() {
+  const subtotal = posCart.reduce((s, it) => s + it.price * it.qty, 0);
+  const rounded = Math.floor(subtotal / 10) * 10;
+  document.getElementById('pos-discount').value = Math.max(0, subtotal - rounded);
+  updatePosSummary();
+}
+async function submitPosSale() {
+  if (!posCart.length) { showToast('請先加入商品', 'error'); return; }
+  const btn = document.getElementById('pos-submit-btn');
+  btn.disabled = true; btn.textContent = '處理中...';
+  const posId = 'POS' + Date.now() + '_' + Math.random().toString(36).slice(2,6).toUpperCase();
+  const discountVal = Math.max(0, Number(document.getElementById('pos-discount').value) || 0);
+  const cartSnap = posCart.map(it => ({ product_id: it.product_id, name: it.name, price: it.price, qty: it.qty }));
+  const payload = {
+    action: 'addPosSale', session_token: SESSION_TOKEN,
+    pos_id: posId,
+    items: JSON.stringify(cartSnap),
+    payment_method: posPayment,
+    discount: discountVal,
+    customer_name: document.getElementById('pos-cname').value.trim() || '',
+    phone: document.getElementById('pos-phone').value.trim() || '',
+    note: document.getElementById('pos-note').value.trim() || ''
+  };
+  try {
+    const resp = await fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+    const data = await resp.json();
+    if (data.auth_required) handleAuthError();
+    if (data.ok) {
+      closePosModal(null, true);
+      showPosReceipt(data, cartSnap, payload);
+      syncAll();
+    } else {
+      showToast('❌ ' + data.error, 'error');
+    }
+  } catch(e) { showToast('⚠️ 網路錯誤，請重試', 'error'); }
+  finally { btn.disabled = false; btn.textContent = '完成銷售'; }
+}
+function showPosReceipt(result, cartSnap, p) {
+  const lines = [
+    '===== 現場銷售收據 =====',
+    '日期：' + new Date().toLocaleDateString('zh-TW'),
+    '訂單：' + result.order_id,
+    '─────────────────────',
+    ...cartSnap.map(it => it.name + ' ×' + it.qty + '  NT$' + (it.price * it.qty).toLocaleString()),
+    '─────────────────────',
+    '小計：NT$' + result.subtotal.toLocaleString(),
+    ...(result.discount > 0 ? ['折扣：-NT$' + result.discount.toLocaleString()] : []),
+    '合計：NT$' + result.total.toLocaleString(),
+    '付款：' + (p.payment_method || '現金'),
+    ...(result.points_added > 0 ? ['加點：+' + result.points_added + ' 點'] : []),
+    '====================='
+  ].join('\n');
+  document.getElementById('pos-receipt-text').textContent = lines;
+  document.getElementById('pos-receipt-overlay').classList.add('open');
+}
+function closePosReceipt(e, force) {
+  if (force || e?.target === document.getElementById('pos-receipt-overlay'))
+    document.getElementById('pos-receipt-overlay').classList.remove('open');
+}
+function copyPosReceipt() {
+  navigator.clipboard.writeText(document.getElementById('pos-receipt-text').textContent)
+    .then(() => showToast('✅ 收據已複製'));
 }
 
 // 頁面載入時自動恢復登入（6 小時內）

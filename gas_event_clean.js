@@ -174,7 +174,7 @@ function handleRequest(e) {
     const adminActions = [
       'addProduct','updateProduct','deleteProduct',
       'stockIn','stockOut','syncInventory',
-      'getOrders','updateOrder','confirmOrderPayment','cancelOrder','applyPointsDiscount',
+      'getOrders','addPosSale','updateOrder','confirmOrderPayment','cancelOrder','applyPointsDiscount',
       'getAccounts','addAccount','updateAccount',
       'getBalance','refreshBalance',
       'addEvent','updateEvent','deleteEvent',
@@ -208,6 +208,7 @@ function handleRequest(e) {
 
       case 'getOrders':              return res(getOrders(p));
       case 'addOrder':               return res(addOrder(p));
+      case 'addPosSale':             return res(addPosSale(p));
       case 'updateOrder':            return res(updateOrder(p));
       case 'cancelOrder':            return res(cancelOrder(p));
       case 'confirmOrderPayment':    return res(confirmOrderPayment(p));
@@ -649,6 +650,217 @@ function addOrder(p) {
     } catch(e) {}
   }
   return { ok: true, order_id: id, subtotal, shipping_fee: shipFee, total };
+}
+
+// ================================================================
+// 現場銷售 / 快速結帳（POS）
+// ================================================================
+function addPosSale(p) {
+  // ── 基本格式驗證 ──
+  if (!p.items) return { ok:false, error:'缺少商品資料' };
+  var items;
+  try { items = JSON.parse(p.items); } catch(e) { return { ok:false, error:'商品格式錯誤' }; }
+  if (!items.length) return { ok:false, error:'購物車是空的' };
+
+  // ── 付款方式白名單 ──
+  var ALLOWED_PMT = ['現金','轉帳','LINE Pay','刷卡','其他'];
+  var pmt = p.payment_method || '現金';
+  if (ALLOWED_PMT.indexOf(pmt) < 0)
+    return { ok:false, error:'不支援的付款方式：' + pmt };
+
+  // ── 後端重算商品資料（不信任前端 price）──
+  var backendPrices = {};   // product_id -> retail_price
+  var backendSubtotal = 0;
+  for (var vi = 0; vi < items.length; vi++) {
+    var vit = items[vi];
+    // qty 必須是正整數
+    var vQty = parseInt(vit.qty);
+    if (!vit.product_id)            return { ok:false, error:'第 '+(vi+1)+' 項商品缺少 product_id' };
+    if (!vQty || vQty <= 0 || vQty !== parseFloat(vit.qty))
+      return { ok:false, error:'「'+vit.name+'」數量必須為正整數' };
+    // 查商品（取 retail_price + status）
+    var prodRow = findRow(SHEET.PRODUCTS, COL.PRODUCTS.ID, vit.product_id);
+    if (!prodRow) return { ok:false, error:'商品「'+(vit.name||vit.product_id)+'」不存在' };
+    var prodStatus = String(prodRow.row[COL.PRODUCTS.STATUS] || '');
+    if (prodStatus !== '上架') return { ok:false, error:'商品「'+(vit.name||vit.product_id)+'」狀態非上架（'+prodStatus+'）' };
+    var rp = Number(prodRow.row[COL.PRODUCTS.PRICE]) || 0;
+    backendPrices[vit.product_id] = rp;
+    backendSubtotal += rp * vQty;
+    // 庫存預檢（lock 外，快速回傳錯誤）
+    var invRow = findRow(SHEET.INVENTORY, COL.INVENTORY.ID, vit.product_id);
+    if (!invRow) return { ok:false, error:'商品「'+(vit.name||vit.product_id)+'」無庫存記錄' };
+    if ((parseInt(invRow.row[COL.INVENTORY.QTY])||0) < vQty)
+      return { ok:false, error:'「'+(vit.name||vit.product_id)+'」庫存不足' };
+  }
+
+  // ── 折扣驗證 ──
+  var discount = Number(p.discount);
+  if (isNaN(discount) || discount < 0) return { ok:false, error:'折扣必須 >= 0' };
+  if (discount > backendSubtotal) return { ok:false, error:'折扣（'+discount+'）不可大於小計（'+backendSubtotal+'）' };
+  var total = backendSubtotal - discount;
+
+  // ── orderId / accountId ──
+  var orderId   = p.pos_id || ('POS'+Date.now()+'_'+Math.random().toString(36).slice(2,6).toUpperCase());
+  var accountId = 'A_POS_' + orderId;
+
+  // ── lock 外預檢（fast path）──
+  if (p.pos_id) {
+    var preEx = findRow(SHEET.ORDERS, COL.ORDERS.ID, p.pos_id);
+    if (preEx) {
+      var preSt = String(preEx.row[COL.ORDERS.STATUS]);
+      if (preSt === '已完成')   return { ok:true,  order_id:p.pos_id, idempotent:true };
+      if (preSt === '處理中')   return { ok:false, error:'訂單處理中，請稍後再試' };
+      if (preSt === '處理失敗') return { ok:false, error:'此 POS 交易曾處理失敗，請重新開一筆' };
+      return { ok:false, error:'此 POS 編號已存在，需人工檢查' };
+    }
+  }
+
+  // ── 取 Lock ──
+  var lock = _acquireLock_();
+  if (!lock) return { ok:false, error:'系統忙碌，請稍後再試' };
+
+  var orderRowNum = -1, deductedItems = [], completedSteps = [];
+
+  try {
+    // ★ lock 內再次確認 pos_id 不存在（防競態）
+    var lockEx = findRow(SHEET.ORDERS, COL.ORDERS.ID, orderId);
+    if (lockEx) {
+      var lockSt = String(lockEx.row[COL.ORDERS.STATUS]);
+      if (lockSt === '已完成')   return { ok:true,  order_id:orderId, idempotent:true };
+      if (lockSt === '處理中')   return { ok:false, error:'訂單處理中，請稍後再試' };
+      if (lockSt === '處理失敗') return { ok:false, error:'此 POS 交易曾處理失敗，請重新開一筆' };
+      return { ok:false, error:'此 POS 編號已存在，需人工檢查' };
+    }
+
+    // Step 0: lock 內重新確認庫存（TOCTOU 防護）
+    for (var si = 0; si < items.length; si++) {
+      var sit = items[si];
+      var sinv = findRow(SHEET.INVENTORY, COL.INVENTORY.ID, sit.product_id);
+      if (!sinv) throw new Error('商品「'+(sit.name||sit.product_id)+'」無庫存記錄');
+      var sstock = parseInt(sinv.row[COL.INVENTORY.QTY]) || 0;
+      if (sstock < (parseInt(sit.qty)||0))
+        throw new Error('「'+(sit.name||sit.product_id)+'」庫存不足（剩'+sstock+'件，需'+sit.qty+'件）');
+    }
+    completedSteps.push('stock_check');
+
+    // Step 1: 建立訂單（處理中）
+    var os = getSheet(SHEET.ORDERS), c = COL.ORDERS;
+    var itemsForStorage = JSON.stringify(items.map(function(it) {
+      return { product_id:it.product_id, name:it.name, qty:parseInt(it.qty), price:backendPrices[it.product_id] };
+    }));
+    os.appendRow([
+      orderId, p.customer_name||'現場客人', p.phone||'', '',
+      itemsForStorage, total, pmt,
+      '處理中', p.note||'', now(),
+      backendSubtotal, 0, '', '', '', ''
+    ]);
+    orderRowNum = os.getLastRow();
+    if (p.phone) os.getRange(orderRowNum, c.PHONE+1).setNumberFormat('@').setValue(p.phone);
+    completedSteps.push('order_created');
+
+    // Step 2: 扣庫存 + STOCK_LOG
+    var logSheet = getSheet(SHEET.STOCK_LOG);
+    for (var di = 0; di < items.length; di++) {
+      var dit = items[di];
+      var dqty = parseInt(dit.qty);
+      var qr = updateQty_(dit.product_id, dqty, 'out');
+      if (!qr.ok) throw new Error('扣庫存失敗：「'+(dit.name||dit.product_id)+'」'+qr.error);
+      logSheet.appendRow([
+        genId('L'), dit.product_id, dit.name||qr.name, '出庫',
+        dqty, backendPrices[dit.product_id]||'', p.customer_name||'現場客人',
+        '[POS:'+orderId+']', now(), ''
+      ]);
+      deductedItems.push({ product_id:dit.product_id, name:dit.name||qr.name, qty:dqty });
+    }
+    completedSteps.push('stock_deducted');
+
+    // Step 3: 帳本（帶固定 accountId，檢查回傳）
+    var accResult = addAccount({
+      id: accountId,
+      date: today(), type: '銷售收款',
+      partner: p.customer_name||'現場客人',
+      items: '現場銷售 '+orderId,
+      income: total, expense: '',
+      payment: pmt,
+      status: '已收款',
+      note: '[POS:'+orderId+']'+(discount>0?' 折扣NT$'+discount:'')
+    });
+    if (!accResult.ok) throw new Error('帳本寫入失敗：'+(accResult.error||''));
+    completedSteps.push('account_written');
+
+    // Step 4: 訂單改已完成
+    os.getRange(orderRowNum, c.STATUS+1).setValue('已完成');
+    completedSteps.push('order_completed');
+
+    try { refreshBalance(); } catch(e) {}
+
+    // Step 5: 加點（訂單確認後執行；失敗只記錄 points_skipped，不 rollback 主交易）
+    var pointsAdded = 0;
+    if (p.phone && total > 0) {
+      var earnRate = Number(getSettingsMap_().points_earn_rate) || 100;
+      pointsAdded = Math.floor(total / earnRate);
+      if (pointsAdded > 0) {
+        try {
+          addPoints_({ phone:p.phone, points:pointsAdded, amount:total,
+                       note:'現場銷售 [POS:'+orderId+']',
+                       refId:'POS:'+orderId });
+          completedSteps.push('points_added:'+pointsAdded);
+        } catch(e2) { completedSteps.push('points_skipped:'+e2.message); }
+      }
+    }
+
+    // LINE（選配）
+    if (p.notify === 'true') {
+      try { sendLineMsg('🏪 現場銷售\n訂單：'+orderId+
+        '\n客人：'+(p.customer_name||'現場客人')+
+        '\n合計：NT$ '+total.toLocaleString()+'\n付款：'+pmt+
+        '\n時間：'+now()); } catch(e) {}
+    }
+
+    return { ok:true, order_id:orderId, subtotal:backendSubtotal, discount:discount,
+             total:total, points_added:pointsAdded, completed_steps:completedSteps };
+
+  } catch(e) {
+    var rollbackSteps = [];
+    // 補回已扣庫存
+    for (var ri = 0; ri < deductedItems.length; ri++) {
+      var rdi = deductedItems[ri];
+      try {
+        updateQty_(rdi.product_id, rdi.qty, 'in');
+        getSheet(SHEET.STOCK_LOG).appendRow([
+          genId('L'), rdi.product_id, rdi.name, '入庫（補回）',
+          rdi.qty, '', '系統補回',
+          '[POS:'+orderId+'][ROLLBACK]', now(), ''
+        ]);
+        rollbackSteps.push({ type:'stock', product_id:rdi.product_id, status:'rolled_back' });
+      } catch(e2) {
+        rollbackSteps.push({ type:'stock', product_id:rdi.product_id, status:'rollback_failed', error:e2.message });
+      }
+    }
+    // 帳本作廢（若已寫入）
+    if (completedSteps.indexOf('account_written') >= 0) {
+      try {
+        var vr = updateAccount({ account_id:accountId, status:'已作廢',
+          note:'[POS:'+orderId+'][ROLLBACK] '+e.message });
+        rollbackSteps.push({ type:'account', status:vr.ok?'voided':'account_void_failed',
+          error:vr.ok?undefined:vr.error });
+      } catch(e4) {
+        rollbackSteps.push({ type:'account', status:'account_void_failed', error:e4.message });
+      }
+    }
+    // 訂單標記處理失敗
+    if (orderRowNum > 0) {
+      try {
+        var os5 = getSheet(SHEET.ORDERS);
+        os5.getRange(orderRowNum, COL.ORDERS.STATUS+1).setValue('處理失敗');
+        os5.getRange(orderRowNum, COL.ORDERS.CANCEL_REASON+1).setValue(e.message);
+      } catch(e5) {}
+    }
+    return { ok:false, error:e.message, order_id:orderId,
+             completed_steps:completedSteps, rollback_steps:rollbackSteps };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function updateOrder(p) {
