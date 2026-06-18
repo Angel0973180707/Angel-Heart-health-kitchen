@@ -8,8 +8,11 @@
 <title>養清倉管</title>
 <link rel="manifest" href="manifest.json">
 <style>
-:root{--bg:#1B3A2A;--surface:#234D38;--surface2:#2D5C42;--border:#3D7055;--gold:#4A7C59;--green:#5BAA7A;--red:#E05757;--blue:#4A9EFF;--text:#FFFFFF;--dim:#8FB5A0;--muted:#5A8A6A;--font:'Segoe UI','PingFang TC','Microsoft JhengHei',sans-serif;--r:12px;--rs:8px}
+:root{--bg:#1B3A2A;--surface:#234D38;--surface2:#2D5C42;--border:#3D7055;--gold:#4A7C59;--green:#5BAA7A;--red:#E05757;--blue:#4A9EFF;--text:#FFFFFF;--dim:#8FB5A0;--muted:#5A8A6A;--bg-card:#234D38;--text-mid:#8FB5A0;--font:'Segoe UI','PingFang TC','Microsoft JhengHei',sans-serif;--r:12px;--rs:8px}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+select{background:var(--surface2);color:var(--text)}
+select option{background:#234D38;color:#FFFFFF}
+select:disabled{color:var(--dim);opacity:1}
 body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100dvh;overflow-x:hidden}
 #lock-screen{position:fixed;inset:0;background:var(--bg);z-index:999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 32px}
 .lock-logo{font-size:52px;margin-bottom:16px}
