@@ -270,6 +270,7 @@
     <li>活動模板欄位規格</li>
     <li>敏感個資處理原則</li>
     <li>版本記錄</li>
+    <li>可選金流模組規劃</li>
   </ol>
 </div>
 
@@ -475,8 +476,8 @@
       </tr>
       <tr>
         <td>🔗 金流串接</td>
-        <td>LINE Pay / 信用卡，目前預留接口</td>
-        <td><span class="tag tag-gray">待定</span></td>
+        <td>手動 / 半自動 / 第三方（綠界、藍新、LINE Pay）/ 活動報名金流，四級可選模組，規格見第 13 章</td>
+        <td><span class="tag tag-orange">規劃中（見第 13 章）</span></td>
       </tr>
       <tr>
         <td>🔗 智慧名片導流</td>
@@ -957,6 +958,201 @@
 
   <div class="highlight-box">
     <strong>文件維護說明：</strong>每次 ACS 有重大功能新增或修正時，請同步更新第三章（功能模組）與第十二章（版本記錄）。草案階段的修改不需封版，確認後由 Angel / X / C 三方簽核才可將文件狀態改為正式版。
+  </div>
+</div>
+
+<!-- ══ 第十三章 ══ -->
+<div class="chapter">
+  <div class="chapter-header">
+    <div class="chapter-num">13</div>
+    <h2>可選金流模組規劃</h2>
+  </div>
+
+  <div class="section">
+    <h3>模組定位</h3>
+    <ul>
+      <li>金流是客戶可選模組，不是所有客戶必開。預設情況下，所有客戶以「手動匯款 + 後台人工確認付款」為穩定基礎，不需串接第三方金流即可正常營運。</li>
+      <li>第一版仍以手動收款版為核心，第三方金流版列為可加購模組，按需開通。</li>
+      <li>第三方金流需另開獨立安全審查任務，不可與商品分類管理、運費設定、商品編輯等一般功能任務混入同一個 PR 或部署作業。</li>
+    </ul>
+    <div class="warn-box" style="margin-top:12px;">
+      ⚠ 金流模組安全審查為獨立作業。未完成審查前，不得將金流相關程式碼合併入正式分支或對客戶部署。
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>金流分級</h3>
+    <table>
+      <tr><th>等級</th><th>名稱</th><th>收款方式</th><th>後台確認</th><th>適合對象</th></tr>
+      <tr>
+        <td><span class="tag tag-green">Lv 0</span></td>
+        <td>手動收款版</td>
+        <td>ATM 轉帳 / 現金</td>
+        <td>管理員手動確認，填入末五碼或實收金額</td>
+        <td>剛起步、訂單量少、可接受人工對帳的小商家</td>
+      </tr>
+      <tr>
+        <td><span class="tag tag-blue">Lv 1</span></td>
+        <td>半自動對帳版</td>
+        <td>ATM 轉帳為主</td>
+        <td>顧客填末五碼 + 金額 + 時間 → 系統比對疑似付款 → 管理員一鍵確認</td>
+        <td>訂單量中等、希望減少手動核帳工時的商家</td>
+      </tr>
+      <tr>
+        <td><span class="tag tag-orange">Lv 2</span></td>
+        <td>第三方金流版</td>
+        <td>信用卡 / ATM / 超商代碼</td>
+        <td>付款成功後系統自動確認，無需管理員手動操作</td>
+        <td>有一定訂單量、需要自動化收款的商家；需向金流商申請特店帳號（綠界 ECPay / 藍新 NewebPay / LINE Pay）</td>
+      </tr>
+      <tr>
+        <td><span class="tag tag-red">Lv 3</span></td>
+        <td>活動報名金流版</td>
+        <td>同 Lv 2，但流程不同</td>
+        <td>報名審核通過後才產生付款連結；不同票種 / 住宿方案對應不同金額；付款成功後更新活動報名狀態並寫入活動帳本</td>
+        <td>需要「先審核後收款」的活動、旅遊、課程主辦單位</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="section">
+    <h3>後台設定預留欄位</h3>
+    <p>金流設定分為兩類：可寫入 Google Sheets 系統設定工作表的一般設定，以及只能存放於 GAS Script Properties 的機密設定。兩者不可混淆。</p>
+
+    <div class="field-group" style="margin-top:16px;">
+      <div class="field-group-title">一般設定 — 可寫入 Google Sheets 系統設定工作表（settings）</div>
+      <table>
+        <tr><th>欄位 Key</th><th>說明</th><th>適用等級</th></tr>
+        <tr><td>payment_provider</td><td>收款模式識別碼（manual / ecpay / newebpay / linepay）</td><td>全部</td></tr>
+        <tr><td>manual_bank_code</td><td>收款銀行代碼（如：822 中國信託）</td><td>Lv 0 / 1</td></tr>
+        <tr><td>manual_bank_account</td><td>收款帳號（完整帳號）</td><td>Lv 0 / 1</td></tr>
+        <tr><td>manual_bank_name</td><td>收款戶名</td><td>Lv 0 / 1</td></tr>
+        <tr><td>callback_url</td><td>付款結果通知 URL（指向 GAS doPost Web App URL）</td><td>Lv 2 / 3</td></tr>
+        <tr><td>payment_success_text</td><td>付款成功頁面顯示文字</td><td>全部</td></tr>
+        <tr><td>payment_failed_text</td><td>付款失敗頁面顯示文字</td><td>全部</td></tr>
+        <tr><td>auto_confirm_payment</td><td>是否自動確認付款（true = 金流 callback 後自動更新訂單狀態）</td><td>Lv 2 / 3</td></tr>
+        <tr><td>auto_write_account</td><td>確認付款後是否自動寫入帳本（true / false）</td><td>全部</td></tr>
+        <tr><td>auto_add_points</td><td>確認付款後是否自動加會員點數（true / false）</td><td>全部</td></tr>
+        <tr><td>allow_refund</td><td>是否開放退款功能（false 時退款需人工處理，退款流程須獨立審查）</td><td>全部</td></tr>
+      </table>
+    </div>
+
+    <div class="field-group" style="margin-top:16px;">
+      <div class="field-group-title">機密設定 — 只可存入 GAS Script Properties，禁止寫入任何其他地方</div>
+      <table>
+        <tr><th>欄位 Key</th><th>說明</th><th>適用等級</th></tr>
+        <tr><td>merchant_id</td><td>金流特店編號（由金流商提供）</td><td>Lv 2 / 3</td></tr>
+        <tr><td>hash_key</td><td>金流 API 簽章金鑰 HashKey</td><td>Lv 2 / 3</td></tr>
+        <tr><td>hash_iv</td><td>金流 API 簽章初始向量 HashIV</td><td>Lv 2 / 3</td></tr>
+        <tr><td>（其他金流 API secret 類欄位）</td><td>各金流商可能有不同命名，一律視為機密</td><td>Lv 2 / 3</td></tr>
+      </table>
+    </div>
+    <div class="warn-box" style="margin-top:10px;">
+      ⚠ 機密設定欄位（merchant_id、hash_key、hash_iv 及所有金流 API secret）<strong>不得出現在</strong>：Google Sheets 任何工作表、前端 HTML / JS 檔案、GitHub repo、本文件、任何聊天或通訊記錄。違反即視為安全事故。
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>共用付款核心流程</h3>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <strong>建立訂單 / 報名記錄</strong>
+          <span>顧客完成選購或報名填表 → GAS 寫入訂單 / 報名資料，依模組進入待確認或待付款狀態；商品訂購可先待確認，活動報名可先申請中或待付款。</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <strong>根據 payment_provider 判斷收款模式</strong>
+          <span>manual → 顯示匯款帳號與末五碼回填說明<br>ecpay / newebpay / linepay → 呼叫金流 API 產生付款連結 → 導向金流頁面</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <strong>顧客完成付款</strong>
+          <span>手動收款：顧客完成匯款後填末五碼回填表單<br>第三方金流：顧客在金流頁面完成刷卡 / 轉帳 / 超商繳款</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-content">
+          <strong>付款通知回傳（callback）</strong>
+          <span>第三方金流：金流商 POST 通知至 GAS doPost Web App URL<br>手動收款：管理員在後台手動觸發確認，或系統自動比對末五碼</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-content">
+          <strong>驗簽與冪等檢查</strong>
+          <span>第三方金流：GAS 驗證簽章（SHA256）確認通知來源合法，驗簽失敗一律拒絕<br>冪等檢查：若訂單 / 報名已是已付款狀態，跳過後續步驟，防止重複處理</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">6</div>
+        <div class="step-content">
+          <strong>更新訂單 / 報名狀態</strong>
+          <span>商品訂單 status → 已付款；活動報名 fee_status → 已繳費</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">7</div>
+        <div class="step-content">
+          <strong>寫入商品帳本 / 活動帳本</strong>
+          <span>依 auto_write_account 設定決定是否自動寫入；商品訂購與活動報名帳本仍需分流，不得混寫同一筆帳目</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">8</div>
+        <div class="step-content">
+          <strong>加會員點數</strong>
+          <span>依 auto_add_points 與 points_earn_rate 計算；運費不計入點數累積基數</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">9</div>
+        <div class="step-content">
+          <strong>回傳付款結果 + LINE 推播</strong>
+          <span>前端顯示 payment_success_text 或 payment_failed_text；推播 LINE 通知老闆（新訂單確認）與顧客（若有綁定 LINE）</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>安全規則</h3>
+    <div class="warn-box" style="margin-bottom:12px;">
+      ⚠ 以下六條規則為強制要求。任何金流等級的實作必須全部遵守，不得以「趕進度」或「先上線再說」為由省略任何一條。
+    </div>
+    <table>
+      <tr><th>規則</th><th>說明</th></tr>
+      <tr>
+        <td><strong>不信任前端金額</strong></td>
+        <td>付款金額必須由後端（GAS）依訂單主檔重新計算，前端傳入的金額僅供顯示用，不可直接用於帳務寫入或點數計算</td>
+      </tr>
+      <tr>
+        <td><strong>callback 必須驗簽</strong></td>
+        <td>收到第三方金流 callback 時，必須用 HashKey / HashIV 驗證簽章，驗簽失敗一律拒絕，並記錄異常日誌</td>
+      </tr>
+      <tr>
+        <td><strong>callback 必須防重複處理</strong></td>
+        <td>同一筆訂單收到多次 callback（金流商重試機制）時，必須做冪等判斷：確認已付款則跳過，不得重複寫入帳本或重複加點數</td>
+      </tr>
+      <tr>
+        <td><strong>金流密鑰不可寫死在前端</strong></td>
+        <td>HashKey、HashIV、merchant_id 等機密僅存於 GAS Script Properties，不可出現在任何前端 HTML / JS 檔案、GitHub repo 或本文件</td>
+      </tr>
+      <tr>
+        <td><strong>退款流程需獨立審查</strong></td>
+        <td>退款涉及金流商 API 逆向呼叫與帳務逆向操作，必須與正向付款流程分開審查，不得在同一任務中實作，需另立退款安全審查任務</td>
+      </tr>
+      <tr>
+        <td><strong>商品帳本與活動帳本仍需分流</strong></td>
+        <td>即使引入自動金流，商品訂購收入仍需寫入商品帳本，活動報名費仍需寫入活動帳本，不得合流或共用同一筆帳目記錄</td>
+      </tr>
+    </table>
   </div>
 </div>
 
