@@ -2857,6 +2857,7 @@ function adminSetupPhoneFormats() {
 // ================================================================
 
 function adminPreviewClearAllTestOrders() {
+  return { ok: false, error: '測試訂單清除工具已停用' };
   const orders = getRows(SHEET.ORDERS);
   const c = COL.ORDERS;
   const DEDUCTED = ['已確認','已出貨','已付款','已完成'];
@@ -2908,6 +2909,7 @@ function adminPreviewClearAllTestOrders() {
 }
 
 function adminClearAllTestOrders(p) {
+  return { ok: false, error: '測試訂單清除工具已停用' };
   if (p.confirm !== 'YES_CLEAR_ALL_TEST_ORDERS')
     return { ok: false, error: '請帶 confirm=YES_CLEAR_ALL_TEST_ORDERS 確認清除' };
 
