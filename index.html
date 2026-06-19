@@ -420,7 +420,17 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     </div>
     <input type="text" id="pos-cname" placeholder="客人姓名（選填）" style="margin-bottom:8px">
     <input type="text" id="pos-phone" inputmode="numeric" maxlength="10" placeholder="手機（選填，填了加點）" style="margin-bottom:8px">
-    <input type="text" id="pos-note" placeholder="備註（選填）" style="margin-bottom:14px">
+    <input type="text" id="pos-note" placeholder="備註（選填）" style="margin-bottom:8px">
+    <div style="margin-bottom:14px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:4px">交易類型</div>
+      <select id="pos-sale-type" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);font-size:14px">
+        <option value="normal">一般銷售</option>
+        <option value="self_use">自用取貨</option>
+        <option value="gift">贈送</option>
+        <option value="sample">試用品 / 試吃</option>
+        <option value="other">其他</option>
+      </select>
+    </div>
     <button class="btn btn-gold" id="pos-submit-btn" onclick="submitPosSale()" style="width:100%;padding:14px;font-size:16px">完成銷售</button>
   </div>
 </div>
@@ -1851,6 +1861,7 @@ function openPosModal() {
   document.getElementById('pos-cname').value = '';
   document.getElementById('pos-phone').value = '';
   document.getElementById('pos-note').value = '';
+  document.getElementById('pos-sale-type').value = 'normal';
   document.querySelectorAll('#pos-payment-chips .chip').forEach((c,i) => c.classList.toggle('active', i===0));
   renderPosCategorySelect(); renderPosCart(); updatePosSummary();
   document.getElementById('pos-modal-overlay').classList.add('open');
@@ -1984,7 +1995,8 @@ async function submitPosSale() {
     discount: discountVal,
     customer_name: document.getElementById('pos-cname').value.trim() || '',
     phone: document.getElementById('pos-phone').value.trim() || '',
-    note: document.getElementById('pos-note').value.trim() || ''
+    note: document.getElementById('pos-note').value.trim() || '',
+    sale_type: document.getElementById('pos-sale-type').value || 'normal'
   };
   try {
     const resp = await fetch(GAS_URL, {
@@ -2005,16 +2017,24 @@ async function submitPosSale() {
   finally { btn.disabled = false; btn.textContent = '完成銷售'; }
 }
 function showPosReceipt(result, cartSnap, p) {
+  const SALE_TYPE_LABEL = {
+    normal:'一般銷售', self_use:'自用取貨',
+    gift:'贈送', sample:'試用品/試吃', other:'其他'
+  };
+  const typeLabel = SALE_TYPE_LABEL[p.sale_type] || '一般銷售';
   const lines = [
     '===== 現場銷售收據 =====',
     '日期：' + new Date().toLocaleDateString('zh-TW'),
     '訂單：' + result.order_id,
+    '類型：' + typeLabel,
     '─────────────────────',
     ...cartSnap.map(it => it.name + ' ×' + it.qty + '  NT$' + (it.price * it.qty).toLocaleString()),
     '─────────────────────',
     '小計：NT$' + result.subtotal.toLocaleString(),
     ...(result.discount > 0 ? ['折扣：-NT$' + result.discount.toLocaleString()] : []),
-    '合計：NT$' + result.total.toLocaleString(),
+    ...(['normal','other'].includes(p.sale_type||'normal')
+      ? ['實收：NT$' + result.total.toLocaleString()]
+      : ['帳務金額：NT$0', '商品原價：NT$' + (result.original_total||result.subtotal).toLocaleString()]),
     '付款：' + (p.payment_method || '現金'),
     ...(result.points_added > 0 ? ['加點：+' + result.points_added + ' 點'] : []),
     '====================='

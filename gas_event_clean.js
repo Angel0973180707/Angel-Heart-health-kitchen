@@ -731,6 +731,17 @@ function addPosSale(p) {
   if (ALLOWED_PMT.indexOf(pmt) < 0)
     return { ok:false, error:'不支援的付款方式：' + pmt };
 
+  // ── 銷售類型 ──
+  var SALE_TYPE_MAP = {
+    normal:   { accType: '現場銷售',     income: true  },
+    other:    { accType: '其他現場收款', income: true  },
+    self_use: { accType: '自用取貨',     income: false },
+    gift:     { accType: '贈送',         income: false },
+    sample:   { accType: '試用品',       income: false }
+  };
+  var saleType = SALE_TYPE_MAP[p.sale_type] ? p.sale_type : 'normal';
+  var saleRule = SALE_TYPE_MAP[saleType];
+
   // ── 後端重算商品資料（不信任前端 price）──
   var backendPrices = {};   // product_id -> retail_price
   var backendSubtotal = 0;
@@ -761,6 +772,7 @@ function addPosSale(p) {
   if (isNaN(discount) || discount < 0) return { ok:false, error:'折扣必須 >= 0' };
   if (discount > backendSubtotal) return { ok:false, error:'折扣（'+discount+'）不可大於小計（'+backendSubtotal+'）' };
   var total = backendSubtotal - discount;
+  var bookedTotal = saleRule.income ? total : 0;  // 非營收類型（贈送/自用/試用）帳務金額為 0
 
   // ── orderId / accountId ──
   var orderId   = p.pos_id || ('POS'+Date.now()+'_'+Math.random().toString(36).slice(2,6).toUpperCase());
@@ -813,8 +825,8 @@ function addPosSale(p) {
     }));
     os.appendRow([
       orderId, p.customer_name||'現場客人', p.phone||'', '',
-      itemsForStorage, total, pmt,
-      '處理中', p.note||'', now(),
+      itemsForStorage, bookedTotal, pmt,
+      '處理中', '[sale_type:'+saleType+'] '+(p.note||''), now(),
       backendSubtotal, 0, '', '', '', ''
     ]);
     orderRowNum = os.getLastRow();
@@ -840,13 +852,13 @@ function addPosSale(p) {
     // Step 3: 帳本（帶固定 accountId，檢查回傳）
     var accResult = addAccount({
       id: accountId,
-      date: today(), type: '銷售收款',
+      date: today(), type: saleRule.accType,
       partner: p.customer_name||'現場客人',
-      items: '現場銷售 '+orderId,
-      income: total, expense: '',
+      items: saleRule.accType + ' ' + orderId,
+      income: saleRule.income ? total : 0, expense: '',
       payment: pmt,
       status: '已收款',
-      note: '[POS:'+orderId+']'+(discount>0?' 折扣NT$'+discount:'')
+      note: '[POS:'+orderId+']['+saleType+']'+(discount>0?' 折扣NT$'+discount:'')
     });
     if (!accResult.ok) throw new Error('帳本寫入失敗：'+(accResult.error||''));
     completedSteps.push('account_written');
@@ -859,7 +871,7 @@ function addPosSale(p) {
 
     // Step 5: 加點（訂單確認後執行；失敗只記錄 points_skipped，不 rollback 主交易）
     var pointsAdded = 0;
-    if (p.phone && total > 0) {
+    if (p.phone && total > 0 && saleType === 'normal') {
       var earnRate = Number(getSettingsMap_().points_earn_rate) || 100;
       pointsAdded = Math.floor(total / earnRate);
       if (pointsAdded > 0) {
@@ -881,7 +893,7 @@ function addPosSale(p) {
     }
 
     return { ok:true, order_id:orderId, subtotal:backendSubtotal, discount:discount,
-             total:total, points_added:pointsAdded, completed_steps:completedSteps };
+             total:bookedTotal, original_total:total, points_added:pointsAdded, completed_steps:completedSteps };
 
   } catch(e) {
     var rollbackSteps = [];
@@ -2325,10 +2337,16 @@ function getMonthlyReport(p) {
     orderCount++;
     revenue += Number(r[c.TOTAL]) || 0;
     try {
+      const note = String(r[c.NOTE] || '');
+      const isNonRevenuePos =
+        note.includes('[sale_type:self_use]') ||
+        note.includes('[sale_type:gift]') ||
+        note.includes('[sale_type:sample]');
       JSON.parse(r[c.ITEMS] || '[]').forEach(it => {
         if (!productSales[it.product_id]) productSales[it.product_id] = { name: it.name, qty: 0, revenue: 0 };
-        productSales[it.product_id].qty     += Number(it.qty)   || 0;
-        productSales[it.product_id].revenue += (Number(it.price)||0) * (Number(it.qty)||0);
+        productSales[it.product_id].qty += Number(it.qty) || 0;
+        const itemRevenue = isNonRevenuePos ? 0 : (Number(it.price)||0) * (Number(it.qty)||0);
+        productSales[it.product_id].revenue += itemRevenue;
       });
     } catch(e) {}
   });
