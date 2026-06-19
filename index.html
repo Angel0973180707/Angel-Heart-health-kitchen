@@ -451,6 +451,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   </div>
   <div class="search-wrap"><span class="search-icon">🔍</span><input type="text" id="prod-search" placeholder="搜尋商品名稱或分類..." oninput="renderProducts()"></div>
   <div style="margin-bottom:10px">
+    <select id="prod-cat-filter" onchange="setProdCategoryFilter(this.value)" style="width:100%;padding:9px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:14px">
+      <option value="all">全部分類</option>
+    </select>
+  </div>
+  <div style="margin-bottom:10px">
     <button class="btn btn-ghost" style="width:auto;padding:8px 14px;font-size:13px" onclick="toggleCatManager()">📂 管理分類</button>
   </div>
   <div id="cat-manager" style="display:none;background:var(--surface2);border-radius:10px;padding:12px;margin-bottom:12px">
@@ -503,7 +508,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       </select>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
-      <button class="btn btn-gold" id="prod-save-btn" onclick="saveProdModal()">儲存</button>
+      <button type="button" class="btn btn-gold" id="prod-save-btn" onclick="saveProdModal()">儲存</button>
     </div>
   </div>
 </div>
@@ -1616,6 +1621,7 @@ async function runInstallTriggers(){
 
 // ── P1-A 商品管理 ──
 let prodFilter = 'all';
+let prodCategoryFilter = 'all';
 let editingProduct = null;
 let productSaving = false;
 
@@ -1626,18 +1632,41 @@ function setProdFilter(f, el) {
   renderProducts();
 }
 
+function setProdCategoryFilter(val) {
+  prodCategoryFilter = val;
+  renderProducts();
+}
+
+function resetProductSavingState() {
+  productSaving = false;
+  const btn = document.getElementById('prod-save-btn');
+  if (btn) { btn.disabled = false; btn.textContent = '儲存'; }
+}
+
 function renderProducts() {
   const q = (document.getElementById('prod-search')?.value || '').toLowerCase();
   let list = [...(cache.products || [])];
+
+  const cats = getCategoryPresets();
+  if (prodCategoryFilter !== 'all' && !cats.includes(prodCategoryFilter)) {
+    prodCategoryFilter = 'all';
+  }
+
   if (prodFilter !== 'all') list = list.filter(p => p.status === prodFilter);
+  if (prodCategoryFilter !== 'all') list = list.filter(p => p.category === prodCategoryFilter);
   if (q) list = list.filter(p =>
     (p.name || '').toLowerCase().includes(q) ||
     (p.category || '').toLowerCase().includes(q)
   );
 
-  const cats = getCategoryPresets();
   const dl = document.getElementById('dl-prod-cats');
   if (dl) dl.innerHTML = cats.map(c => `<option value="${c}">`).join('');
+  const catFilter = document.getElementById('prod-cat-filter');
+  if (catFilter) {
+    catFilter.innerHTML = '<option value="all">全部分類</option>'
+      + cats.map(c => `<option value="${c}">${c}</option>`).join('');
+    catFilter.value = prodCategoryFilter;
+  }
   renderSettings();
 
   const el = document.getElementById('prod-list');
@@ -1671,6 +1700,7 @@ function renderProducts() {
 }
 
 function openAddProductModal() {
+  resetProductSavingState();
   editingProduct = null;
   document.getElementById('prod-modal-title').textContent = '新增商品';
   document.getElementById('prod-id-row').style.display = 'none';
@@ -1685,6 +1715,7 @@ function openAddProductModal() {
 function openEditProductModal(pid) {
   const p = (cache.products || []).find(x => x.product_id === pid);
   if (!p) return;
+  resetProductSavingState();
   editingProduct = pid;
   document.getElementById('prod-modal-title').textContent = '編輯商品';
   document.getElementById('prod-id-row').style.display = '';
@@ -1706,6 +1737,7 @@ function closeProdModal(e) {
   if (e && e.target !== document.getElementById('prod-modal-overlay')) return;
   document.getElementById('prod-modal-overlay').classList.remove('open');
   editingProduct = null;
+  resetProductSavingState();
 }
 
 async function saveProdModal() {
@@ -1735,9 +1767,11 @@ async function saveProdModal() {
   } else {
     params.action = 'addProduct';
   }
+  let success = false;
   try {
     const r = await apiPost(params);
     if (r.ok) {
+      success = true;
       showToast(editingProduct ? '✅ 商品已更新' : '✅ 商品已新增', 'success');
       document.getElementById('prod-modal-overlay').classList.remove('open');
       editingProduct = null;
@@ -1747,8 +1781,7 @@ async function saveProdModal() {
     }
   } catch(e) { showToast('⚠️ 網路錯誤', 'error'); }
   finally {
-    productSaving = false;
-    if (btn) { btn.disabled = false; btn.textContent = '儲存'; }
+    if (!success) resetProductSavingState();
   }
 }
 
