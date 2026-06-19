@@ -425,6 +425,26 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     </div>
   </div>
 
+  <div class="section-title" style="margin-top:18px">Non-Revenue Shipments</div>
+  <div class="stats-grid" id="r-nonrevenue">
+    <div class="stat-card">
+      <div class="stat-label">Self use</div>
+      <div class="stat-value" id="r-selfuse">--</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Gift</div>
+      <div class="stat-value" id="r-gift">--</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Sample</div>
+      <div class="stat-value" id="r-sample">--</div>
+    </div>
+    <div class="stat-card wide">
+      <div class="stat-label">Total</div>
+      <div class="stat-value" id="r-nonrev-total">--</div>
+    </div>
+  </div>
+
   <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
     <button class="btn btn-ghost" onclick="triggerLowStockNotify()">Low stock notify</button>
     <button class="btn btn-ghost" onclick="runInstallTriggers()">Install triggers</button>
@@ -1948,6 +1968,7 @@ async function loadReport() {
     document.getElementById('r-cancelled').textContent = d.cancel_count || 0;
 
     renderReportRanking(d.top_products || []);
+    renderNonRevenueStats(month);
 
     showToast('Report loaded', 'success');
   } catch(e) {
@@ -1982,6 +2003,39 @@ function renderReportRanking(products) {
         '<div style="font-size:11px;color:var(--dim)">NT$ ' + Number(x.revenue || 0).toLocaleString() + '</div></div>' +
       '</div>';
     }).join('') + '</div>';
+}
+
+function renderNonRevenueStats(month) {
+  var counts = { self_use: 0, gift: 0, sample: 0 };
+
+  (cache.orders || []).forEach(function(o) {
+    if (!o || !o.created_at || String(o.created_at).slice(0, 7) !== month) return;
+
+    var status = String(o.status || '');
+    if (status === '已取消' || status === 'cancelled' || status === '已作廢') return;
+
+    var note = String(o.note || '');
+    var type = null;
+
+    if (note.indexOf('[sale_type:self_use]') >= 0) type = 'self_use';
+    else if (note.indexOf('[sale_type:gift]') >= 0) type = 'gift';
+    else if (note.indexOf('[sale_type:sample]') >= 0) type = 'sample';
+
+    if (!type) return;
+
+    try {
+      JSON.parse(o.items || '[]').forEach(function(it) {
+        counts[type] += Number(it.qty || 0);
+      });
+    } catch(e) {}
+  });
+
+  var total = counts.self_use + counts.gift + counts.sample;
+
+  document.getElementById('r-selfuse').textContent     = counts.self_use;
+  document.getElementById('r-gift').textContent        = counts.gift;
+  document.getElementById('r-sample').textContent      = counts.sample;
+  document.getElementById('r-nonrev-total').textContent = total;
 }
 
 async function triggerLowStockNotify(){
