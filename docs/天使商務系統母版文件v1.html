@@ -272,6 +272,7 @@
     <li>版本記錄</li>
     <li>可選金流模組規劃</li>
     <li>商品型態與客製化商品規劃</li>
+    <li>活動報名與預約服務分項規劃</li>
   </ol>
 </div>
 
@@ -1386,6 +1387,265 @@
       <tr>
         <td><strong>原料庫存需另開模組</strong></td>
         <td>若未來 menu_select 選項需消耗原料庫存（如：選了「烤魚」扣掉魚片庫存），需獨立建立「庫存配方模組」，不可將原料邏輯混入現有商品庫存欄位，列為 P4 獨立審查。</td>
+      </tr>
+    </table>
+  </div>
+
+</div>
+
+<!-- ══ 第十五章 ══ -->
+<div class="chapter">
+  <div class="chapter-header">
+    <div class="chapter-num">15</div>
+    <h2>活動報名與預約服務分項規劃</h2>
+  </div>
+
+  <div class="warn-box" style="margin-bottom:20px;">
+    ⚠ 本章為規劃草案。P1 現有 event 固定日期活動維持穩定；P2 / P3 / P4 尚未實作，不列入 v1.0 草案封版範圍。
+  </div>
+
+  <!-- 1. activity_type -->
+  <div class="section">
+    <h3>1. activity_type 設計</h3>
+    <p>活動 / 服務主檔新增 <code>activity_type</code> 欄位，以字串識別報名或預約的流程型態。</p>
+    <table>
+      <tr><th>值</th><th>說明</th></tr>
+      <tr><td><code>event</code></td><td>固定日期活動，有名額，可先審核再通知繳費</td></tr>
+      <tr><td><code>appointment_service</code></td><td>預約服務，客人選時段，一對一或小班制</td></tr>
+      <tr><td><code>appointment_event</code></td><td>預約制活動 / 客製活動，客人提需求，後台報價</td></tr>
+    </table>
+    <div class="highlight-box" style="margin-top:14px;">
+      <strong>activity_type 與 status 的分工：</strong><br>
+      <code>status</code>（開放報名 / 名額已滿 / 下架 / 停用）負責活動是否可報名或預約。<br>
+      <code>activity_type</code> 負責流程型態，決定前台顯示邏輯、後台管理方式與帳務規則。<br>
+      兩者正交，不可混用。例如：一個「預約服務」可以同時設為「名額已滿」（status=名額已滿，activity_type=appointment_service），代表近期時段已滿，但服務本身仍存在。
+    </div>
+  </div>
+
+  <!-- 2. event -->
+  <div class="section">
+    <h3>2. event：固定日期活動</h3>
+    <p>適用情境：課程、工作坊、營隊、旅療活動、講座、共修活動。</p>
+    <table>
+      <tr><th>特性</th><th>說明</th></tr>
+      <tr><td>固定活動日期</td><td>活動在特定日期 / 時段舉行，不由客人自選</td></tr>
+      <tr><td>名額上限</td><td>住宿 / 不住宿方案各有獨立名額控管</td></tr>
+      <tr><td>報名審核</td><td>可設定先審核再通知繳費（requires_review = true）</td></tr>
+      <tr><td>帳務分流</td><td>報名費寫入活動帳本，與商品帳本分開</td></tr>
+    </table>
+    <div class="highlight-box" style="margin-top:10px;">
+      此型態為現有系統已實作的核心模組（活動報名 v26），P1 維持穩定，不做修改。
+    </div>
+  </div>
+
+  <!-- 3. appointment_service -->
+  <div class="section">
+    <h3>3. appointment_service：預約服務</h3>
+    <p>適用情境：個案諮詢、健康諮詢、療癒服務、教練課、私人教學、調理服務。</p>
+
+    <div class="field-group" style="margin-top:12px;">
+      <div class="field-group-title">appointment_service 專屬欄位</div>
+      <table>
+        <tr><th>欄位</th><th>說明</th></tr>
+        <tr><td><code>service_duration_minutes</code></td><td>每次服務時長（分鐘），如：60 / 90 / 120</td></tr>
+        <tr><td><code>available_days</code></td><td>可預約星期幾（如：週二、週四、週六），逗號分隔</td></tr>
+        <tr><td><code>available_time_slots</code></td><td>可預約時段列表（如：10:00,13:00,15:00），逗號分隔</td></tr>
+        <tr><td><code>buffer_minutes</code></td><td>每場服務前後預留緩衝時間（分鐘），防止時段重疊</td></tr>
+        <tr><td><code>service_location_type</code></td><td><code>online</code>：線上；<code>onsite</code>：到府 / 工作室；<code>both</code>：兩者皆可</td></tr>
+        <tr><td><code>service_location_note</code></td><td>地點說明（如：台北市大安區，或線上 Google Meet）</td></tr>
+        <tr><td><code>price_type</code></td><td><code>fixed</code>：固定價格；<code>quote_required</code>：需報價</td></tr>
+        <tr><td><code>requires_admin_confirm</code></td><td>true = 後台需確認預約時段後才成立</td></tr>
+        <tr><td><code>cancellation_policy</code></td><td>取消政策說明文字，前台顯示（如：需提前 48 小時取消）</td></tr>
+      </table>
+    </div>
+
+    <div class="section" style="margin-top:16px;">
+      <h3 style="font-size:0.95rem;">前台預約流程</h3>
+      <div class="highlight-box">
+        客人選服務頁面 → 查看可用時段 → 選日期 / 時段 → 填報名資料 → 送出預約申請<br>
+        → 後台確認時段可用 → LINE 通知客人確認 + 付款資訊<br>
+        → 客人付款 → 後台確認收款 → 預約成立，寫入活動帳本
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. appointment_event -->
+  <div class="section">
+    <h3>4. appointment_event：預約制活動 / 客製活動</h3>
+    <p>適用情境：私廚體驗、小團體活動、企業包場、家庭日、客製旅療、客製課程。</p>
+
+    <div class="field-group" style="margin-top:12px;">
+      <div class="field-group-title">appointment_event 專屬欄位</div>
+      <table>
+        <tr><th>欄位</th><th>說明</th></tr>
+        <tr><td><code>min_people</code></td><td>最低成行人數</td></tr>
+        <tr><td><code>max_people</code></td><td>最高接受人數</td></tr>
+        <tr><td><code>base_price</code></td><td>基本費用（不含人頭費，如場地費）</td></tr>
+        <tr><td><code>price_per_person</code></td><td>每人費用</td></tr>
+        <tr><td><code>available_dates</code></td><td>可接受的日期或日期範圍（逗號分隔或規則字串）</td></tr>
+        <tr><td><code>quote_required</code></td><td>true = 需後台報價，不直接顯示金額</td></tr>
+        <tr><td><code>custom_request_note</code></td><td>客製需求說明提示（如：請說明人數、特殊需求、希望日期）</td></tr>
+        <tr><td><code>requires_admin_confirm</code></td><td>true = 後台確認可接案後才成立</td></tr>
+        <tr><td><code>deposit_required</code></td><td>true = 需繳訂金</td></tr>
+        <tr><td><code>deposit_amount_or_rate</code></td><td>訂金金額（固定數字）或比例（如 0.3 = 三成）</td></tr>
+      </table>
+    </div>
+
+    <div class="section" style="margin-top:16px;">
+      <h3 style="font-size:0.95rem;">前台洽詢流程</h3>
+      <div class="highlight-box">
+        客人選活動頁面 → 填日期意向、人數、特殊需求 → 送出洽詢申請（非正式報名）<br>
+        → 後台審核可接案 / 報價 → LINE 通知客人報價金額與訂金資訊<br>
+        → 客人確認接受 → 繳訂金 → 後台確認訂金收訖 → 正式成立預約<br>
+        → 活動結束後繳尾款 → 後台確認尾款 → 寫入活動帳本
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. appointment_db -->
+  <div class="section">
+    <h3>5. appointment_db 預約資料表（P3 / P4 新增）</h3>
+    <p>未來新增 Google Sheets 工作表 <code>appointment_db</code>，記錄預約 / 洽詢全生命週期，與現有 <code>registration_db</code>（固定活動報名表）分開管理。</p>
+    <table>
+      <tr><th>欄位</th><th>說明</th></tr>
+      <tr><td><code>appointment_id</code></td><td>預約編號</td></tr>
+      <tr><td><code>activity_id</code></td><td>對應服務 / 活動 ID</td></tr>
+      <tr><td><code>activity_type</code></td><td>appointment_service / appointment_event</td></tr>
+      <tr><td><code>customer_name</code></td><td>客人姓名</td></tr>
+      <tr><td><code>phone</code></td><td>聯絡電話</td></tr>
+      <tr><td><code>line_id</code></td><td>LINE ID（選填）</td></tr>
+      <tr><td><code>preferred_date</code></td><td>希望日期</td></tr>
+      <tr><td><code>preferred_time</code></td><td>希望時段（appointment_service 用）</td></tr>
+      <tr><td><code>people_count</code></td><td>人數（appointment_event 用）</td></tr>
+      <tr><td><code>request_note</code></td><td>客製需求說明</td></tr>
+      <tr><td><code>quoted_price</code></td><td>後台填入的報價金額</td></tr>
+      <tr><td><code>deposit_amount</code></td><td>應繳訂金金額</td></tr>
+      <tr><td><code>status</code></td><td>待確認 / 已確認 / 已拒絕 / 待報價 / 已報價 / 已取消</td></tr>
+      <tr><td><code>payment_status</code></td><td>未付款 / 訂金已付 / 全額已付</td></tr>
+      <tr><td><code>admin_note</code></td><td>後台備註</td></tr>
+      <tr><td><code>created_at</code></td><td>送出時間</td></tr>
+      <tr><td><code>confirmed_at</code></td><td>後台確認時間</td></tr>
+      <tr><td><code>cancelled_at</code></td><td>取消時間</td></tr>
+    </table>
+  </div>
+
+  <!-- 6. 前台顯示 -->
+  <div class="section">
+    <h3>6. 前台顯示邏輯</h3>
+    <table>
+      <tr><th>activity_type</th><th>CTA 顯示</th><th>說明</th></tr>
+      <tr>
+        <td><code>event</code></td>
+        <td>「立即報名」</td>
+        <td>顯示活動日期、名額、費用；進入現有報名流程</td>
+      </tr>
+      <tr>
+        <td><code>appointment_service</code></td>
+        <td>「預約服務」</td>
+        <td>顯示可用時段選擇器；選完填資料；price_type=quote_required 時改顯示「洽詢預約」</td>
+      </tr>
+      <tr>
+        <td><code>appointment_event</code><br>quote_required=false</td>
+        <td>「預約活動」</td>
+        <td>填人數 / 日期 / 需求，系統顯示金額估算（base_price + price_per_person × 人數）</td>
+      </tr>
+      <tr>
+        <td><code>appointment_event</code><br>quote_required=true</td>
+        <td>「洽詢報價」</td>
+        <td>填人數 / 日期 / 需求送出洽詢，不直接顯示金額，等後台報價後通知</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- 7. 後台管理 -->
+  <div class="section">
+    <h3>7. 後台管理規劃</h3>
+    <table>
+      <tr><th>activity_type</th><th>後台管理重點</th></tr>
+      <tr>
+        <td><code>event</code></td>
+        <td>報名名單、審核通過 / 未錄取、確認付款、退款取消、名額統計（現有功能）</td>
+      </tr>
+      <tr>
+        <td><code>appointment_service</code></td>
+        <td>依日期 / 時段顯示預約列表；確認 / 拒絕預約；標記付款；時段衝突提示</td>
+      </tr>
+      <tr>
+        <td><code>appointment_event</code></td>
+        <td>洽詢列表；填報價金額；確認接案 / 拒絕；標記訂金已付 / 尾款已付；人工修改報價</td>
+      </tr>
+    </table>
+    <p style="margin-top:10px;font-size:0.88rem;color:#444;">後台需支援依 <code>activity_type</code> 篩選，避免固定活動、預約服務、客製活動三者混在同一列表難以操作。</p>
+  </div>
+
+  <!-- 8. 帳務規則 -->
+  <div class="section">
+    <h3>8. 帳務規則</h3>
+    <table>
+      <tr><th>情況</th><th>入帳規則</th></tr>
+      <tr><td>event 報名費</td><td>確認付款後寫入活動帳本（現有流程）</td></tr>
+      <tr><td>appointment_service 服務費</td><td>確認付款後寫入活動帳本；未來視需求可獨立「服務帳本」</td></tr>
+      <tr><td>appointment_event 訂金</td><td>確認訂金收訖後寫入帳本，備註「訂金 — 待尾款」</td></tr>
+      <tr><td>appointment_event 尾款</td><td>確認尾款收訖後寫入帳本，備註「尾款結清」；訂金與尾款需分兩筆記錄</td></tr>
+      <tr><td>quote_required=true 尚未報價</td><td>不得入帳；進入帳本的前提是報價已確認且款項已收訖</td></tr>
+    </table>
+  </div>
+
+  <!-- 9. 分期建議 -->
+  <div class="section">
+    <h3>9. 分期建議</h3>
+    <table>
+      <tr><th>階段</th><th>範圍</th></tr>
+      <tr>
+        <td><span class="tag tag-green">P1</span></td>
+        <td>現有 event 固定日期活動維持穩定（報名 v26 已封版）。activity_type 欄位預留於活動主檔 schema，不影響現有流程。</td>
+      </tr>
+      <tr>
+        <td><span class="tag tag-blue">P2</span></td>
+        <td>activity_type 欄位正式寫入後台活動編輯 UI。現有活動一律標記為 event。後台活動列表加 activity_type 篩選標籤。</td>
+      </tr>
+      <tr>
+        <td><span class="tag tag-orange">P3</span></td>
+        <td>appointment_service MVP：前台時段選擇 UI、後台預約確認、LINE 通知客人、付款流程。新增 appointment_db。</td>
+      </tr>
+      <tr>
+        <td><span class="tag tag-gray">P4</span></td>
+        <td>appointment_event：洽詢送出、後台報價流程、訂金 / 尾款分段收款、LINE 通知、完整帳務記錄。</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- 10. 安全與風險 -->
+  <div class="section">
+    <h3>10. 安全規則與風險</h3>
+    <div class="warn-box" style="margin-bottom:12px;">
+      ⚠ 以下規則為強制要求，任何 activity_type 擴充實作必須遵守。
+    </div>
+    <table>
+      <tr><th>規則 / 風險</th><th>說明</th></tr>
+      <tr>
+        <td><strong>時段重複預約</strong></td>
+        <td>appointment_service 同一時段若同時有多人預約，需後端加鎖或先到先得機制。前台需即時更新可用時段，不可依賴快取舊資料。buffer_minutes 需納入衝突判斷。</td>
+      </tr>
+      <tr>
+        <td><strong>取消 / 改期 / 退款</strong></td>
+        <td>每種 activity_type 的取消政策不同（講座 vs 私廚 vs 諮詢），cancellation_policy 需前台顯示，且退款需走退款審查流程，不可自動退款。</td>
+      </tr>
+      <tr>
+        <td><strong>訂金與尾款帳務</strong></td>
+        <td>訂金與尾款必須分兩筆記錄入帳，不可合併為單筆。若退訂金需另建退款帳目，不可直接刪除訂金記錄。</td>
+      </tr>
+      <tr>
+        <td><strong>報價金額不可由前端決定</strong></td>
+        <td>quote_required=true 的服務 / 活動，最終金額由後台人工輸入，前端任何試算僅為估算參考，不可作為實際入帳依據。</td>
+      </tr>
+      <tr>
+        <td><strong>LINE 通知內容不可過長</strong></td>
+        <td>預約確認 LINE 通知需控制字數（建議 500 字以內），詳細預約資訊改以後台連結提供，不全文塞入 LINE 訊息。</td>
+      </tr>
+      <tr>
+        <td><strong>個資與健康諮詢內容最小化</strong></td>
+        <td>預約服務（如健康諮詢、療癒服務）可能涉及健康狀況描述，屬敏感個資，收集欄位需最小化，後台顯示需遮罩，LINE 通知不得包含完整健康資訊（見第 11 章個資處理原則）。</td>
       </tr>
     </table>
   </div>
