@@ -232,11 +232,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 <div class="page" id="page-in">
   <div class="form-card">
     <div class="form-title"><span class="dot dot-green"></span>入庫登記</div>
-    <div class="field"><label>商品名稱 *</label><input type="text" id="in-name" placeholder="輸入或選擇商品" list="dl-products"><datalist id="dl-products"></datalist></div>
-    <div class="field-row">
-      <div class="field"><label>商品ID</label><input type="text" id="in-pid" placeholder="P001（可選）"></div>
-      <div class="field"><label>數量 *</label><input type="number" id="in-qty" placeholder="0" min="1"></div>
-    </div>
+    <input type="hidden" id="in-name"><input type="hidden" id="in-pid">
+    <div class="field"><label>分類</label><select id="in-cat" onchange="onCatChange('in')"><option value="">全部分類</option></select></div>
+    <div class="field"><label>商品 *</label><select id="in-product" onchange="onProductChange('in')"><option value="">請選擇商品</option></select></div>
+    <div id="in-product-info" style="display:none;font-size:13px;color:var(--text-sec);padding:4px 0 8px">目前庫存：<b id="in-cur-qty">-</b>｜成本：<span id="in-cur-cost">-</span>｜售價：<span id="in-cur-price-disp">-</span></div>
+    <div class="field"><label>數量 *</label><input type="number" id="in-qty" placeholder="0" min="1"></div>
     <div class="field-row">
       <div class="field"><label>進價（NT$）</label><input type="number" id="in-price" placeholder="0"></div>
       <div class="field"><label>低庫存警示值</label><input type="number" id="in-threshold" placeholder="10"></div>
@@ -260,11 +260,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 <div class="page" id="page-out">
   <div class="form-card">
     <div class="form-title"><span class="dot dot-red"></span>出庫登記</div>
-    <div class="field"><label>商品名稱 *</label><input type="text" id="out-name" placeholder="輸入或選擇商品" list="dl-products-out"><datalist id="dl-products-out"></datalist></div>
-    <div class="field-row">
-      <div class="field"><label>商品ID</label><input type="text" id="out-pid" placeholder="P001（可選）"></div>
-      <div class="field"><label>數量 *</label><input type="number" id="out-qty" placeholder="0" min="1"></div>
-    </div>
+    <input type="hidden" id="out-name"><input type="hidden" id="out-pid">
+    <div class="field"><label>分類</label><select id="out-cat" onchange="onCatChange('out')"><option value="">全部分類</option></select></div>
+    <div class="field"><label>商品 *</label><select id="out-product" onchange="onProductChange('out')"><option value="">請選擇商品</option></select></div>
+    <div id="out-product-info" style="display:none;font-size:13px;color:var(--text-sec);padding:4px 0 8px">目前庫存：<b id="out-cur-qty">-</b>｜售價：<span id="out-cur-price-disp">-</span></div>
+    <div class="field"><label>數量 *</label><input type="number" id="out-qty" placeholder="0" min="1"></div>
     <div class="field"><label>零售價（NT$）</label><input type="number" id="out-price" placeholder="0"></div>
     <div class="field"><label>客戶</label><input type="text" id="out-customer" placeholder="客戶名稱"></div>
     <div class="field"><label>備註</label><textarea id="out-note" placeholder="訂單號、備注..."></textarea></div>
@@ -655,7 +655,7 @@ async function syncAll(){
     try{const reg=await api({action:'getRegistrations',session_token:SESSION_TOKEN});if(reg.ok)cache.registrations=reg.data;}catch(e){}
     try{const mem=await api({action:'getMember',session_token:SESSION_TOKEN,all:'true'});if(mem.ok)cache.members=mem.data||[];}catch(e){}
     localStorage.setItem('yc_cache',JSON.stringify(cache));
-    refreshDatalist();renderAll();
+    refreshProductDropdowns();renderAll();
     showToast('✅ 同步完成','success');
   }catch(e){showToast('⚠️ 同步失敗，使用本機資料','error');console.error(e);}
   btn.textContent='⟳ 同步';btn.classList.remove('syncing');
@@ -667,7 +667,7 @@ function init(){
   document.getElementById('topbar-date').textContent=new Date().toLocaleDateString('zh-TW',{weekday:'short',month:'long',day:'numeric'});
   const saved=localStorage.getItem('yc_cache');
   if(saved){try{cache=JSON.parse(saved);}catch(e){}}
-  refreshDatalist();renderAll();syncAll();
+  refreshProductDropdowns();renderAll();syncAll();
 }
 
 function switchTab(tab){
@@ -686,19 +686,55 @@ function handleImg(type){
 }
 function removeImg(type,e){if(e)e.stopPropagation();imgData[type]=null;document.getElementById(type+'-img-file').value='';document.getElementById(type+'-img-ph').style.display='block';document.getElementById(type+'-img-prev').style.display='none';}
 
-function refreshDatalist(){
-  const opts=cache.products.map(p=>`<option value="${p.name}">`).join('');
-  document.getElementById('dl-products').innerHTML=opts;
-  document.getElementById('dl-products-out').innerHTML=opts;
+function refreshProductDropdowns(){
+  const prodMap={};(cache.products||[]).forEach(p=>prodMap[p.product_id]=p);
+  const items=(cache.inventory||[]).map(i=>{const p=prodMap[i.product_id]||{};return{product_id:i.product_id,name:i.name||p.name||i.product_id,category:p.category||'',status:p.status||'上架',cost_price:p.cost_price||'',retail_price:p.retail_price||'',qty:Number(i.qty)||0};}).filter(i=>i.product_id);
+  const cats=[...new Set(items.map(i=>i.category?i.category:'未分類'))].sort();
+  ['in','out'].forEach(type=>{
+    const sel=document.getElementById(type+'-cat');if(!sel)return;
+    const cur=sel.value;
+    sel.innerHTML='<option value="">全部分類</option>'+cats.map(c=>`<option value="${c}"${c===cur?' selected':''}>${c}</option>`).join('');
+    onCatChange(type);
+  });
 }
-function getPidByName(name){const p=cache.products.find(x=>x.name===name);return p?p.product_id:null;}
+function onCatChange(type){
+  const cat=document.getElementById(type+'-cat').value;
+  const prodMap={};(cache.products||[]).forEach(p=>prodMap[p.product_id]=p);
+  let list=(cache.inventory||[]).map(i=>{const p=prodMap[i.product_id]||{};return{product_id:i.product_id,name:i.name||p.name||i.product_id,category:p.category||'未分類',status:p.status||'上架',qty:Number(i.qty)||0};}).filter(i=>i.product_id&&i.status==='上架');
+  if(cat)list=list.filter(i=>i.category===cat);
+  if(type==='out')list=list.filter(i=>i.qty>0);
+  const sel=document.getElementById(type+'-product');
+  sel.innerHTML='<option value="">請選擇商品</option>'+list.map(i=>`<option value="${i.product_id}">${i.name} · 庫存 ${i.qty}</option>`).join('');
+  const info=document.getElementById(type+'-product-info');if(info)info.style.display='none';
+}
+function onProductChange(type){
+  const pid=document.getElementById(type+'-product').value;
+  const info=document.getElementById(type+'-product-info');
+  if(!pid){if(info)info.style.display='none';document.getElementById(type+'-name').value='';document.getElementById(type+'-pid').value='';return;}
+  const prodMap={};(cache.products||[]).forEach(p=>prodMap[p.product_id]=p);
+  const inv=(cache.inventory||[]).find(i=>i.product_id===pid);
+  const prod=prodMap[pid]||{};
+  const name=inv?inv.name:(prod.name||pid);
+  document.getElementById(type+'-name').value=name;
+  document.getElementById(type+'-pid').value=pid;
+  document.getElementById(type+'-cur-qty').textContent=inv?inv.qty:'-';
+  if(type==='in'){
+    document.getElementById('in-cur-cost').textContent=prod.cost_price?'NT$'+prod.cost_price:'-';
+    document.getElementById('in-cur-price-disp').textContent=prod.retail_price?'NT$'+prod.retail_price:'-';
+    if(prod.cost_price)document.getElementById('in-price').value=prod.cost_price;
+  }else{
+    document.getElementById('out-cur-price-disp').textContent=prod.retail_price?'NT$'+prod.retail_price:'-';
+    if(prod.retail_price)document.getElementById('out-price').value=prod.retail_price;
+  }
+  if(info)info.style.display='block';
+}
 
 async function submitIn(){
-  const name=document.getElementById('in-name').value.trim();
+  const pid=document.getElementById('in-product').value;
+  const name=document.getElementById('in-name').value||pid;
   const qty=parseInt(document.getElementById('in-qty').value);
-  if(!name||!qty||qty<1){showToast('請填寫商品名稱與數量','error');return;}
-  const pid=document.getElementById('in-pid').value.trim()||getPidByName(name);
-  if(!pid){showToast('找不到商品ID，請確認名稱或手動填入','error');return;}
+  if(!pid){showToast('請選擇商品','error');return;}
+  if(!qty||qty<1){showToast('請填寫數量','error');return;}
   showToast('⟳ 上傳圖片中...','info');
   let imgUrls=[];
   try{imgUrls=await uploadInImages(pid);}catch(e){}
@@ -717,11 +753,14 @@ async function submitIn(){
 }
 
 async function submitOut(){
-  const name=document.getElementById('out-name').value.trim();
+  const pid=document.getElementById('out-product').value;
+  const name=document.getElementById('out-name').value||pid;
   const qty=parseInt(document.getElementById('out-qty').value);
-  if(!name||!qty||qty<1){showToast('請填寫商品名稱與數量','error');return;}
-  const pid=document.getElementById('out-pid').value.trim()||getPidByName(name);
-  if(!pid){showToast('找不到商品ID，請確認名稱或手動填入','error');return;}
+  if(!pid){showToast('請選擇商品','error');return;}
+  if(!qty||qty<1){showToast('請填寫數量','error');return;}
+  const _invItem=(cache.inventory||[]).find(i=>i.product_id===pid);
+  const _stock=_invItem?Number(_invItem.qty):0;
+  if(qty>_stock){showToast(`❌ 庫存不足（現有 ${_stock} 件）`,'error');return;}
   showToast('⟳ 送出中...','info');
   try{
     const r=await apiPost({action:'stockOut',session_token:SESSION_TOKEN,product_id:pid,qty,
@@ -734,7 +773,9 @@ async function submitOut(){
 }
 
 function resetForm(type){
-  ['name','pid','qty','price','note'].forEach(f=>{const el=document.getElementById(type+'-'+f);if(el)el.value='';});
+  ['pid','name','qty','price','note'].forEach(f=>{const el=document.getElementById(type+'-'+f);if(el)el.value='';});
+  const _pSel=document.getElementById(type+'-product');if(_pSel)_pSel.value='';
+  const _info=document.getElementById(type+'-product-info');if(_info)_info.style.display='none';
   if(type==='in'){document.getElementById('in-supplier').value='';document.getElementById('in-threshold').value='';}
   else document.getElementById('out-customer').value='';
 }
