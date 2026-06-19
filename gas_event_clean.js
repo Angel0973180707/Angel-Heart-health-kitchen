@@ -624,7 +624,8 @@ function queryOrdersByPhone(p) {
       status:       r[c.STATUS],
       created_at:   r[c.CREATED],
       subtotal:     r[c.SUBTOTAL]     || r[c.TOTAL] || 0,
-      shipping_fee: r[c.SHIPPING_FEE] || 0
+      shipping_fee: r[c.SHIPPING_FEE] || 0,
+      items: (function(){ try { return JSON.parse(r[c.ITEMS]||'[]').map(function(i){ return {name:i.name,qty:i.qty,price:i.price}; }); } catch(e){ return []; } })()
     }))
     .reverse();
   return { ok: true, data: list };

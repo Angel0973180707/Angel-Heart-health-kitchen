@@ -735,8 +735,13 @@ function orderQueryCard(o){
   const subtotal=Number(o.subtotal)||Number(o.total)||0;
   const shipFee=Number(o.shipping_fee)||0;
   const priceDetail=shipFee>0
-    ?`商品 NT$ ${subtotal.toLocaleString()} ＋ 運費 NT$ ${shipFee.toLocaleString()}`
-    :`商品 NT$ ${subtotal.toLocaleString()}（免運）`;
+    ?`商品小計 NT$ ${subtotal.toLocaleString()} ＋ 運費 NT$ ${shipFee.toLocaleString()}`
+    :`商品小計 NT$ ${subtotal.toLocaleString()}（免運）`;
+  const itemsHtml=(o.items||[]).filter(i=>i.name).map(i=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--text-mid);padding:4px 0;border-bottom:1px dashed #e8ede9">
+      <span>${i.name} × ${i.qty}</span>
+      <span>NT$ ${(Number(i.price)*Number(i.qty)).toLocaleString()}</span>
+    </div>`).join('');
   return `
   <div style="background:#fff;border:1.5px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -744,7 +749,8 @@ function orderQueryCard(o){
       <span style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:99px;background:${col}18;color:${col}">${o.status}</span>
     </div>
     <div style="font-size:15px;font-weight:700;margin-bottom:4px">${o.customer_name} 的訂單</div>
-    <div style="font-size:13px;color:var(--text-mid);margin-bottom:4px">💳 ${o.payment}</div>
+    <div style="font-size:13px;color:var(--text-mid);margin-bottom:8px">💳 ${o.payment}</div>
+    ${itemsHtml?`<div style="margin-bottom:10px;padding-bottom:4px">${itemsHtml}</div>`:''}
     <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">${priceDetail}</div>
     <div style="font-size:16px;font-weight:800;color:var(--green-dark);margin-bottom:12px">NT$ ${Number(o.total).toLocaleString()}</div>
     <div style="font-size:12px;color:var(--text-dim);margin-bottom:${needReport||canCancel?'14px':'0'}">${o.created_at?o.created_at.slice(0,10):''}</div>
