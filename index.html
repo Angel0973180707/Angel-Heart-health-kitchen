@@ -469,6 +469,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
     <button class="btn btn-ghost" onclick="triggerLowStockNotify()">Low stock notify</button>
     <button class="btn btn-ghost" onclick="runInstallTriggers()">Install triggers</button>
+    <button class="btn btn-ghost" onclick="downloadReportCsv()">Download report CSV</button>
   </div>
 </div>
 
@@ -1956,6 +1957,8 @@ async function submitMember(){
   } else showToast('❌ '+r.error,'error');
 }
 
+var lastReportData = null;
+
 // -- report --
 function getSelectedReportMonth() {
   var el = document.getElementById('report-month');
@@ -1981,6 +1984,7 @@ async function loadReport() {
     }
 
     var d = rep.data || {};
+    lastReportData = d;
     document.getElementById('r-revenue').textContent   = 'NT$ ' + Number(d.revenue || 0).toLocaleString();
     document.getElementById('r-cost').textContent      = 'NT$ ' + Number(d.cost || 0).toLocaleString();
     document.getElementById('r-profit').textContent    = 'NT$ ' + Number(d.profit || 0).toLocaleString();
@@ -2027,14 +2031,17 @@ function renderReportRanking(products) {
     }).join('') + '</div>';
 }
 
-function renderNonRevenueStats(month) {
+function isCancelledStatus(status) {
+  var s = String(status || '').toLowerCase();
+  return s === 'cancelled' || s === 'void' || s.indexOf('cancel') >= 0;
+}
+
+function calcNonRevenueStats(month) {
   var counts = { self_use: 0, gift: 0, sample: 0 };
 
   (cache.orders || []).forEach(function(o) {
     if (!o || !o.created_at || String(o.created_at).slice(0, 7) !== month) return;
-
-    var status = String(o.status || '');
-    if (status === '已取消' || status === 'cancelled' || status === '已作廢') return;
+    if (isCancelledStatus(o.status)) return;
 
     var note = String(o.note || '');
     var type = null;
@@ -2052,15 +2059,19 @@ function renderNonRevenueStats(month) {
     } catch(e) {}
   });
 
-  var total = counts.self_use + counts.gift + counts.sample;
-
-  document.getElementById('r-selfuse').textContent     = counts.self_use;
-  document.getElementById('r-gift').textContent        = counts.gift;
-  document.getElementById('r-sample').textContent      = counts.sample;
-  document.getElementById('r-nonrev-total').textContent = total;
+  counts.total = counts.self_use + counts.gift + counts.sample;
+  return counts;
 }
 
-function renderInventoryMovementSummary(month) {
+function renderNonRevenueStats(month) {
+  var counts = calcNonRevenueStats(month);
+  document.getElementById('r-selfuse').textContent      = counts.self_use;
+  document.getElementById('r-gift').textContent         = counts.gift;
+  document.getElementById('r-sample').textContent       = counts.sample;
+  document.getElementById('r-nonrev-total').textContent = counts.total;
+}
+
+function calcInventoryMovementStats(month) {
   var stockIn = 0;
   var stockOut = 0;
   var adjustCount = 0;
@@ -2073,35 +2084,28 @@ function renderInventoryMovementSummary(month) {
   logs.forEach(function(l) {
     var type = String(l.type || '');
     var note = String(l.note || '');
-    var qty = Number(l.qty || 0);
+    var qty  = Number(l.qty || 0);
 
     var isAdjust = type === 'adjust' || note.indexOf('[ADJUST:') >= 0;
-    var isOut = type === '出庫' || type === 'stockOut' || type === 'out' || note.indexOf('[POS:') >= 0 || qty < 0;
-    var isIn = type === '入庫' || type === 'stockIn' || type === 'in' || qty > 0;
+    var isPos    = note.indexOf('[POS:') >= 0;
+    var isOut    = type === 'stockOut' || type === 'out' || isPos || qty < 0;
+    var isIn     = type === 'stockIn'  || type === 'in'  || qty > 0;
 
-    if (isAdjust) {
-      adjustCount++;
-      adjustDiff += qty;
-      return;
-    }
-
-    if (isOut) {
-      stockOut += Math.abs(qty);
-      return;
-    }
-
-    if (isIn) {
-      stockIn += Math.abs(qty);
-      return;
-    }
+    if (isAdjust) { adjustCount++; adjustDiff += qty; return; }
+    if (isOut)    { stockOut += Math.abs(qty); return; }
+    if (isIn)     { stockIn  += Math.abs(qty); return; }
   });
 
-  document.getElementById('r-stock-in').textContent     = stockIn;
-  document.getElementById('r-stock-out').textContent    = stockOut;
-  document.getElementById('r-adjust-count').textContent = adjustCount;
-  document.getElementById('r-adjust-diff').textContent  = (adjustDiff >= 0 ? '+' : '') + adjustDiff;
+  return { stockIn: stockIn, stockOut: stockOut, adjustCount: adjustCount, adjustDiff: adjustDiff, logs: logs };
+}
 
-  renderRecentStockLogs(logs);
+function renderInventoryMovementSummary(month) {
+  var s = calcInventoryMovementStats(month);
+  document.getElementById('r-stock-in').textContent     = s.stockIn;
+  document.getElementById('r-stock-out').textContent    = s.stockOut;
+  document.getElementById('r-adjust-count').textContent = s.adjustCount;
+  document.getElementById('r-adjust-diff').textContent  = (s.adjustDiff >= 0 ? '+' : '') + s.adjustDiff;
+  renderRecentStockLogs(s.logs);
 }
 
 function renderRecentStockLogs(logs) {
@@ -2126,6 +2130,76 @@ function renderRecentStockLogs(logs) {
         '<div style="font-weight:700">' + sign + qty + '</div>' +
       '</div>';
     }).join('') + '</div>';
+}
+
+function csvCell(v) {
+  var s = String(v == null ? '' : v);
+  return (s.indexOf(',') >= 0 || s.indexOf('"') >= 0 || s.indexOf('\n') >= 0)
+    ? '"' + s.replace(/"/g, '""') + '"'
+    : s;
+}
+
+function downloadReportCsv() {
+  var month = getSelectedReportMonth();
+  var rows = [];
+
+  rows.push(['Section', 'Field', 'Value']);
+  rows.push(['Summary', 'Month',     month]);
+  rows.push(['Summary', 'Revenue',   document.getElementById('r-revenue').textContent]);
+  rows.push(['Summary', 'Cost',      document.getElementById('r-cost').textContent]);
+  rows.push(['Summary', 'Profit',    document.getElementById('r-profit').textContent]);
+  rows.push(['Summary', 'Orders',    document.getElementById('r-orders').textContent]);
+  rows.push(['Summary', 'Pending',   document.getElementById('r-pending').textContent]);
+  rows.push(['Summary', 'Cancelled', document.getElementById('r-cancelled').textContent]);
+  rows.push([]);
+
+  rows.push(['Top Products', 'Name', 'Qty', 'Revenue']);
+  var products = lastReportData && Array.isArray(lastReportData.top_products) ? lastReportData.top_products : [];
+  products.forEach(function(p) {
+    rows.push(['Top Products', p.name || p.product_id || '-', p.qty || 0, p.revenue || 0]);
+  });
+  rows.push([]);
+
+  var nonrev = calcNonRevenueStats(month);
+  rows.push(['Non-Revenue', 'Type', 'Qty']);
+  rows.push(['Non-Revenue', 'Self use', nonrev.self_use]);
+  rows.push(['Non-Revenue', 'Gift',     nonrev.gift]);
+  rows.push(['Non-Revenue', 'Sample',   nonrev.sample]);
+  rows.push(['Non-Revenue', 'Total',    nonrev.total]);
+  rows.push([]);
+
+  var movement = calcInventoryMovementStats(month);
+  rows.push(['Inventory Movements', 'Field', 'Value']);
+  rows.push(['Inventory Movements', 'Stock in',     movement.stockIn]);
+  rows.push(['Inventory Movements', 'Stock out',    movement.stockOut]);
+  rows.push(['Inventory Movements', 'Adjust count', movement.adjustCount]);
+  rows.push(['Inventory Movements', 'Adjust diff',  movement.adjustDiff]);
+  rows.push([]);
+
+  rows.push(['Recent Movements', 'Date', 'Product', 'Type', 'Qty', 'Note']);
+  movement.logs.slice(0, 10).forEach(function(l) {
+    rows.push([
+      'Recent Movements',
+      l.created_at || '',
+      l.name || l.product_id || '-',
+      l.type || '',
+      l.qty || 0,
+      l.note || ''
+    ]);
+  });
+
+  var bom = '\uFEFF';
+  var csv = bom + rows.map(function(r) { return r.map(csvCell).join(','); }).join('\r\n');
+
+  var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'report_' + month + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 async function triggerLowStockNotify(){
