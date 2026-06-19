@@ -314,6 +314,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 <!-- 帳本 -->
 <div class="page" id="page-accounts">
   <div class="stats-grid" id="balance-grid"><div class="loading" style="grid-column:1/-1">載入中...</div></div>
+  <button class="btn btn-gold" onclick="openAccModal()" style="margin-bottom:14px;padding:12px">➕ 新增帳目</button>
   <div class="section-title">收支明細</div>
   <div class="filter-row">
     <div class="chip active" onclick="setAccFilter('all',this)">全部</div>
@@ -524,6 +525,49 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
       <button type="button" class="btn btn-gold" id="prod-save-btn" onclick="saveProdModal()">儲存</button>
     </div>
+  </div>
+</div>
+
+<!-- 新增帳目 Modal -->
+<div class="modal-overlay" id="acc-modal-overlay" onclick="closeAccModal(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">➕ 新增帳目</div>
+      <button class="modal-close" onclick="closeAccModal(null,true)">✕</button>
+    </div>
+    <div class="field"><label>日期 *</label><input type="date" id="am-date"></div>
+    <div class="field"><label>類型 *</label>
+      <select id="am-type" onchange="onAccTypeChange()">
+        <option value="其他收入">其他收入</option>
+        <option value="其他支出">其他支出</option>
+        <option value="進貨付款">進貨付款</option>
+        <option value="雜項支出">雜項支出</option>
+        <option value="其他現場收款">其他現場收款</option>
+      </select>
+    </div>
+    <div class="field"><label>對象</label><input type="text" id="am-partner" placeholder="可留空"></div>
+    <div class="field"><label>項目</label><input type="text" id="am-items" placeholder="建議填寫"></div>
+    <div class="field"><label>收入（NT$）</label><input type="number" id="am-income" placeholder="0" min="0" oninput="onAccAmountInput('income')"></div>
+    <div class="field"><label>支出（NT$）</label><input type="number" id="am-expense" placeholder="0" min="0" oninput="onAccAmountInput('expense')"></div>
+    <div class="field"><label>付款方式</label>
+      <select id="am-payment">
+        <option value="現金">現金</option>
+        <option value="轉帳">轉帳</option>
+        <option value="LINE Pay">LINE Pay</option>
+        <option value="刷卡">刷卡</option>
+        <option value="其他">其他</option>
+      </select>
+    </div>
+    <div class="field"><label>狀態</label>
+      <select id="am-status">
+        <option value="已收款">已收款</option>
+        <option value="待收款">待收款</option>
+        <option value="已付款">已付款</option>
+        <option value="待付款">待付款</option>
+      </select>
+    </div>
+    <div class="field"><label>備註</label><input type="text" id="am-note" placeholder="可留空"></div>
+    <button type="button" class="btn btn-gold" id="acc-save-btn" onclick="saveAccModal()">新增</button>
   </div>
 </div>
 
@@ -1115,6 +1159,78 @@ function renderAccounts(){
 }
 
 function closeModal(e){if(!e||e.target===document.getElementById('modal-overlay'))document.getElementById('modal-overlay').classList.remove('open');}
+
+const ACC_INCOME_TYPES=new Set(['其他收入','其他現場收款']);
+let accountSaving=false;
+function resetAccSavingState(){
+  accountSaving=false;
+  const btn=document.getElementById('acc-save-btn');
+  if(btn){btn.disabled=false;btn.textContent='新增';}
+}
+function openAccModal(){
+  resetAccSavingState();
+  document.getElementById('am-date').value=new Date().toISOString().slice(0,10);
+  document.getElementById('am-type').value='其他收入';
+  document.getElementById('am-partner').value='';
+  document.getElementById('am-items').value='';
+  document.getElementById('am-income').value='';
+  document.getElementById('am-expense').value='';
+  document.getElementById('am-payment').value='現金';
+  document.getElementById('am-status').value='已收款';
+  document.getElementById('am-note').value='';
+  document.getElementById('acc-modal-overlay').classList.add('open');
+}
+function closeAccModal(e,force){
+  if(force||e?.target===document.getElementById('acc-modal-overlay')){
+    resetAccSavingState();
+    document.getElementById('acc-modal-overlay').classList.remove('open');
+  }
+}
+function onAccTypeChange(){
+  const type=document.getElementById('am-type').value;
+  document.getElementById('am-status').value=ACC_INCOME_TYPES.has(type)?'已收款':'已付款';
+}
+function onAccAmountInput(changed){
+  if(changed==='income'&&Number(document.getElementById('am-income').value)>0)
+    document.getElementById('am-expense').value='';
+  if(changed==='expense'&&Number(document.getElementById('am-expense').value)>0)
+    document.getElementById('am-income').value='';
+}
+async function saveAccModal(){
+  if(accountSaving)return;
+  const date=document.getElementById('am-date').value;
+  const type=document.getElementById('am-type').value;
+  const income=Number(document.getElementById('am-income').value)||0;
+  const expense=Number(document.getElementById('am-expense').value)||0;
+  if(!date)return showToast('請選擇日期','error');
+  if(income<0||expense<0)return showToast('金額不可為負','error');
+  if(income===0&&expense===0)return showToast('請填寫收入或支出金額','error');
+  if(income>0&&expense>0)return showToast('收入與支出不能同時大於 0','error');
+  accountSaving=true;
+  const btn=document.getElementById('acc-save-btn');
+  if(btn){btn.disabled=true;btn.textContent='新增中...';}
+  let success=false;
+  try{
+    const r=await apiPost({
+      action:'addAccount',session_token:SESSION_TOKEN,
+      date,type,
+      partner:document.getElementById('am-partner').value.trim(),
+      items:document.getElementById('am-items').value.trim(),
+      income,expense,
+      payment:document.getElementById('am-payment').value,
+      status:document.getElementById('am-status').value,
+      note:document.getElementById('am-note').value.trim()
+    });
+    if(!r.ok){showToast('❌ '+(r.error||'新增失敗'),'error');return;}
+    success=true;
+    closeAccModal(null,true);
+    showToast('✅ 帳目已新增');
+    await syncAll();
+  }catch(e){showToast('⚠️ 網路錯誤','error');}
+  finally{
+    if(!success) resetAccSavingState();
+  }
+}
 function showToast(msg,type='success'){const t=document.getElementById('toast');t.textContent=msg;t.className='toast '+type;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
 
 
