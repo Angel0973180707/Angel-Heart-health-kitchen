@@ -271,6 +271,7 @@
     <li>敏感個資處理原則</li>
     <li>版本記錄</li>
     <li>可選金流模組規劃</li>
+    <li>商品型態與客製化商品規劃</li>
   </ol>
 </div>
 
@@ -1154,6 +1155,241 @@
       </tr>
     </table>
   </div>
+</div>
+
+<!-- ══ 第十四章 ══ -->
+<div class="chapter">
+  <div class="chapter-header">
+    <div class="chapter-num">14</div>
+    <h2>商品型態與客製化商品規劃</h2>
+  </div>
+
+  <div class="warn-box" style="margin-bottom:20px;">
+    ⚠ 本章為規劃草案。P1 僅實作現貨商品編輯；P2 / P3 / P4 尚未實作，不列入 v1.0 草案封版範圍。
+  </div>
+
+  <!-- 1. sale_type -->
+  <div class="section">
+    <h3>1. sale_type 銷售型態設計</h3>
+    <p>商品主檔新增 <code>sale_type</code> 欄位，以字串識別銷售型態，不使用 boolean。字串值可隨業務擴充，boolean 無法應對三種以上型態。</p>
+    <table>
+      <tr><th>值</th><th>說明</th></tr>
+      <tr><td><code>normal</code></td><td>一般現貨，依庫存 qty 銷售</td></tr>
+      <tr><td><code>preorder</code></td><td>預購，不扣現貨 qty，計 preorder_count</td></tr>
+      <tr><td><code>made_to_order</code></td><td>接單製作 / 預約訂製，客人填自由需求，後台人工確認或報價</td></tr>
+      <tr><td><code>menu_select</code></td><td>點選菜單，商家預建選項群組，客人點選組合，系統計算金額</td></tr>
+      <tr><td><code>hidden</code></td><td>不公開上架，可建立但不顯示於前台</td></tr>
+    </table>
+    <div class="highlight-box" style="margin-top:14px;">
+      <strong>sale_type 與 status 的分工：</strong><br>
+      <code>status</code>（上架 / 下架 / 停用）負責商品的可見性與是否可銷售。<br>
+      <code>sale_type</code> 負責銷售型態，決定前台顯示邏輯與訂單流程。<br>
+      兩者正交，不可混用。例如：一個「預購商品」可以同時處於「下架」狀態（status=下架，sale_type=preorder），代表預購已截止或暫停。
+    </div>
+  </div>
+
+  <!-- 2. 預購欄位 -->
+  <div class="section">
+    <h3>2. 預購商品欄位（sale_type = preorder）</h3>
+    <table>
+      <tr><th>欄位</th><th>說明</th></tr>
+      <tr><td><code>preorder_note</code></td><td>預購說明，前台顯示給客人（如：預計 2 週後到貨）</td></tr>
+      <tr><td><code>preorder_deadline</code></td><td>預購截止日，超過後前台自動顯示「預購已截止」</td></tr>
+      <tr><td><code>estimated_ship_date</code></td><td>預計出貨日，前台顯示於商品頁與購物車</td></tr>
+      <tr><td><code>preorder_limit</code></td><td>預購上限數量，0 = 無限制；達上限後前台顯示「預購額滿」</td></tr>
+      <tr><td><code>preorder_count</code></td><td>目前已預購數量，由 GAS 維護，不可人工填入</td></tr>
+    </table>
+    <div class="warn-box" style="margin-top:10px;">
+      ⚠ <code>preorder_count</code> 是預購專用計數，與現貨庫存 <code>qty</code> 完全分離。預購訂單確認時只增加 <code>preorder_count</code>，<strong>不扣現貨 qty</strong>。到貨後由管理員執行「預購轉現貨」，才會將庫存寫入 qty，並清除 preorder_count。
+    </div>
+  </div>
+
+  <!-- 3. 接單製作欄位 -->
+  <div class="section">
+    <h3>3. 接單製作欄位（sale_type = made_to_order）</h3>
+    <p>適用情境：生日蛋糕、烘焙訂製、客製餐盒、手作訂製、私廚包場、活動餐食等。客人填寫自由需求，商家人工評估後確認接單或報價。</p>
+    <table>
+      <tr><th>欄位</th><th>說明</th></tr>
+      <tr><td><code>custom_note</code></td><td>客製化說明，前台顯示（如：請至少提前 5 天訂購，並說明口味與尺寸）</td></tr>
+      <tr><td><code>lead_time_days</code></td><td>需提前幾天訂購（系統據此計算最早可選日期）</td></tr>
+      <tr><td><code>available_dates</code></td><td>可預約日期（逗號分隔日期字串或規則）；空白代表每天皆可</td></tr>
+      <tr><td><code>min_order_qty</code></td><td>最低訂購量（如：最少 10 個）</td></tr>
+      <tr><td><code>max_order_qty</code></td><td>最高訂購量（如：每次最多 50 個）</td></tr>
+      <tr><td><code>requires_admin_confirm</code></td><td>true = 後台須人工確認接單才進入訂單流程</td></tr>
+      <tr><td><code>quote_required</code></td><td>true = 需報價後客人確認才付款；false = 直接產生金額進入付款</td></tr>
+    </table>
+  </div>
+
+  <!-- 4. 點選菜單欄位 -->
+  <div class="section">
+    <h3>4. 點選菜單欄位（sale_type = menu_select）</h3>
+    <p>商家預先建立可選項組合，客人在前台點選後，系統自動計算金額。繼承 made_to_order 所有欄位，另加：</p>
+    <table>
+      <tr><th>欄位</th><th>說明</th></tr>
+      <tr><td><code>option_group_json</code></td><td>選項群組定義 JSON，儲存於商品主檔（格式見下）</td></tr>
+      <tr><td><code>option_price_mode</code></td><td><code>add_on</code>：在基礎售價上累加各選項 price_delta；<code>fixed</code>：選項本身含完整金額</td></tr>
+    </table>
+
+    <div class="field-group" style="margin-top:16px;">
+      <div class="field-group-title">option_group_json 結構範例</div>
+      <table>
+        <tr><th>欄位</th><th>說明</th></tr>
+        <tr><td><code>group_id</code></td><td>群組穩定識別碼（不可用 group_name，名稱可能修改）</td></tr>
+        <tr><td><code>group_name</code></td><td>前台顯示的群組名稱</td></tr>
+        <tr><td><code>type</code></td><td><code>single</code> = 單選；<code>multiple</code> = 多選</td></tr>
+        <tr><td><code>required</code></td><td>true = 必選，未選不可送出</td></tr>
+        <tr><td><code>min_select</code></td><td>最少選幾項（multiple 用）</td></tr>
+        <tr><td><code>max_select</code></td><td>最多選幾項（multiple 用）</td></tr>
+        <tr><td><code>options[].id</code></td><td>選項穩定識別碼</td></tr>
+        <tr><td><code>options[].name</code></td><td>選項顯示名稱</td></tr>
+        <tr><td><code>options[].price_delta</code></td><td>加價金額（可為 0 或負數）</td></tr>
+      </table>
+    </div>
+
+    <div class="highlight-box" style="margin-top:14px; font-size:0.85rem; font-family:monospace; white-space:pre-wrap;">[ { "group_id": "main", "group_name": "主菜", "type": "single", "required": true, "min_select": 1, "max_select": 1, "options": [ {"id": "chicken", "name": "舒肥雞胸", "price_delta": 0}, {"id": "fish", "name": "香料烤魚", "price_delta": 80} ] }, { "group_id": "addon", "group_name": "加購", "type": "multiple", "required": false, "min_select": 0, "max_select": 3, "options": [ {"id": "soup", "name": "養生湯", "price_delta": 120}, {"id": "dessert", "name": "甜點", "price_delta": 90} ] } ]</div>
+
+    <p style="margin-top:10px;font-size:0.85rem;color:#666;">下單時，客人的選擇以 <code>custom_options_json</code> 快照存入訂單，不再依賴商品主檔的 JSON 重算，確保訂單歷史正確。</p>
+  </div>
+
+  <!-- 5. 前台流程 -->
+  <div class="section">
+    <h3>5. 前台流程（依 sale_type）</h3>
+    <table>
+      <tr><th>sale_type</th><th>前台顯示</th><th>購買動作</th></tr>
+      <tr>
+        <td><code>normal</code></td>
+        <td>正常顯示庫存數量</td>
+        <td>直接「加入購物車」→ 結帳 → 付款</td>
+      </tr>
+      <tr>
+        <td><code>preorder</code></td>
+        <td>顯示「🔖 預購」badge、preorder_note、estimated_ship_date</td>
+        <td>加入購物車（檢查截止日與 preorder_limit）→ 購物車加預購警告 → 結帳</td>
+      </tr>
+      <tr>
+        <td><code>made_to_order</code></td>
+        <td>顯示「可訂製」badge、custom_note、lead_time_days</td>
+        <td>點「填寫需求」→ 開啟需求表單 → 填日期 / 數量 / 說明 → 送出</td>
+      </tr>
+      <tr>
+        <td><code>menu_select</code></td>
+        <td>顯示「點選菜單」badge</td>
+        <td>點「選擇選項」→ 開啟選單 modal → 逐群組點選 → 即時顯示金額 → 加入購物車</td>
+      </tr>
+    </table>
+    <div class="highlight-box" style="margin-top:12px;">
+      <strong>quote_required 分流：</strong><br>
+      <code>quote_required = false</code>：系統直接計算金額，進入一般訂單付款流程。<br>
+      <code>quote_required = true</code>：送出後建立詢價單（不是訂單），不進入付款，等後台報價確認後客人才付款。
+    </div>
+    <div class="warn-box" style="margin-top:10px;">
+      ⚠ P1 / P2 不允許不同 sale_type 商品混入同一購物車。前台加購物車類型鎖定攔截，並顯示說明。P3 後視需求再評估分批出貨支援。
+    </div>
+  </div>
+
+  <!-- 6. 後台流程 -->
+  <div class="section">
+    <h3>6. 後台管理流程規劃</h3>
+    <table>
+      <tr><th>階段</th><th>商品 modal 支援</th><th>訂單列表</th></tr>
+      <tr>
+        <td><span class="tag tag-green">P1（現在）</span></td>
+        <td>sale_type 下拉選單僅開放 normal / hidden；其他值 disabled</td>
+        <td>現有欄位不變</td>
+      </tr>
+      <tr>
+        <td><span class="tag tag-blue">P2</span></td>
+        <td>開放 preorder / made_to_order；選對應型態後展開附屬欄位群</td>
+        <td>預購 / 客製訂單加「🔖 預購」/「✏️ 訂製」badge；顯示需求摘要</td>
+      </tr>
+      <tr>
+        <td><span class="tag tag-orange">P3</span></td>
+        <td>開放 menu_select；加入 option_group_json 視覺化編輯器；開放 quote_required 設定</td>
+        <td>客製選項摘要（超過兩行 fold）；詢價單獨立管理區</td>
+      </tr>
+    </table>
+    <p style="margin-top:10px;font-size:0.88rem;color:#444;">P2 後台流程：接單製作訂單送出 → 後台標記「待確認」→ 管理員確認接單（或拒絕）→ 確認後進入付款流程 → LINE 推播客人。</p>
+  </div>
+
+  <!-- 7. custom_order_db -->
+  <div class="section">
+    <h3>7. custom_order_db 詢價單資料表（P3 新增）</h3>
+    <p>P3 起新增 Google Sheets 工作表 <code>custom_order_db</code>，記錄詢價單全生命週期。</p>
+    <table>
+      <tr><th>欄位</th><th>說明</th></tr>
+      <tr><td><code>id</code></td><td>詢價單編號</td></tr>
+      <tr><td><code>product_id</code></td><td>商品 ID</td></tr>
+      <tr><td><code>customer_name</code></td><td>客人姓名</td></tr>
+      <tr><td><code>phone</code></td><td>聯絡電話</td></tr>
+      <tr><td><code>requirements</code></td><td>自由填寫需求（made_to_order 用）</td></tr>
+      <tr><td><code>custom_options_json</code></td><td>客人選擇的選項快照（menu_select 用）</td></tr>
+      <tr><td><code>quoted_price</code></td><td>後台填入的報價金額</td></tr>
+      <tr><td><code>status</code></td><td>待確認 / 已報價 / 已接單 / 已拒絕 / 轉訂單</td></tr>
+      <tr><td><code>admin_note</code></td><td>後台備註</td></tr>
+      <tr><td><code>created_at</code></td><td>詢價送出時間</td></tr>
+      <tr><td><code>replied_at</code></td><td>後台回覆時間</td></tr>
+    </table>
+  </div>
+
+  <!-- 8. 分期建議 -->
+  <div class="section">
+    <h3>8. 分期建議</h3>
+    <table>
+      <tr><th>階段</th><th>範圍</th></tr>
+      <tr>
+        <td><span class="tag tag-green">P1</span></td>
+        <td>現貨商品編輯完整化。商品 modal 加 sale_type 下拉，但僅開放 normal / hidden。GAS schema 補齊 sale_type 欄位就位。不影響現有訂單流程。</td>
+      </tr>
+      <tr>
+        <td><span class="tag tag-blue">P2</span></td>
+        <td>開放 sale_type 完整選項。加入 preorder 全部欄位與前後台流程（預購截止日、上限、預購 badge、不扣現貨庫存）。加入 made_to_order 基礎欄位（自由需求、製作天數、人工確認），前台可填需求送出。</td>
+      </tr>
+      <tr>
+        <td><span class="tag tag-orange">P3</span></td>
+        <td>完整 menu_select：option_group_json 視覺化編輯器、前台選項群組 UI、即時金額計算。加入人工報價流程（quote_required）。新增 custom_order_db 詢價單資料表與後台管理 UI。</td>
+      </tr>
+      <tr>
+        <td><span class="tag tag-gray">P4</span></td>
+        <td>原料庫存綁定（選項消耗原料）。日期產能排程（每日最多接幾張訂製單）。進階改期 / 取消政策自動執行。</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- 9. 安全與風險 -->
+  <div class="section">
+    <h3>9. 安全規則與風險</h3>
+    <div class="warn-box" style="margin-bottom:12px;">
+      ⚠ 以下規則為強制要求，任何 sale_type 擴充實作必須遵守。
+    </div>
+    <table>
+      <tr><th>規則 / 風險</th><th>說明</th></tr>
+      <tr>
+        <td><strong>JSON 欄位需後端驗證</strong></td>
+        <td>option_group_json 格式錯誤會導致前台渲染崩潰。GAS 寫入前須驗證 JSON 可解析、必要欄位齊全；後台編輯框加即時解析提示。</td>
+      </tr>
+      <tr>
+        <td><strong>前端價格不可信任</strong></td>
+        <td>客製化金額由前端計算後送出，但 GAS 確認訂單時必須依商品主檔與選項重新計算，前端傳入的金額僅供顯示，不可直接入帳。</td>
+      </tr>
+      <tr>
+        <td><strong>客製化訂單取消 / 改期 / 退款</strong></td>
+        <td>接單製作商品取消涉及原料損耗，退款政策複雜，需在下單前明確顯示退款說明，並在退款流程中獨立審查，不套用一般現貨退款邏輯。</td>
+      </tr>
+      <tr>
+        <td><strong>LINE 通知內容不可過長</strong></td>
+        <td>客製選項多時，LINE 訊息容易超過限制（5000 字）。訂單 LINE 通知只摘要關鍵資訊，詳細選項導回後台連結查看。</td>
+      </tr>
+      <tr>
+        <td><strong>不應直接扣現貨庫存</strong></td>
+        <td>made_to_order / menu_select 商品通常為接單後製作，不存在現貨庫存邏輯，不應觸發 qty 扣減。若強制扣庫存，庫存數字將失去意義。</td>
+      </tr>
+      <tr>
+        <td><strong>原料庫存需另開模組</strong></td>
+        <td>若未來 menu_select 選項需消耗原料庫存（如：選了「烤魚」扣掉魚片庫存），需獨立建立「庫存配方模組」，不可將原料邏輯混入現有商品庫存欄位，列為 P4 獨立審查。</td>
+      </tr>
+    </table>
+  </div>
+
 </div>
 
 </div><!-- /container -->
