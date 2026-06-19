@@ -1155,7 +1155,31 @@ function renderAccounts(){
   if(q) list=list.filter(a=>[a.partner,a.items,a.type,a.status,a.note,a.payment].some(v=>String(v||'').toLowerCase().includes(q)));
   const el=document.getElementById('account-list');
   if(!list.length){el.innerHTML=`<div class="empty-state"><div class="empty-icon">💰</div><div class="empty-text">尚無帳目記錄</div></div>`;return;}
-  el.innerHTML=list.map(a=>{const inc=a.income&&Number(a.income)>0;return `<div class="account-item"><div class="account-type ${inc?'income':'expense'}">${inc?'💚':'🔴'}</div><div class="account-info"><div class="account-partner">${a.partner||a.type}</div><div class="account-items">${a.items||'—'} · ${a.date||''}</div>${a.note?`<div class="account-items" style="color:var(--muted);font-size:11px">📝 ${a.note}</div>`:''}</div><div class="account-right"><div class="account-amount ${inc?'green':'red'}">${inc?'+NT$ '+Number(a.income).toLocaleString():'-NT$ '+Number(a.expense).toLocaleString()}</div><div class="account-status">${a.status||''}</div></div></div>`;}).join('');
+  el.innerHTML=list.map(a=>{
+    const inc=a.income&&Number(a.income)>0;
+    const statusBtn=a.status==='待收款'
+      ?`<button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-top:4px" onclick="updateAccountStatus('${a.account_id}','已收款')">標為已收款</button>`
+      :a.status==='待付款'
+      ?`<button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-top:4px" onclick="updateAccountStatus('${a.account_id}','已付款')">標為已付款</button>`
+      :'';
+    return `<div class="account-item"><div class="account-type ${inc?'income':'expense'}">${inc?'💚':'🔴'}</div><div class="account-info"><div class="account-partner">${a.partner||a.type}</div><div class="account-items">${a.items||'—'} · ${a.date||''}</div>${a.note?`<div class="account-items" style="color:var(--muted);font-size:11px">📝 ${a.note}</div>`:''}</div><div class="account-right"><div class="account-amount ${inc?'green':'red'}">${inc?'+NT$ '+Number(a.income).toLocaleString():'-NT$ '+Number(a.expense).toLocaleString()}</div><div class="account-status">${a.status||''}</div>${statusBtn}</div></div>`;
+  }).join('');
+}
+async function updateAccountStatus(accountId,newStatus){
+  if(!confirm(`確認將此帳目標為${newStatus}？`))return;
+  try{
+    const r=await apiPost({
+      action:'updateAccount',
+      session_token:SESSION_TOKEN,
+      account_id:accountId,
+      status:newStatus
+    });
+    if(!r.ok)return showToast('❌ '+(r.error||'更新失敗'),'error');
+    showToast('✅ 狀態已更新');
+    await syncAll();
+  }catch(e){
+    showToast('⚠️ 網路錯誤，請稍後再試','error');
+  }
 }
 
 function closeModal(e){if(!e||e.target===document.getElementById('modal-overlay'))document.getElementById('modal-overlay').classList.remove('open');}
