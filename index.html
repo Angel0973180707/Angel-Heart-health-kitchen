@@ -735,7 +735,7 @@ async function submitOut(){
 
 function resetForm(type){
   ['name','pid','qty','price','note'].forEach(f=>{const el=document.getElementById(type+'-'+f);if(el)el.value='';});
-  if(type==='in'){document.getElementById('in-supplier').value='';document.getElementById('in-threshold').value='';removeImg('in',null);}
+  if(type==='in'){document.getElementById('in-supplier').value='';document.getElementById('in-threshold').value='';}
   else document.getElementById('out-customer').value='';
 }
 
