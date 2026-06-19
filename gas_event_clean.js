@@ -579,8 +579,8 @@ function adjustInventory(p) {
   if (!Number.isInteger(newQty) || newQty < 0) return { ok: false, error: 'new_qty must be non-negative integer' };
   if (VALID_REASONS.indexOf(reason) === -1) return { ok: false, error: 'invalid reason' };
 
-  var opId     = generateId_('ADJ');
-  var logId    = generateId_('SLOG');
+  var opId     = genId('ADJ');
+  var logId    = genId('SLOG');
   var invSheet = getSheet(SHEET.INVENTORY);
   var ci       = COL.INVENTORY;
 
@@ -625,6 +625,7 @@ function adjustInventory(p) {
 
   return { ok: true, product_id: productId, old_qty: oldQty, new_qty: newQty, diff: diff, reason: reason };
 }
+
 
 // ================================================================
 // 進出貨記錄
