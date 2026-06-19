@@ -314,7 +314,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 <!-- 帳本 -->
 <div class="page" id="page-accounts">
   <div class="stats-grid" id="balance-grid"><div class="loading" style="grid-column:1/-1">載入中...</div></div>
-  <button class="btn btn-gold" onclick="openAccModal()" style="margin-bottom:14px;padding:12px">➕ 新增帳目</button>
+  <div style="display:flex;gap:8px;margin-bottom:14px">
+    <button class="btn btn-gold" onclick="openAccModal()" style="flex:1;padding:12px">➕ 新增帳目</button>
+    <button class="btn btn-ghost" onclick="downloadAccountsCsv()" style="flex:1;padding:12px">⬇️ 下載 CSV</button>
+  </div>
   <div class="section-title">收支明細</div>
   <div class="filter-row">
     <div class="chip active" onclick="setAccFilter('all',this)">全部</div>
@@ -1180,6 +1183,27 @@ async function updateAccountStatus(accountId,newStatus){
   }catch(e){
     showToast('⚠️ 網路錯誤，請稍後再試','error');
   }
+}
+function downloadAccountsCsv(){
+  function csvCell(v){
+    const s=String(v==null?'':v);
+    return (s.includes(',')||s.includes('"')||s.includes('\n'))?'"'+s.replace(/"/g,'""')+'"':s;
+  }
+  let list=accFilter==='all'?cache.accounts:cache.accounts.filter(a=>a.type===accFilter);
+  const month=(document.getElementById('acc-month-filter')||{}).value||'';
+  if(month)list=list.filter(a=>String(a.date||a.created_at||'').startsWith(month));
+  const q=((document.getElementById('acc-search')||{}).value||'').trim().toLowerCase();
+  if(q)list=list.filter(a=>[a.partner,a.items,a.type,a.status,a.note,a.payment].some(v=>String(v||'').toLowerCase().includes(q)));
+  const header=['日期','類型','對象','項目','收入','支出','付款方式','狀態','備註'];
+  const rows=list.map(a=>[a.date,a.type,a.partner,a.items,a.income||0,a.expense||0,a.payment,a.status,a.note].map(csvCell));
+  const bom='﻿';
+  const csv=bom+[header,...rows].map(r=>r.join(',')).join('\r\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download='商品帳本_'+(month||'全部')+'.csv';
+  document.body.appendChild(a);a.click();
+  document.body.removeChild(a);URL.revokeObjectURL(url);
 }
 
 function closeModal(e){if(!e||e.target===document.getElementById('modal-overlay'))document.getElementById('modal-overlay').classList.remove('open');}
