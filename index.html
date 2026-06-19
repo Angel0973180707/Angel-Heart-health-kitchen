@@ -824,7 +824,7 @@ function renderCategoryManager(){
   const cats=getCategoryPresets();
   const el=document.getElementById('cat-list');if(!el)return;
   if(!cats.length){el.innerHTML='<div style="color:var(--muted);font-size:13px">目前沒有分類</div>';return;}
-  el.innerHTML=cats.map(c=>`<div style="display:inline-flex;align-items:center;gap:4px;background:var(--bg);border-radius:16px;padding:4px 10px;margin:3px;font-size:13px">${c}<span onclick="deleteCategoryPreset('${c.replace(/'/g,"&#39;")}')" style="cursor:pointer;color:var(--muted);font-size:11px;margin-left:2px">✕</span></div>`).join('');
+  el.innerHTML=cats.map(c=>`<div style="display:inline-flex;align-items:center;gap:4px;background:var(--bg);border-radius:16px;padding:4px 10px;margin:3px;font-size:13px">${c}<span onclick="renameCategoryPreset('${c.replace(/'/g,"&#39;")}')" style="cursor:pointer;color:var(--muted);font-size:11px;margin-left:4px">改名</span><span onclick="deleteCategoryPreset('${c.replace(/'/g,"&#39;")}')" style="cursor:pointer;color:var(--muted);font-size:11px;margin-left:2px">✕</span></div>`).join('');
 }
 async function addCategoryPreset(){
   const input=document.getElementById('new-cat-input');
@@ -854,6 +854,37 @@ async function deleteCategoryPreset(name){
       renderCategoryManager();renderProducts();showToast('✅ 分類已移除','success');
     }else showToast('❌ '+r.error,'error');
   }catch(e){showToast('⚠️ 網路錯誤','error');}
+}
+function getCategorySettingList() {
+  const s = cache.settings || {};
+  return s.product_categories && s.product_categories.value
+    ? String(s.product_categories.value).split(',').map(x => x.trim()).filter(Boolean)
+    : [];
+}
+async function renameCategoryPreset(oldName) {
+  const newName = prompt('請輸入新的分類名稱', oldName);
+  if (!newName) return;
+  const trimmed = newName.trim();
+  if (!trimmed) return;
+  if (trimmed === oldName) return;
+  if (trimmed.includes(',')) { showToast('分類名稱不可包含逗號', 'error'); return; }
+  const settingList = getCategorySettingList();
+  if (!settingList.includes(oldName)) {
+    showToast('此分類來自既有商品，請先到商品編輯中調整；分類清單只修改預設分類', 'error');
+    return;
+  }
+  if (settingList.includes(trimmed)) { showToast('分類名稱已存在', 'error'); return; }
+  const newList = settingList.map(c => c === oldName ? trimmed : c).join(',');
+  try {
+    const r = await apiPost({ action: 'updateSetting', session_token: SESSION_TOKEN, key: 'product_categories', value: newList });
+    if (r.ok) {
+      if (!cache.settings) cache.settings = {};
+      cache.settings.product_categories = { value: newList };
+      renderCategoryManager();
+      renderProducts();
+      showToast('✅ 分類名稱已更新', 'success');
+    } else { showToast('❌ ' + r.error, 'error'); }
+  } catch(e) { showToast('⚠️ 網路錯誤', 'error'); }
 }
 // ── 運費設定 ────────────────────────────────────────────
 function renderSettings(){
