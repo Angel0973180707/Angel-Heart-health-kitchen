@@ -503,7 +503,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       </select>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
-      <button class="btn btn-gold" onclick="saveProdModal()">儲存</button>
+      <button class="btn btn-gold" id="prod-save-btn" onclick="saveProdModal()">儲存</button>
     </div>
   </div>
 </div>
@@ -1617,6 +1617,7 @@ async function runInstallTriggers(){
 // ── P1-A 商品管理 ──
 let prodFilter = 'all';
 let editingProduct = null;
+let productSaving = false;
 
 function setProdFilter(f, el) {
   prodFilter = f;
@@ -1708,10 +1709,14 @@ function closeProdModal(e) {
 }
 
 async function saveProdModal() {
+  if (productSaving) return;
   const name  = document.getElementById('pm-name').value.trim();
   const price = document.getElementById('pm-price').value.trim();
   if (!name)  { showToast('請填寫商品名稱', 'error'); return; }
   if (!price) { showToast('請填寫售價', 'error'); return; }
+  productSaving = true;
+  const btn = document.getElementById('prod-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '儲存中...'; }
   const params = {
     session_token: SESSION_TOKEN,
     name,
@@ -1741,6 +1746,10 @@ async function saveProdModal() {
       showToast('❌ ' + r.error, 'error');
     }
   } catch(e) { showToast('⚠️ 網路錯誤', 'error'); }
+  finally {
+    productSaving = false;
+    if (btn) { btn.disabled = false; btn.textContent = '儲存'; }
+  }
 }
 
 async function toggleProdStatus(pid, newStatus) {
