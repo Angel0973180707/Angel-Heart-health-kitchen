@@ -375,6 +375,25 @@ function getProducts(p) {
 
 function addProduct(p) {
   if (!p.name) return { ok: false, error: '缺少商品名稱' };
+  const rows = getRows(SHEET.PRODUCTS);
+  const c = COL.PRODUCTS;
+  const code = (p.code || '').trim();
+  const name = (p.name || '').trim();
+  const category = (p.category || '').trim();
+  if (code) {
+    const dup = rows.find(r =>
+      String(r[c.CODE] || '').trim() === code &&
+      String(r[c.STATUS] || '') !== '停用'
+    );
+    if (dup) return { ok: false, error: '商品代碼已存在，請勿重複新增' };
+  } else {
+    const dup = rows.find(r =>
+      String(r[c.NAME] || '').trim() === name &&
+      String(r[c.CATEGORY] || '').trim() === category &&
+      String(r[c.STATUS] || '') !== '停用'
+    );
+    if (dup) return { ok: false, error: '同分類已有相同商品名稱，請勿重複新增' };
+  }
   const id = genId('P');
   getSheet(SHEET.PRODUCTS).appendRow([
     id, p.name, p.code||'', p.cost_price||'', p.retail_price||'',
