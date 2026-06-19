@@ -322,6 +322,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="chip" onclick="setAccFilter('其他收入',this)">其他收入</div>
     <div class="chip" onclick="setAccFilter('其他支出',this)">其他支出</div>
   </div>
+  <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+    <input type="month" id="acc-month-filter" onchange="renderAccounts()" style="flex:0 0 auto;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);font-size:14px">
+    <input type="text" id="acc-search" placeholder="搜尋對象、項目、類型、狀態、備註..." oninput="renderAccounts()" style="flex:1;min-width:160px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);font-size:14px">
+  </div>
   <div id="account-list"><div class="loading">載入中...</div></div>
 </div>
 </div>
@@ -1101,9 +1105,13 @@ function renderAccounts(){
     <div class="stat-card"><div class="stat-label">應付帳款</div><div class="stat-value blue">${bal['應付帳款']?'NT$ '+Number(bal['應付帳款']).toLocaleString():'NT$ 0'}</div></div>
     <div class="stat-card wide"><div class="stat-label">累計淨利</div><div class="stat-value gold">${bal['淨利']?'NT$ '+Number(bal['淨利']).toLocaleString():'NT$ 0'}</div></div>`;
   let list=accFilter==='all'?cache.accounts:cache.accounts.filter(a=>a.type===accFilter);
+  const month=(document.getElementById('acc-month-filter')||{}).value||'';
+  if(month) list=list.filter(a=>String(a.date||a.created_at||'').startsWith(month));
+  const q=((document.getElementById('acc-search')||{}).value||'').trim().toLowerCase();
+  if(q) list=list.filter(a=>[a.partner,a.items,a.type,a.status,a.note,a.payment].some(v=>String(v||'').toLowerCase().includes(q)));
   const el=document.getElementById('account-list');
   if(!list.length){el.innerHTML=`<div class="empty-state"><div class="empty-icon">💰</div><div class="empty-text">尚無帳目記錄</div></div>`;return;}
-  el.innerHTML=list.map(a=>{const inc=a.income&&Number(a.income)>0;return `<div class="account-item"><div class="account-type ${inc?'income':'expense'}">${inc?'💚':'🔴'}</div><div class="account-info"><div class="account-partner">${a.partner||a.type}</div><div class="account-items">${a.items||'—'} · ${a.date||''}</div></div><div class="account-right"><div class="account-amount ${inc?'green':'red'}">${inc?'+NT$ '+Number(a.income).toLocaleString():'-NT$ '+Number(a.expense).toLocaleString()}</div><div class="account-status">${a.status||''}</div></div></div>`;}).join('');
+  el.innerHTML=list.map(a=>{const inc=a.income&&Number(a.income)>0;return `<div class="account-item"><div class="account-type ${inc?'income':'expense'}">${inc?'💚':'🔴'}</div><div class="account-info"><div class="account-partner">${a.partner||a.type}</div><div class="account-items">${a.items||'—'} · ${a.date||''}</div>${a.note?`<div class="account-items" style="color:var(--muted);font-size:11px">📝 ${a.note}</div>`:''}</div><div class="account-right"><div class="account-amount ${inc?'green':'red'}">${inc?'+NT$ '+Number(a.income).toLocaleString():'-NT$ '+Number(a.expense).toLocaleString()}</div><div class="account-status">${a.status||''}</div></div></div>`;}).join('');
 }
 
 function closeModal(e){if(!e||e.target===document.getElementById('modal-overlay'))document.getElementById('modal-overlay').classList.remove('open');}
