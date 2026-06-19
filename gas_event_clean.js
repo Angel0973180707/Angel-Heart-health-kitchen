@@ -186,7 +186,8 @@ function handleRequest(e) {
       'getMonthlyReport','getSalesRanking','getInventoryHealth','getMemberStats',
       'sendLowStockNotification','installTriggers',
       'adminEnableReturnMaintenance','adminDisableReturnMaintenance','adminCheckPendingReturns',
-      'adminTestUpdateQty_','adminTestOldCodeCompatibility'
+      'adminTestUpdateQty_','adminTestOldCodeCompatibility',
+      'adminPreviewClearAllTestOrders','adminClearAllTestOrders'
     ];
 
     if (adminActions.includes(action) && !validateSession_(p.session_token)) {
@@ -259,6 +260,8 @@ function handleRequest(e) {
       case 'adminCheckPendingReturns':      return res(adminCheckPendingReturns());
       case 'adminTestUpdateQty_':           return res(adminTestUpdateQty_(p));
       case 'adminTestOldCodeCompatibility': return res(adminTestOldCodeCompatibility());
+      case 'adminPreviewClearAllTestOrders': return res(adminPreviewClearAllTestOrders());
+      case 'adminClearAllTestOrders':        return res(adminClearAllTestOrders(p));
 
       case 'loginAdmin':             return res(loginAdmin(p));
       case 'loginEventAdmin':        return res(loginEventAdmin(p));
@@ -2847,6 +2850,181 @@ function adminSetupPhoneFormats() {
   Logger.log('✅ 完成：' + done.join('、'));
   if (errors.length) Logger.log('⚠️ 錯誤：' + errors.join('、'));
   return { ok: true, done, errors };
+}
+
+// ================================================================
+// 測試訂單清除工具（預覽 + 清除）
+// ================================================================
+
+function adminPreviewClearAllTestOrders() {
+  const orders = getRows(SHEET.ORDERS);
+  const c = COL.ORDERS;
+  const DEDUCTED = ['已確認','已出貨','已付款','已完成'];
+
+  const statusCount = {};
+  const riskyOrders = [];
+  let needsInventoryReturn = 0;
+
+  orders.forEach(r => {
+    if (!r[c.ID]) return;
+    const st = String(r[c.STATUS]);
+    statusCount[st] = (statusCount[st] || 0) + 1;
+    if (DEDUCTED.includes(st)) needsInventoryReturn++;
+    if (st === '處理中' || st === '處理失敗') riskyOrders.push(String(r[c.ID]));
+  });
+
+  const orderIds = new Set(orders.filter(r => r[c.ID]).map(r => String(r[c.ID])));
+  const ptRows = getRows(SHEET.POINTS_LOG);
+  const cp = COL.POINTS_LOG;
+  const PTS_PREFIX = '訂單消費：';
+  const ptsEntries = ptRows.filter(r => {
+    const note = String(r[cp.NOTE] || '');
+    const ref  = String(r[cp.REF_ID] || '');
+    if (note.startsWith(PTS_PREFIX) && orderIds.has(note.slice(PTS_PREFIX.length))) return true;
+    if (ref.startsWith('POS:') && orderIds.has(ref.slice(4))) return true;
+    return false;
+  });
+
+  const accRows = getRows(SHEET.ACCOUNTS);
+  const ca = COL.ACCOUNTS;
+  const relatedAcc = accRows.filter(r => {
+    if (!r[ca.ID]) return false;
+    const items = String(r[ca.ITEMS] || '');
+    return [...orderIds].some(id => items.includes(id));
+  });
+
+  return {
+    ok: true,
+    total_orders: orders.filter(r => r[c.ID]).length,
+    status_breakdown: statusCount,
+    needs_inventory_return: needsInventoryReturn,
+    needs_points_revert: ptsEntries.length,
+    related_accounts: relatedAcc.length,
+    risky_orders: riskyOrders,
+    warning: riskyOrders.length > 0
+      ? '狀態為處理中/處理失敗的訂單庫存狀態不明，清除功能會被阻擋，請先人工處理：' + riskyOrders.join(', ')
+      : null
+  };
+}
+
+function adminClearAllTestOrders(p) {
+  if (p.confirm !== 'YES_CLEAR_ALL_TEST_ORDERS')
+    return { ok: false, error: '請帶 confirm=YES_CLEAR_ALL_TEST_ORDERS 確認清除' };
+
+  const lock = _acquireLock_();
+  if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
+
+  try {
+    const orders = getRows(SHEET.ORDERS);
+    const c = COL.ORDERS;
+    const DEDUCTED = ['已確認','已出貨','已付款','已完成'];
+
+    // 方案 A：發現 risky_orders 直接擋，不做任何清除
+    const riskyOrders = orders
+      .filter(r => r[c.ID] && (String(r[c.STATUS]) === '處理中' || String(r[c.STATUS]) === '處理失敗'))
+      .map(r => String(r[c.ID]));
+    if (riskyOrders.length > 0) {
+      return { ok: false, error: '存在處理中/處理失敗訂單，請先人工處理', risky_orders: riskyOrders };
+    }
+
+    const logSheet = getSheet(SHEET.STOCK_LOG);
+    const ptRows   = getRows(SHEET.POINTS_LOG);
+    const cp = COL.POINTS_LOG;
+    const cm = COL.MEMBERS;
+    const PTS_PREFIX = '訂單消費：';
+    const summary = {
+      orders_cleared: 0,
+      inventory_returned: [],
+      inventory_failed: [],
+      points_reverted: [],
+      points_failed: [],
+      accounts_voided: 0
+    };
+
+    // Step 1：庫存回補 + 點數沖回
+    for (const r of orders) {
+      if (!r[c.ID]) continue;
+      const orderId = String(r[c.ID]);
+      const status  = String(r[c.STATUS]);
+
+      if (DEDUCTED.includes(status)) {
+        try {
+          const items = JSON.parse(r[c.ITEMS] || '[]');
+          for (const item of items) {
+            const qty = parseInt(item.qty) || 0;
+            if (!item.product_id || qty <= 0) continue;
+            const qr = updateQty_(item.product_id, qty, 'in');
+            if (qr.ok) {
+              logSheet.appendRow([
+                genId('L'), item.product_id, item.name || qr.name, '入庫（測試清除）',
+                qty, '', '系統', '[TEST_CLEAR:' + orderId + ']', now(), ''
+              ]);
+              summary.inventory_returned.push(orderId + ':' + item.product_id);
+            } else {
+              summary.inventory_failed.push(orderId + ':' + item.product_id + ':' + qr.error);
+            }
+          }
+        } catch(e) {
+          summary.inventory_failed.push(orderId + ':json_error:' + e.message);
+        }
+      }
+
+      const ptEntry = ptRows.find(pt => {
+        const note = String(pt[cp.NOTE] || '');
+        const ref  = String(pt[cp.REF_ID] || '');
+        return note === PTS_PREFIX + orderId || ref === 'POS:' + orderId;
+      });
+      if (ptEntry) {
+        const phone    = String(ptEntry[cp.PHONE]);
+        const ptsAdded = Number(ptEntry[cp.POINTS]) || 0;
+        if (phone && ptsAdded > 0) {
+          const memRow = findRow(SHEET.MEMBERS, cm.PHONE, phone);
+          const curBal = memRow ? Number(memRow.row[cm.POINTS]) || 0 : 0;
+          const deduct = Math.min(ptsAdded, curBal);
+          if (deduct > 0) {
+            try {
+              const pr = addPoints_({ phone, points: -deduct,
+                note: '[TEST_CLEAR:' + orderId + ']', refId: '' });
+              if (pr.ok) summary.points_reverted.push(orderId + ':' + phone + ':-' + deduct);
+              else summary.points_failed.push(orderId + ':' + phone + ':' + pr.error);
+            } catch(e) {
+              summary.points_failed.push(orderId + ':' + e.message);
+            }
+          }
+        }
+      }
+    }
+
+    // Step 2：相關帳本改「已作廢」（不刪，保留稽核）
+    const accRows = getRows(SHEET.ACCOUNTS);
+    const ca = COL.ACCOUNTS;
+    const accSheet = getSheet(SHEET.ACCOUNTS);
+    const orderIds = new Set(orders.filter(r => r[c.ID]).map(r => String(r[c.ID])));
+    accRows.forEach((r, i) => {
+      if (!r[ca.ID]) return;
+      const items = String(r[ca.ITEMS] || '');
+      if ([...orderIds].some(id => items.includes(id)) && String(r[ca.STATUS]) !== '已作廢') {
+        accSheet.getRange(DATA_ROW + i, ca.STATUS + 1).setValue('已作廢');
+        summary.accounts_voided++;
+      }
+    });
+
+    // Step 3：一次刪除所有訂單列（保留 row 1–2 表頭）
+    const orderSheet = getSheet(SHEET.ORDERS);
+    const lastRow = orderSheet.getLastRow();
+    const validCount = orders.filter(r => r[c.ID]).length;
+    if (lastRow >= DATA_ROW) {
+      orderSheet.deleteRows(DATA_ROW, lastRow - DATA_ROW + 1);
+      summary.orders_cleared = validCount;
+    }
+
+    try { refreshBalance(); } catch(e) {}
+
+    return { ok: true, summary };
+
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ================================================================
