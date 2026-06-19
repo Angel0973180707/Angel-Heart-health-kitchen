@@ -231,12 +231,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-hei
 <!-- CATEGORY TABS -->
 <div class="cat-tabs" id="cat-tabs">
   <div class="cat-chip active" onclick="setCategory('all',this)">全部</div>
-  <div class="cat-chip" onclick="setCategory('養生調理',this)">養生調理</div>
-  <div class="cat-chip" onclick="setCategory('廚房料理區',this)">廚房料理區</div>
-  <div class="cat-chip" onclick="setCategory('養生沖調飲品',this)">飲品</div>
-  <div class="cat-chip" onclick="setCategory('健康食品',this)">健康食品</div>
-  <div class="cat-chip" onclick="setCategory('清潔用品',this)">清潔用品</div>
-  <div class="cat-chip" onclick="setCategory('能量用品',this)">能量用品</div>
 </div>
 
 <!-- PRODUCTS -->
@@ -420,12 +414,19 @@ async function loadProducts(){
   try{
     const r=await fetch(GAS_URL+'?action=getProducts&status=上架');
     const data=await r.json();
-    if(data.ok){products=data.data;renderProducts();}
+    if(data.ok){products=data.data;renderCatChips();renderProducts();}
   }catch(e){
     document.getElementById('product-grid').innerHTML=`<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">😔</div><div class="empty-text">載入失敗，請重新整理</div></div>`;
   }
 }
 
+function renderCatChips(){
+  const cats=[...new Set(products.map(p=>p.category).filter(Boolean))].sort();
+  const tabs=document.getElementById('cat-tabs');if(!tabs)return;
+  tabs.innerHTML='<div class="cat-chip active" onclick="setCategory(\'all\',this)">全部</div>'
+    +cats.map(c=>`<div class="cat-chip" onclick="setCategory('${c.replace(/'/g,"&#39;")}',this)">${c}</div>`).join('');
+  currentCategory='all';
+}
 function setCategory(cat,el){
   currentCategory=cat;
   document.querySelectorAll('.cat-chip').forEach(c=>c.classList.remove('active'));

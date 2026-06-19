@@ -450,7 +450,27 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="chip" onclick="setProdFilter('停用',this)">停用</div>
   </div>
   <div class="search-wrap"><span class="search-icon">🔍</span><input type="text" id="prod-search" placeholder="搜尋商品名稱或分類..." oninput="renderProducts()"></div>
+  <div style="margin-bottom:10px">
+    <button class="btn btn-ghost" style="width:auto;padding:8px 14px;font-size:13px" onclick="toggleCatManager()">📂 管理分類</button>
+  </div>
+  <div id="cat-manager" style="display:none;background:var(--surface2);border-radius:10px;padding:12px;margin-bottom:12px">
+    <div style="font-size:13px;font-weight:600;margin-bottom:8px">分類清單</div>
+    <div id="cat-list"></div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input type="text" id="new-cat-input" placeholder="新增分類名稱" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px">
+      <button class="btn btn-gold" style="width:auto;padding:8px 14px;font-size:13px" onclick="addCategoryPreset()">新增</button>
+    </div>
+  </div>
   <div id="prod-list"><div class="loading">載入中...</div></div>
+  <div style="margin-top:20px;background:var(--surface2);border-radius:10px;padding:14px">
+    <div style="font-size:14px;font-weight:600;margin-bottom:10px">⚙️ 運費設定</div>
+    <div class="field-row">
+      <div class="field"><label>宅配運費（NT$）</label><input type="number" id="cfg-shipping" placeholder="80" min="0"></div>
+      <div class="field"><label>免運門檻（NT$）</label><input type="number" id="cfg-free-threshold" placeholder="1000" min="0"></div>
+    </div>
+    <div class="field"><label>每幾元得 1 點</label><input type="number" id="cfg-points-rate" placeholder="100" min="1"></div>
+    <button class="btn btn-gold" style="margin-top:4px" onclick="saveShippingSettings()">儲存設定</button>
+  </div>
 </div>
 
 <!-- 商品 Modal -->
@@ -654,6 +674,7 @@ async function syncAll(){
     try{const bal=await api({action:'getBalance',session_token:SESSION_TOKEN});if(bal.ok)cache.balance=bal.data;}catch(e){}
     try{const reg=await api({action:'getRegistrations',session_token:SESSION_TOKEN});if(reg.ok)cache.registrations=reg.data;}catch(e){}
     try{const mem=await api({action:'getMember',session_token:SESSION_TOKEN,all:'true'});if(mem.ok)cache.members=mem.data||[];}catch(e){}
+    try{const cfg=await api({action:'getSettings'});if(cfg.ok)cache.settings=cfg.data;}catch(e){}
     localStorage.setItem('yc_cache',JSON.stringify(cache));
     refreshProductDropdowns();renderAll();
     showToast('✅ 同步完成','success');
@@ -778,6 +799,85 @@ function resetForm(type){
   const _info=document.getElementById(type+'-product-info');if(_info)_info.style.display='none';
   if(type==='in'){document.getElementById('in-supplier').value='';document.getElementById('in-threshold').value='';}
   else document.getElementById('out-customer').value='';
+}
+
+// ── 分類管理 ────────────────────────────────────────────
+let _catManagerOpen=false;
+function toggleCatManager(){
+  _catManagerOpen=!_catManagerOpen;
+  document.getElementById('cat-manager').style.display=_catManagerOpen?'':'none';
+  if(_catManagerOpen)renderCategoryManager();
+}
+function getCategoryPresets(){
+  const s=cache.settings||{};
+  const fromSettings=s.product_categories&&s.product_categories.value
+    ?String(s.product_categories.value).split(',').map(x=>x.trim()).filter(Boolean):[];
+  const fromProducts=[...new Set((cache.products||[]).map(p=>p.category).filter(Boolean))];
+  return [...new Set([...fromSettings,...fromProducts])].sort();
+}
+function renderCategoryManager(){
+  const cats=getCategoryPresets();
+  const el=document.getElementById('cat-list');if(!el)return;
+  if(!cats.length){el.innerHTML='<div style="color:var(--muted);font-size:13px">目前沒有分類</div>';return;}
+  el.innerHTML=cats.map(c=>`<div style="display:inline-flex;align-items:center;gap:4px;background:var(--bg);border-radius:16px;padding:4px 10px;margin:3px;font-size:13px">${c}<span onclick="deleteCategoryPreset('${c.replace(/'/g,"&#39;")}')" style="cursor:pointer;color:var(--muted);font-size:11px;margin-left:2px">✕</span></div>`).join('');
+}
+async function addCategoryPreset(){
+  const input=document.getElementById('new-cat-input');
+  const name=input.value.trim();if(!name)return;
+  const existing=getCategoryPresets();
+  if(existing.includes(name)){showToast('分類已存在','error');return;}
+  const newList=[...existing,name].join(',');
+  try{
+    const r=await apiPost({action:'updateSetting',session_token:SESSION_TOKEN,key:'product_categories',value:newList});
+    if(r.ok){
+      if(!cache.settings)cache.settings={};
+      cache.settings.product_categories={value:newList};
+      input.value='';renderCategoryManager();renderProducts();showToast('✅ 分類已新增','success');
+    }else showToast('❌ '+r.error,'error');
+  }catch(e){showToast('⚠️ 網路錯誤','error');}
+}
+async function deleteCategoryPreset(name){
+  const fromProducts=[...new Set((cache.products||[]).map(p=>p.category).filter(Boolean))];
+  if(fromProducts.includes(name)){showToast('此分類有商品使用中，請先修改商品分類','error');return;}
+  const existing=getCategoryPresets();
+  const newList=existing.filter(c=>c!==name).join(',');
+  try{
+    const r=await apiPost({action:'updateSetting',session_token:SESSION_TOKEN,key:'product_categories',value:newList});
+    if(r.ok){
+      if(!cache.settings)cache.settings={};
+      cache.settings.product_categories={value:newList};
+      renderCategoryManager();renderProducts();showToast('✅ 分類已移除','success');
+    }else showToast('❌ '+r.error,'error');
+  }catch(e){showToast('⚠️ 網路錯誤','error');}
+}
+// ── 運費設定 ────────────────────────────────────────────
+function renderSettings(){
+  const s=cache.settings||{};
+  const ship=document.getElementById('cfg-shipping');
+  const free=document.getElementById('cfg-free-threshold');
+  const pts=document.getElementById('cfg-points-rate');
+  if(ship&&s.shipping_fee)ship.value=s.shipping_fee.value??'';
+  if(free&&s.free_shipping_threshold)free.value=s.free_shipping_threshold.value??'';
+  if(pts&&s.points_earn_rate)pts.value=s.points_earn_rate.value??'';
+}
+async function saveShippingSettings(){
+  const ship=document.getElementById('cfg-shipping').value;
+  const free=document.getElementById('cfg-free-threshold').value;
+  const pts=document.getElementById('cfg-points-rate').value;
+  try{
+    const jobs=[];
+    if(ship!=='')jobs.push(apiPost({action:'updateSetting',session_token:SESSION_TOKEN,key:'shipping_fee',value:Number(ship)}));
+    if(free!=='')jobs.push(apiPost({action:'updateSetting',session_token:SESSION_TOKEN,key:'free_shipping_threshold',value:Number(free)}));
+    if(pts!=='') jobs.push(apiPost({action:'updateSetting',session_token:SESSION_TOKEN,key:'points_earn_rate',value:Number(pts)}));
+    const results=await Promise.all(jobs);
+    if(results.every(r=>r.ok)){
+      if(!cache.settings)cache.settings={};
+      if(ship!=='')cache.settings.shipping_fee={value:Number(ship)};
+      if(free!=='')cache.settings.free_shipping_threshold={value:Number(free)};
+      if(pts!=='') cache.settings.points_earn_rate={value:Number(pts)};
+      showToast('✅ 設定已儲存','success');
+    }else showToast('❌ 部分設定儲存失敗','error');
+  }catch(e){showToast('⚠️ 網路錯誤','error');}
 }
 
 function renderDashboard(){
@@ -1534,9 +1634,10 @@ function renderProducts() {
     (p.category || '').toLowerCase().includes(q)
   );
 
-  const cats = [...new Set((cache.products || []).map(p => p.category).filter(Boolean))];
+  const cats = getCategoryPresets();
   const dl = document.getElementById('dl-prod-cats');
   if (dl) dl.innerHTML = cats.map(c => `<option value="${c}">`).join('');
+  renderSettings();
 
   const el = document.getElementById('prod-list');
   if (!el) return;
