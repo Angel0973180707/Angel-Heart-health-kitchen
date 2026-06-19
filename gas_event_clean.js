@@ -295,6 +295,16 @@ function today() {
   return Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd');
 }
 
+function ym_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Taipei', 'yyyy-MM');
+  return String(v || '').slice(0, 7);
+}
+
+function ymd_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Taipei', 'yyyy-MM-dd');
+  return String(v || '').slice(0, 10);
+}
+
 function genId(prefix) {
   return prefix + Date.now();
 }
@@ -2392,7 +2402,7 @@ function getMonthlyReport(p) {
   let revenue = 0, orderCount = 0, cancelCount = 0, pendingCount = 0;
   const productSales = {};
   orders.forEach(r => {
-    if (!r[c.ID] || !String(r[c.CREATED]).startsWith(month)) return;
+    if (!r[c.ID] || ym_(r[c.CREATED]) !== month) return;
     if (r[c.STATUS] === '已取消') { cancelCount++; return; }
     if (!['已付款','已完成'].includes(String(r[c.STATUS]))) { pendingCount++; return; }
     orderCount++;
@@ -2417,7 +2427,7 @@ function getMonthlyReport(p) {
   const ca = COL.ACCOUNTS;
   let cost = 0;
   accounts.forEach(r => {
-    if (String(r[ca.TYPE]) === '進貨付款' && String(r[ca.DATE]).startsWith(month)) {
+    if (String(r[ca.TYPE]) === '進貨付款' && ym_(r[ca.DATE]) === month) {
       cost += Number(r[ca.EXPENSE]) || 0;
     }
   });
@@ -2435,12 +2445,17 @@ function getSalesRanking(p) {
   const rank = {};
   orders.forEach(r => {
     if (!r[c.ID] || String(r[c.STATUS]) === '已取消') return;
-    if (String(r[c.CREATED]).slice(0,10) < cutStr) return;
+    if (ymd_(r[c.CREATED]) < cutStr) return;
     try {
+      const note = String(r[c.NOTE] || '');
+      const isNonRevenue =
+        note.includes('[sale_type:self_use]') ||
+        note.includes('[sale_type:gift]') ||
+        note.includes('[sale_type:sample]');
       JSON.parse(r[c.ITEMS] || '[]').forEach(it => {
         if (!rank[it.product_id]) rank[it.product_id] = { name: it.name||it.product_id, qty: 0, revenue: 0 };
         rank[it.product_id].qty     += Number(it.qty) || 0;
-        rank[it.product_id].revenue += (Number(it.price)||0) * (Number(it.qty)||0);
+        rank[it.product_id].revenue += isNonRevenue ? 0 : (Number(it.price)||0) * (Number(it.qty)||0);
       });
     } catch(e) {}
   });
