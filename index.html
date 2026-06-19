@@ -384,21 +384,43 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div id="reg-list"><div class="loading">載入中...</div></div>
 </div>
 
-<!-- 報表 -->
+<!-- report -->
 <div class="page" id="page-reports">
-  <div class="stats-grid" id="report-summary">
-    <div class="stat-card"><div class="stat-label">本月訂單</div><div class="stat-value gold" id="r-orders">—</div></div>
-    <div class="stat-card"><div class="stat-label">本月收入</div><div class="stat-value green" id="r-revenue">—</div></div>
-    <div class="stat-card"><div class="stat-label">本月進貨成本</div><div class="stat-value red" id="r-cost">—</div></div>
-    <div class="stat-card"><div class="stat-label">本月毛利</div><div class="stat-value gold" id="r-profit">—</div></div>
-    <div class="stat-card wide"><div class="stat-label">低庫存 / 零庫存</div><div class="stat-value red" id="r-lowstock">— / —</div></div>
+  <div style="display:flex;gap:8px;margin-bottom:14px;align-items:center">
+    <input type="month" id="report-month" class="form-input" style="flex:1" onchange="loadReport()">
+    <button class="btn btn-gold" onclick="loadReport()" style="padding:10px 14px">Refresh</button>
   </div>
-  <div class="section-title">🏆 熱銷排行（近 30 天）</div>
-  <div id="r-ranking"><div class="loading">載入中...</div></div>
+
+  <div class="stats-grid" id="report-summary">
+    <div class="stat-card">
+      <div class="stat-label">Revenue</div>
+      <div class="stat-value green" id="r-revenue">--</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Cost</div>
+      <div class="stat-value red" id="r-cost">--</div>
+    </div>
+    <div class="stat-card wide">
+      <div class="stat-label">Profit</div>
+      <div class="stat-value gold" id="r-profit">--</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Orders</div>
+      <div class="stat-value gold" id="r-orders">--</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Pending</div>
+      <div class="stat-value" id="r-pending">--</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Cancelled</div>
+      <div class="stat-value" id="r-cancelled">--</div>
+    </div>
+  </div>
+
   <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
-    <button class="btn btn-gold" onclick="loadReport()">🔄 重新載入報表</button>
-    <button class="btn btn-ghost" onclick="triggerLowStockNotify()">📦 立即推送低庫存通知</button>
-    <button class="btn btn-ghost" onclick="runInstallTriggers()">⏰ 安裝定時通知（每日9點+每月1日）</button>
+    <button class="btn btn-ghost" onclick="triggerLowStockNotify()">Low stock notify</button>
+    <button class="btn btn-ghost" onclick="runInstallTriggers()">Install triggers</button>
   </div>
 </div>
 
@@ -1886,37 +1908,42 @@ async function submitMember(){
   } else showToast('❌ '+r.error,'error');
 }
 
-// ── 報表 ──
-async function loadReport(){
-  const thisMonth=new Date().toISOString().slice(0,7);
-  try{
-    const [rep,rank,health]=await Promise.all([
-      api({action:'getMonthlyReport',session_token:SESSION_TOKEN,month:thisMonth}),
-      api({action:'getSalesRanking',session_token:SESSION_TOKEN,days:'30',limit:'10'}),
-      api({action:'getInventoryHealth',session_token:SESSION_TOKEN})
-    ]);
-    if(rep.ok){
-      const d=rep.data;
-      document.getElementById('r-orders').textContent=d.order_count+'（取消'+d.cancel_count+'）';
-      document.getElementById('r-revenue').textContent='NT$ '+Number(d.revenue).toLocaleString();
-      document.getElementById('r-cost').textContent='NT$ '+Number(d.cost).toLocaleString();
-      document.getElementById('r-profit').textContent='NT$ '+Number(d.profit).toLocaleString();
+// -- report --
+function getSelectedReportMonth() {
+  var el = document.getElementById('report-month');
+  if (el && el.value) return el.value;
+  return new Date().toISOString().slice(0, 7);
+}
+
+async function loadReport() {
+  var month = getSelectedReportMonth();
+  var el = document.getElementById('report-month');
+  if (el && !el.value) el.value = month;
+
+  try {
+    var rep = await api({
+      action: 'getMonthlyReport',
+      session_token: SESSION_TOKEN,
+      month: month
+    });
+
+    if (!rep.ok) {
+      showToast('Report failed', 'error');
+      return;
     }
-    if(health.ok){
-      document.getElementById('r-lowstock').textContent=health.low_stock.length+' / '+health.zero_stock.length;
-    }
-    if(rank.ok&&rank.data.length){
-      document.getElementById('r-ranking').innerHTML=`<div style="display:flex;flex-direction:column;gap:7px">`+
-        rank.data.map((x,i)=>`
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);padding:11px 13px;display:flex;justify-content:space-between;align-items:center">
-            <div><span style="font-size:13px;color:var(--gold);font-weight:800;margin-right:8px">#${i+1}</span><span style="font-size:14px;font-weight:600">${x.name}</span></div>
-            <div style="text-align:right"><div style="font-size:13px;font-weight:700;color:var(--green)">${x.qty} 件</div><div style="font-size:11px;color:var(--dim)">NT$ ${Number(x.revenue).toLocaleString()}</div></div>
-          </div>`).join('')+`</div>`;
-    } else if(rank.ok){
-      document.getElementById('r-ranking').innerHTML='<div class="empty-state"><div class="empty-icon">📊</div><div class="empty-text">近 30 天尚無銷售記錄</div></div>';
-    }
-    showToast('✅ 報表已更新','success');
-  }catch(e){showToast('⚠️ 載入報表失敗','error');}
+
+    var d = rep.data || {};
+    document.getElementById('r-revenue').textContent   = 'NT$ ' + Number(d.revenue || 0).toLocaleString();
+    document.getElementById('r-cost').textContent      = 'NT$ ' + Number(d.cost || 0).toLocaleString();
+    document.getElementById('r-profit').textContent    = 'NT$ ' + Number(d.profit || 0).toLocaleString();
+    document.getElementById('r-orders').textContent    = d.order_count || 0;
+    document.getElementById('r-pending').textContent   = d.pending_count || 0;
+    document.getElementById('r-cancelled').textContent = d.cancel_count || 0;
+
+    showToast('Report loaded', 'success');
+  } catch(e) {
+    showToast('Report failed', 'error');
+  }
 }
 
 async function triggerLowStockNotify(){
