@@ -285,7 +285,41 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="chip" onclick="setFilter('能量用品',this)">能量用品</div>
     <div class="chip" onclick="setFilter('養生沖調飲品',this)">飲品</div>
   </div>
+  <div style="margin-bottom:12px">
+    <button class="btn btn-gold" onclick="openAdjustInventoryModal()" style="width:100%;padding:12px">📦 庫存調整 / 盤點</button>
+  </div>
   <div class="inv-list" id="inv-list"><div class="loading">載入中...</div></div>
+</div>
+
+<!-- inventory adjust modal -->
+<div class="modal-overlay" id="adjust-modal" style="display:none" onclick="if(event.target===this)closeAdjustInventoryModal()">
+  <div class="modal-box">
+    <div class="modal-title">Inventory Adjust</div>
+    <label class="form-label">Product</label>
+    <select id="adj-product" class="form-input" onchange="onAdjustProductChange()">
+      <option value="">-- select product --</option>
+    </select>
+    <label class="form-label">Current qty</label>
+    <input type="number" id="adj-old-qty" class="form-input" readonly style="background:#f5f5f5;color:#888">
+    <label class="form-label">New qty</label>
+    <input type="number" id="adj-new-qty" class="form-input" min="0" placeholder="enter actual qty">
+    <label class="form-label">Reason</label>
+    <select id="adj-reason" class="form-input">
+      <option value="">-- select reason --</option>
+      <option value="audit">Audit</option>
+      <option value="test_fix">Test fix</option>
+      <option value="loss">Loss</option>
+      <option value="self_use">Self use</option>
+      <option value="gift">Gift</option>
+      <option value="other">Other</option>
+    </select>
+    <label class="form-label">Note (optional)</label>
+    <input type="text" id="adj-note" class="form-input" placeholder="e.g. annual audit">
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn btn-ghost" onclick="closeAdjustInventoryModal()" style="flex:1">Cancel</button>
+      <button class="btn btn-gold" id="adj-save-btn" onclick="saveAdjustInventory()" style="flex:1">Confirm</button>
+    </div>
+  </div>
 </div>
 
 <!-- 記錄 -->
@@ -1207,6 +1241,67 @@ function downloadAccountsCsv(){
 }
 
 function closeModal(e){if(!e||e.target===document.getElementById('modal-overlay'))document.getElementById('modal-overlay').classList.remove('open');}
+
+// -- inventory adjust --
+let inventoryAdjustSaving = false;
+function resetAdjustSavingState() {
+  inventoryAdjustSaving = false;
+  const btn = document.getElementById('adj-save-btn');
+  if (btn) { btn.disabled = false; btn.textContent = 'Confirm'; }
+}
+function openAdjustInventoryModal() {
+  const sel = document.getElementById('adj-product');
+  sel.innerHTML = '<option value="">-- select product --</option>';
+  (cache.inventory || []).slice().sort((a,b)=>a.name.localeCompare(b.name,'zh-TW')).forEach(function(p) {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name + ' [qty:' + p.qty + ']';
+    sel.appendChild(opt);
+  });
+  document.getElementById('adj-old-qty').value = '';
+  document.getElementById('adj-new-qty').value = '';
+  document.getElementById('adj-reason').value = '';
+  document.getElementById('adj-note').value = '';
+  resetAdjustSavingState();
+  document.getElementById('adjust-modal').style.display = 'flex';
+}
+function closeAdjustInventoryModal() {
+  document.getElementById('adjust-modal').style.display = 'none';
+}
+function onAdjustProductChange() {
+  const pid = document.getElementById('adj-product').value;
+  const item = (cache.inventory || []).find(function(p){ return p.id === pid; });
+  document.getElementById('adj-old-qty').value = item ? item.qty : '';
+}
+async function saveAdjustInventory() {
+  if (inventoryAdjustSaving) return;
+  const pid    = document.getElementById('adj-product').value;
+  const newQty = document.getElementById('adj-new-qty').value;
+  const reason = document.getElementById('adj-reason').value;
+  const note   = document.getElementById('adj-note').value.trim();
+  if (!pid)    { showToast('select product', 'error'); return; }
+  if (newQty === '') { showToast('enter new qty', 'error'); return; }
+  if (!reason) { showToast('select reason', 'error'); return; }
+  const nq = Number(newQty);
+  if (!Number.isInteger(nq) || nq < 0) { showToast('qty must be >= 0', 'error'); return; }
+  if (nq === 0 && !confirm('Set qty to 0, confirm?')) return;
+  inventoryAdjustSaving = true;
+  const btn = document.getElementById('adj-save-btn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  try {
+    const r = await apiPost({ action: 'adjustInventory', session_token: SESSION_TOKEN,
+                               product_id: pid, new_qty: nq, reason: reason, note: note });
+    if (!r.ok) { showToast('Error: ' + (r.error || 'adjust failed'), 'error'); return; }
+    const sign = r.diff >= 0 ? '+' : '';
+    showToast('adj: ' + r.old_qty + ' -> ' + r.new_qty + ' (' + sign + r.diff + ')');
+    closeAdjustInventoryModal();
+    await syncAll();
+  } catch(e) {
+    showToast('network error, retry', 'error');
+  } finally {
+    resetAdjustSavingState();
+  }
+}
 
 const ACC_INCOME_TYPES=new Set(['其他收入','其他現場收款']);
 let accountSaving=false;

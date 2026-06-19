@@ -173,7 +173,7 @@ function handleRequest(e) {
 
     const adminActions = [
       'addProduct','updateProduct','deleteProduct',
-      'stockIn','stockOut','syncInventory',
+      'stockIn','stockOut','syncInventory','adjustInventory',
       'getOrders','addPosSale','updateOrder','confirmOrderPayment','cancelOrder','applyPointsDiscount',
       'getAccounts','addAccount','updateAccount',
       'getBalance','refreshBalance',
@@ -202,6 +202,7 @@ function handleRequest(e) {
       case 'stockIn':            return res(stockIn(p));
       case 'stockOut':           return res(stockOut(p));
       case 'syncInventory':      return res(syncInventory());
+      case 'adjustInventory':    return res(adjustInventory(p));
 
       case 'getStockLog':        return res(getStockLog(p));
 
@@ -563,6 +564,66 @@ function syncInventory() {
     }
   });
   return { ok: true, added };
+}
+
+function adjustInventory(p) {
+  var VALID_REASONS = ['audit', 'test_fix', 'loss', 'self_use', 'gift', 'other'];
+  var productId = String(p.product_id || '').trim();
+  var newQty    = p.new_qty;
+  var reason    = String(p.reason || '').trim();
+  var note      = String(p.note || '').trim();
+
+  if (!productId) return { ok: false, error: 'missing product_id' };
+  if (newQty === undefined || newQty === null || newQty === '') return { ok: false, error: 'missing new_qty' };
+  newQty = Number(newQty);
+  if (!Number.isInteger(newQty) || newQty < 0) return { ok: false, error: 'new_qty must be non-negative integer' };
+  if (VALID_REASONS.indexOf(reason) === -1) return { ok: false, error: 'invalid reason' };
+
+  var opId     = generateId_('ADJ');
+  var logId    = generateId_('SLOG');
+  var invSheet = getSheet(SHEET.INVENTORY);
+  var ci       = COL.INVENTORY;
+
+  var lock = _acquireLock_();
+  if (!lock) return { ok: false, error: 'system busy, please retry' };
+  try {
+    var invRows = invSheet.getDataRange().getValues();
+    var rowIdx  = -1;
+    for (var i = 1; i < invRows.length; i++) {
+      if (String(invRows[i][ci.ID]) === productId) { rowIdx = i; break; }
+    }
+    if (rowIdx === -1) return { ok: false, error: 'product not found' };
+
+    var productName = invRows[rowIdx][ci.NAME];
+    var oldQty      = Number(invRows[rowIdx][ci.QTY]) || 0;
+    var diff        = newQty - oldQty;
+    if (diff === 0) return { ok: false, error: 'no change in qty' };
+
+    var dataRow = rowIdx + 1;
+    invSheet.getRange(dataRow, ci.QTY      + 1).setValue(newQty);
+    invSheet.getRange(dataRow, ci.UPDATED  + 1).setValue(now());
+    invSheet.getRange(dataRow, ci.LAST_OP_ID + 1).setValue(opId);
+
+    var noteText = '[ADJUST:' + reason + '] ' + oldQty + ' -> ' + newQty +
+                   ' (diff ' + (diff >= 0 ? '+' : '') + diff + ')' +
+                   (note ? ' ' + note : '');
+    getSheet(SHEET.STOCK_LOG).appendRow([
+      logId,
+      productId,
+      productName,
+      'adjust',
+      diff,
+      '',
+      'stock-adjust',
+      noteText,
+      now(),
+      'ADJUST:' + opId
+    ]);
+  } finally {
+    lock.releaseLock();
+  }
+
+  return { ok: true, product_id: productId, old_qty: oldQty, new_qty: newQty, diff: diff, reason: reason };
 }
 
 // ================================================================
