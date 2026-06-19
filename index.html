@@ -445,6 +445,27 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     </div>
   </div>
 
+  <div class="section-title" style="margin-top:18px">Inventory Movements</div>
+  <div class="stats-grid" id="r-stock-movement">
+    <div class="stat-card">
+      <div class="stat-label">Stock in</div>
+      <div class="stat-value green" id="r-stock-in">--</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Stock out</div>
+      <div class="stat-value red" id="r-stock-out">--</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Adjust count</div>
+      <div class="stat-value" id="r-adjust-count">--</div>
+    </div>
+    <div class="stat-card wide">
+      <div class="stat-label">Adjust diff</div>
+      <div class="stat-value" id="r-adjust-diff">--</div>
+    </div>
+  </div>
+  <div id="r-stock-log-list"></div>
+
   <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
     <button class="btn btn-ghost" onclick="triggerLowStockNotify()">Low stock notify</button>
     <button class="btn btn-ghost" onclick="runInstallTriggers()">Install triggers</button>
@@ -1969,6 +1990,7 @@ async function loadReport() {
 
     renderReportRanking(d.top_products || []);
     renderNonRevenueStats(month);
+    renderInventoryMovementSummary(month);
 
     showToast('Report loaded', 'success');
   } catch(e) {
@@ -2036,6 +2058,74 @@ function renderNonRevenueStats(month) {
   document.getElementById('r-gift').textContent        = counts.gift;
   document.getElementById('r-sample').textContent      = counts.sample;
   document.getElementById('r-nonrev-total').textContent = total;
+}
+
+function renderInventoryMovementSummary(month) {
+  var stockIn = 0;
+  var stockOut = 0;
+  var adjustCount = 0;
+  var adjustDiff = 0;
+
+  var logs = (cache.stockLog || []).filter(function(l) {
+    return l && l.created_at && String(l.created_at).slice(0, 7) === month;
+  });
+
+  logs.forEach(function(l) {
+    var type = String(l.type || '');
+    var note = String(l.note || '');
+    var qty = Number(l.qty || 0);
+
+    var isAdjust = type === 'adjust' || note.indexOf('[ADJUST:') >= 0;
+    var isOut = type === '出庫' || type === 'stockOut' || type === 'out' || note.indexOf('[POS:') >= 0 || qty < 0;
+    var isIn = type === '入庫' || type === 'stockIn' || type === 'in' || qty > 0;
+
+    if (isAdjust) {
+      adjustCount++;
+      adjustDiff += qty;
+      return;
+    }
+
+    if (isOut) {
+      stockOut += Math.abs(qty);
+      return;
+    }
+
+    if (isIn) {
+      stockIn += Math.abs(qty);
+      return;
+    }
+  });
+
+  document.getElementById('r-stock-in').textContent     = stockIn;
+  document.getElementById('r-stock-out').textContent    = stockOut;
+  document.getElementById('r-adjust-count').textContent = adjustCount;
+  document.getElementById('r-adjust-diff').textContent  = (adjustDiff >= 0 ? '+' : '') + adjustDiff;
+
+  renderRecentStockLogs(logs);
+}
+
+function renderRecentStockLogs(logs) {
+  var el = document.getElementById('r-stock-log-list');
+  if (!el) return;
+
+  var recent = (logs || []).slice(0, 10);
+
+  if (!recent.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-text">No inventory movements</div></div>';
+    return;
+  }
+
+  el.innerHTML = '<div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">' +
+    recent.map(function(l) {
+      var qty = Number(l.qty || 0);
+      var sign = qty >= 0 ? '+' : '';
+      return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);padding:9px 12px;font-size:13px;display:flex;justify-content:space-between;gap:8px">' +
+        '<div><span style="color:var(--dim);margin-right:6px">' + String(l.created_at || '').slice(5, 10) + '</span>' +
+        '<span>' + (l.name || l.product_id || '-') + '</span>' +
+        '<span style="color:var(--dim);margin-left:6px;font-size:11px">[' + (l.type || '-') + ']</span></div>' +
+        '<div style="font-weight:700">' + sign + qty + '</div>' +
+      '</div>';
+    }).join('') + '</div>';
 }
 
 async function triggerLowStockNotify(){
