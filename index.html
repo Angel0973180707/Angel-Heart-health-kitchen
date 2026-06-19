@@ -418,6 +418,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     </div>
   </div>
 
+  <div class="section-title" style="margin-top:18px">Top Products</div>
+  <div id="r-ranking">
+    <div class="empty-state">
+      <div class="empty-text">No sales data</div>
+    </div>
+  </div>
+
   <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
     <button class="btn btn-ghost" onclick="triggerLowStockNotify()">Low stock notify</button>
     <button class="btn btn-ghost" onclick="runInstallTriggers()">Install triggers</button>
@@ -1940,10 +1947,41 @@ async function loadReport() {
     document.getElementById('r-pending').textContent   = d.pending_count || 0;
     document.getElementById('r-cancelled').textContent = d.cancel_count || 0;
 
+    renderReportRanking(d.top_products || []);
+
     showToast('Report loaded', 'success');
   } catch(e) {
     showToast('Report failed', 'error');
   }
+}
+
+function renderReportRanking(products) {
+  var el = document.getElementById('r-ranking');
+  if (!el) return;
+
+  var list = Array.isArray(products) ? products.slice() : [];
+  list = list.filter(function(x) {
+    return x && (Number(x.qty || 0) > 0 || Number(x.revenue || 0) > 0);
+  });
+
+  list.sort(function(a, b) {
+    return Number(b.revenue || 0) - Number(a.revenue || 0);
+  });
+
+  if (!list.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-text">No sales data</div></div>';
+    return;
+  }
+
+  el.innerHTML = '<div style="display:flex;flex-direction:column;gap:7px">' +
+    list.map(function(x, i) {
+      return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);padding:11px 13px;display:flex;justify-content:space-between;align-items:center">' +
+        '<div><span style="font-size:13px;color:var(--gold);font-weight:800;margin-right:8px">#' + (i + 1) + '</span>' +
+        '<span style="font-size:14px;font-weight:600">' + (x.name || x.product_id || '-') + '</span></div>' +
+        '<div style="text-align:right"><div style="font-size:13px;font-weight:700;color:var(--green)">' + Number(x.qty || 0).toLocaleString() + ' qty</div>' +
+        '<div style="font-size:11px;color:var(--dim)">NT$ ' + Number(x.revenue || 0).toLocaleString() + '</div></div>' +
+      '</div>';
+    }).join('') + '</div>';
 }
 
 async function triggerLowStockNotify(){
