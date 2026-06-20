@@ -2534,7 +2534,7 @@ function sendMonthlyReport() {
   const prev   = new Date(); prev.setMonth(prev.getMonth() - 1);
   const pMonth = Utilities.formatDate(prev, 'Asia/Taipei', 'yyyy-MM');
   const r      = getMonthlyReport({ month: pMonth }).data;
-  const msg    = `📊 ${pMonth} 月結報表\n訂單數：${r.order_count}（取消 ${r.cancel_count}）\n收入：NT$ ${Number(r.revenue).toLocaleString()}\n進貨成本：NT$ ${Number(r.cost).toLocaleString()}\n毛利：NT$ ${Number(r.profit).toLocaleString()}\n\n熱銷商品 Top 3：\n${(r.top_products||[]).slice(0,3).map((x,i)=>`${i+1}. ${x.name}（${x.qty}件）`).join('\n')||'—'}\n\n報表產生時間：${now()}`;
+  const msg    = `📊 ${pMonth} 月結報表\n訂單數：${r.order_count}（取消 ${r.cancel_count}）\n收入：NT$ ${Number(r.revenue).toLocaleString()}\n進貨成本：NT$ ${Number(r.cost).toLocaleString()}\n淨收支：NT$ ${Number(r.profit).toLocaleString()}\n\n熱銷商品 Top 3：\n${(r.top_products||[]).slice(0,3).map((x,i)=>`${i+1}. ${x.name}（${x.qty}件）`).join('\n')||'—'}\n\n報表產生時間：${now()}`;
   sendLineMsg(msg);
   return { ok: true };
 }
