@@ -1252,7 +1252,7 @@ function refreshBalance() {
         if (status === '已付款' || status === '已完成') { totalExpense += expense; }
         if (status === '待收款') { receivable   += income;  }
         if (status === '待付款') { payable       += expense; }
-        if (String(r[c.DATE]).startsWith(thisMonth)) {
+        if (ym_(r[c.DATE]) === thisMonth) {
           if (status === '已收款') { monthIncome  += income;  }
           if (status === '已付款' || status === '已完成') { monthExpense += expense; }
         }
