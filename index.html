@@ -1420,7 +1420,7 @@ function openAccModal(){
   document.getElementById('am-income').value='';
   document.getElementById('am-expense').value='';
   document.getElementById('am-payment').value='現金';
-  document.getElementById('am-status').value='已收款';
+  updateAccStatusOptions('其他收入');
   document.getElementById('am-note').value='';
   document.getElementById('acc-modal-overlay').classList.add('open');
 }
@@ -1431,9 +1431,15 @@ function closeAccModal(e,force){
     document.getElementById('acc-modal-overlay').classList.remove('open');
   }
 }
+function updateAccStatusOptions(type){
+  const isIncome=ACC_INCOME_TYPES.has(type);
+  const opts=isIncome?[['已收款','已收款'],['待收款','待收款']]:[['已付款','已付款'],['待付款','待付款']];
+  const sel=document.getElementById('am-status');
+  sel.innerHTML=opts.map(([v,t])=>`<option value="${v}">${t}</option>`).join('');
+  sel.value=isIncome?'已收款':'已付款';
+}
 function onAccTypeChange(){
-  const type=document.getElementById('am-type').value;
-  document.getElementById('am-status').value=ACC_INCOME_TYPES.has(type)?'已收款':'已付款';
+  updateAccStatusOptions(document.getElementById('am-type').value);
 }
 function onAccAmountInput(changed){
   if(changed==='income'&&Number(document.getElementById('am-income').value)>0)
