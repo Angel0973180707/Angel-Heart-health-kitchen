@@ -2143,43 +2143,43 @@ function downloadReportCsv() {
   var month = getSelectedReportMonth();
   var rows = [];
 
-  rows.push(['Section', 'Field', 'Value']);
-  rows.push(['Summary', 'Month',     month]);
-  rows.push(['Summary', 'Revenue',   document.getElementById('r-revenue').textContent]);
-  rows.push(['Summary', 'Cost',      document.getElementById('r-cost').textContent]);
-  rows.push(['Summary', 'Profit',    document.getElementById('r-profit').textContent]);
-  rows.push(['Summary', 'Orders',    document.getElementById('r-orders').textContent]);
-  rows.push(['Summary', 'Pending',   document.getElementById('r-pending').textContent]);
-  rows.push(['Summary', 'Cancelled', document.getElementById('r-cancelled').textContent]);
+  rows.push(['區段', '項目', '數值']);
+  rows.push(['報表總覽', '月份',     month]);
+  rows.push(['報表總覽', '營收',   document.getElementById('r-revenue').textContent]);
+  rows.push(['報表總覽', '成本',      document.getElementById('r-cost').textContent]);
+  rows.push(['報表總覽', '毛利',    document.getElementById('r-profit').textContent]);
+  rows.push(['報表總覽', '訂單數',    document.getElementById('r-orders').textContent]);
+  rows.push(['報表總覽', '待處理',   document.getElementById('r-pending').textContent]);
+  rows.push(['報表總覽', '已取消', document.getElementById('r-cancelled').textContent]);
   rows.push([]);
 
-  rows.push(['Top Products', 'Name', 'Qty', 'Revenue']);
+  rows.push(['商品銷售排行', '商品名稱', '數量', '營收']);
   var products = lastReportData && Array.isArray(lastReportData.top_products) ? lastReportData.top_products : [];
   products.forEach(function(p) {
-    rows.push(['Top Products', p.name || p.product_id || '-', p.qty || 0, p.revenue || 0]);
+    rows.push(['商品銷售排行', p.name || p.product_id || '-', p.qty || 0, p.revenue || 0]);
   });
   rows.push([]);
 
   var nonrev = calcNonRevenueStats(month);
-  rows.push(['Non-Revenue', 'Type', 'Qty']);
-  rows.push(['Non-Revenue', 'Self use', nonrev.self_use]);
-  rows.push(['Non-Revenue', 'Gift',     nonrev.gift]);
-  rows.push(['Non-Revenue', 'Sample',   nonrev.sample]);
-  rows.push(['Non-Revenue', 'Total',    nonrev.total]);
+  rows.push(['非營收出貨', '類型', '數量']);
+  rows.push(['非營收出貨', '自用', nonrev.self_use]);
+  rows.push(['非營收出貨', '贈送',     nonrev.gift]);
+  rows.push(['非營收出貨', '樣品',   nonrev.sample]);
+  rows.push(['非營收出貨', '合計',    nonrev.total]);
   rows.push([]);
 
   var movement = calcInventoryMovementStats(month);
-  rows.push(['Inventory Movements', 'Field', 'Value']);
-  rows.push(['Inventory Movements', 'Stock in',     movement.stockIn]);
-  rows.push(['Inventory Movements', 'Stock out',    movement.stockOut]);
-  rows.push(['Inventory Movements', 'Adjust count', movement.adjustCount]);
-  rows.push(['Inventory Movements', 'Adjust diff',  movement.adjustDiff]);
+  rows.push(['庫存異動', '項目', '數值']);
+  rows.push(['庫存異動', '入庫',     movement.stockIn]);
+  rows.push(['庫存異動', '出庫',    movement.stockOut]);
+  rows.push(['庫存異動', '盤點次數', movement.adjustCount]);
+  rows.push(['庫存異動', '盤點差異',  movement.adjustDiff]);
   rows.push([]);
 
-  rows.push(['Recent Movements', 'Date', 'Product', 'Type', 'Qty', 'Note']);
+  rows.push(['近期庫存異動', '日期', '商品', '類型', '數量', '備註']);
   movement.logs.slice(0, 10).forEach(function(l) {
     rows.push([
-      'Recent Movements',
+      '近期庫存異動',
       l.created_at || '',
       l.name || l.product_id || '-',
       l.type || '',
