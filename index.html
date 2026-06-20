@@ -1083,8 +1083,8 @@ async function saveShippingSettings(){
 }
 
 function renderDashboard(){
-  const inv=cache.inventory;const low=inv.filter(p=>p.qty>0&&p.qty<=p.threshold);const zero=inv.filter(p=>p.qty===0);const bal=cache.balance;
-  document.getElementById('s-total').textContent=cache.products.length||'0';
+  const inv=(cache.inventory||[]).filter(p=>p.status==='上架');const low=inv.filter(p=>p.qty>0&&p.qty<=p.threshold);const zero=inv.filter(p=>p.qty===0);const bal=cache.balance;
+  document.getElementById('s-total').textContent=(cache.products||[]).filter(p=>p.status==='上架').length||'0';
   document.getElementById('s-low').textContent=low.length+zero.length;
   document.getElementById('s-income').textContent=bal['本月收入']?'NT$ '+Number(bal['本月收入']).toLocaleString():'NT$ 0';
   document.getElementById('s-expense').textContent=bal['本月支出']?'NT$ '+Number(bal['本月支出']).toLocaleString():'NT$ 0';
