@@ -216,7 +216,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="stat-card"><div class="stat-label">低庫存警示</div><div class="stat-value red" id="s-low">—</div><div class="stat-sub">項需補貨</div></div>
     <div class="stat-card"><div class="stat-label">本月收入</div><div class="stat-value green" id="s-income">—</div></div>
     <div class="stat-card"><div class="stat-label">本月支出</div><div class="stat-value blue" id="s-expense">—</div></div>
-    <div class="stat-card wide"><div class="stat-label">本月淨利</div><div class="stat-value gold" id="s-profit">NT$ —</div></div>
+    <div class="stat-card wide"><div class="stat-label">本月淨收支</div><div class="stat-value gold" id="s-profit">NT$ —</div></div>
     <div class="stat-card"><div class="stat-label">待審核報名</div><div class="stat-value gold" id="s-pending-regs">—</div><div class="stat-sub">筆待審核</div></div>
     <div class="stat-card"><div class="stat-label">本月新會員</div><div class="stat-value green" id="s-new-members">—</div><div class="stat-sub">人加入</div></div>
   </div>
@@ -401,7 +401,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       <div class="stat-value red" id="r-cost">--</div>
     </div>
     <div class="stat-card wide">
-      <div class="stat-label">毛利</div>
+      <div class="stat-label">淨收支</div>
       <div class="stat-value gold" id="r-profit">--</div>
     </div>
     <div class="stat-card">
@@ -1281,7 +1281,7 @@ function renderAccounts(){
     <div class="stat-card"><div class="stat-label">本月支出</div><div class="stat-value red">${bal['本月支出']?'NT$ '+Number(bal['本月支出']).toLocaleString():'NT$ 0'}</div></div>
     <div class="stat-card"><div class="stat-label">應收帳款</div><div class="stat-value gold">${bal['應收帳款']?'NT$ '+Number(bal['應收帳款']).toLocaleString():'NT$ 0'}</div></div>
     <div class="stat-card"><div class="stat-label">應付帳款</div><div class="stat-value blue">${bal['應付帳款']?'NT$ '+Number(bal['應付帳款']).toLocaleString():'NT$ 0'}</div></div>
-    <div class="stat-card wide"><div class="stat-label">累計淨利</div><div class="stat-value gold">${bal['淨利']?'NT$ '+Number(bal['淨利']).toLocaleString():'NT$ 0'}</div></div>`;
+    <div class="stat-card wide"><div class="stat-label">累計淨收支</div><div class="stat-value gold">${bal['淨利']?'NT$ '+Number(bal['淨利']).toLocaleString():'NT$ 0'}</div></div>`;
   let list=accFilter==='all'?cache.accounts:cache.accounts.filter(a=>a.type===accFilter);
   const month=(document.getElementById('acc-month-filter')||{}).value||'';
   if(month) list=list.filter(a=>String(a.date||a.created_at||'').startsWith(month));
