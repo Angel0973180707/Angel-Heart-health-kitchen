@@ -1468,8 +1468,13 @@ async function saveAccModal(){
     });
     if(!r.ok){showToast('❌ '+(r.error||'新增失敗'),'error');return;}
     document.getElementById('acc-modal-overlay').classList.remove('open');
-    showToast('✅ 帳目已新增');
-    await syncAll();
+    showToast('✅ 帳目已新增，正在更新統計...');
+    try{
+      await syncAll();
+      showToast('✅ 統計已更新');
+    }catch(se){
+      showToast('帳目已新增，統計稍後同步', 'error');
+    }
   }catch(e){showToast('⚠️ 網路錯誤','error');}
   finally{
     resetAccSavingState();
