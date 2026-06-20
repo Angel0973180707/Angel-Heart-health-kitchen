@@ -2422,14 +2422,23 @@ function getMonthlyReport(p) {
     } catch(e) {}
   });
 
-  // 進貨成本
+  // 進貨成本 + 手動其他收入/支出
   const accounts = getRows(SHEET.ACCOUNTS);
   const ca = COL.ACCOUNTS;
   let cost = 0;
+  const _OI = new Set(['其他收入', '其他現場收款']);
+  const _OE = new Set(['其他支出', '雜項支出']);
   accounts.forEach(r => {
-    if (String(r[ca.TYPE]) === '進貨付款' && ym_(r[ca.DATE]) === month) {
+    if (ym_(r[ca.DATE]) !== month) return;
+    const type = String(r[ca.TYPE] || '').trim();
+    if (type === '進貨付款') {
+      cost += Number(r[ca.EXPENSE]) || 0;
+    } else if (_OI.has(type)) {
+      revenue += Number(r[ca.INCOME]) || 0;
+    } else if (_OE.has(type)) {
       cost += Number(r[ca.EXPENSE]) || 0;
     }
+    // '銷售收款' 不計入：ORDERS 已算，避免重複
   });
 
   const topProducts = Object.values(productSales).sort((a,b) => b.revenue - a.revenue).slice(0,10);

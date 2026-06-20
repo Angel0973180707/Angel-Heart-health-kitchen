@@ -1376,12 +1376,14 @@ async function saveAdjustInventory() {
 
 const ACC_INCOME_TYPES=new Set(['其他收入','其他現場收款']);
 let accountSaving=false;
+let accRequestId='';
 function resetAccSavingState(){
   accountSaving=false;
   const btn=document.getElementById('acc-save-btn');
   if(btn){btn.disabled=false;btn.textContent='新增';}
 }
 function openAccModal(){
+  accRequestId='ACC_MANUAL_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);
   resetAccSavingState();
   document.getElementById('am-date').value=new Date().toISOString().slice(0,10);
   document.getElementById('am-type').value='其他收入';
@@ -1395,6 +1397,7 @@ function openAccModal(){
   document.getElementById('acc-modal-overlay').classList.add('open');
 }
 function closeAccModal(e,force){
+  if(accountSaving)return;
   if(force||e?.target===document.getElementById('acc-modal-overlay')){
     resetAccSavingState();
     document.getElementById('acc-modal-overlay').classList.remove('open');
@@ -1423,10 +1426,10 @@ async function saveAccModal(){
   accountSaving=true;
   const btn=document.getElementById('acc-save-btn');
   if(btn){btn.disabled=true;btn.textContent='新增中...';}
-  let success=false;
   try{
     const r=await apiPost({
       action:'addAccount',session_token:SESSION_TOKEN,
+      id:accRequestId,
       date,type,
       partner:document.getElementById('am-partner').value.trim(),
       items:document.getElementById('am-items').value.trim(),
@@ -1436,13 +1439,12 @@ async function saveAccModal(){
       note:document.getElementById('am-note').value.trim()
     });
     if(!r.ok){showToast('❌ '+(r.error||'新增失敗'),'error');return;}
-    success=true;
-    closeAccModal(null,true);
+    document.getElementById('acc-modal-overlay').classList.remove('open');
     showToast('✅ 帳目已新增');
     await syncAll();
   }catch(e){showToast('⚠️ 網路錯誤','error');}
   finally{
-    if(!success) resetAccSavingState();
+    resetAccSavingState();
   }
 }
 function showToast(msg,type='success'){const t=document.getElementById('toast');t.textContent=msg;t.className='toast '+type;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
