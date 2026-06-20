@@ -350,7 +350,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="stats-grid" id="balance-grid"><div class="loading" style="grid-column:1/-1">載入中...</div></div>
   <div style="display:flex;gap:8px;margin-bottom:14px">
     <button class="btn btn-gold" onclick="openAccModal()" style="flex:1;padding:12px">➕ 新增帳目</button>
-    <button class="btn btn-ghost" onclick="downloadAccountsCsv()" style="flex:1;padding:12px">⬇️ 下載 CSV</button>
+    <button class="btn btn-ghost" onclick="downloadAccountsCsv()" style="flex:1;padding:12px">⬇️ 下載目前明細 CSV</button>
   </div>
   <div class="section-title">收支明細</div>
   <div class="filter-row">
@@ -469,7 +469,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
     <button class="btn btn-ghost" onclick="triggerLowStockNotify()">發送低庫存通知</button>
     <button class="btn btn-ghost" onclick="runInstallTriggers()">安裝排程觸發器</button>
-    <button class="btn btn-ghost" onclick="downloadReportCsv()">下載報表 CSV</button>
+    <button class="btn btn-ghost" onclick="downloadReportCsv()">下載本月報表 CSV</button>
   </div>
 </div>
 
@@ -2192,6 +2192,9 @@ function csvCell(v) {
 }
 
 function downloadReportCsv() {
+  if (document.getElementById('r-revenue').textContent === '--') {
+    return showToast('請先重新整理報表，再下載 CSV', 'error');
+  }
   var month = getSelectedReportMonth();
   var rows = [];
 

@@ -1202,6 +1202,7 @@ function addAccount(p) {
     p.items||'', p.income||0, p.expense||0,
     p.payment||'', p.status||'', p.note||'', now()
   ]);
+  try { refreshBalance(); } catch(e) {}
   return { ok: true, account_id: id };
 }
 
@@ -1216,6 +1217,7 @@ function updateAccount(p) {
   if (p.income  !== undefined) sheet.getRange(rn, c.INCOME+1).setValue(p.income);
   if (p.expense !== undefined) sheet.getRange(rn, c.EXPENSE+1).setValue(p.expense);
   if (p.note    !== undefined) sheet.getRange(rn, c.NOTE+1).setValue(p.note);
+  try { refreshBalance(); } catch(e) {}
   return { ok: true };
 }
 
