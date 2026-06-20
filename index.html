@@ -805,7 +805,7 @@ function handleAuthError(){
   SESSION_TOKEN='';localStorage.removeItem('yc_admin_token');localStorage.removeItem('yc_admin_login_time');
   document.getElementById('main-app').style.display='none';
   document.getElementById('lock-screen').style.display='';
-  document.getElementById('lock-err').textContent='Session 已過期，請重新登入';
+  document.getElementById('lock-err').textContent='登入已逾時，請重新登入';
   document.getElementById('lock-pwd').value='';
 }
 
