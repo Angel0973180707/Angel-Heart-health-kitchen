@@ -1228,33 +1228,49 @@ function showOrderModal(oid){
 }
 
 async function doConfirmPayment(oid){
+  if(_lockOrder)return;
+  _lockOrder=true;
   const phone=(document.getElementById('pay-phone-'+oid)||{}).value||'';
   closeModal();showToast('⟳ 確認中...','info');
-  const params={action:'confirmOrderPayment',session_token:SESSION_TOKEN,order_id:oid};
-  if(phone.trim())params.member_phone=phone.trim();
-  const r=await apiPost(params);
-  if(r.ok){showToast(`✅ 收款確認${r.points_added>0?' 加 '+r.points_added+' 點':''}`),'success';syncAll();}
-  else showToast('❌ '+r.error,'error');
+  try{
+    const params={action:'confirmOrderPayment',session_token:SESSION_TOKEN,order_id:oid};
+    if(phone.trim())params.member_phone=phone.trim();
+    const r=await apiPost(params);
+    if(r.ok){showToast(`✅ 收款確認${r.points_added>0?' 加 '+r.points_added+' 點':''}`,'success');syncAll();}
+    else showToast('❌ '+r.error,'error');
+  }catch(e){showToast('⚠️ 網路錯誤','error');}
+  finally{_lockOrder=false;}
 }
 
 async function doCancelOrder(oid){
   const reason=prompt('取消原因（可空白）：');
   if(reason===null)return;
   closeModal();showToast('⟳ 取消中...','info');
-  const r=await apiPost({action:'cancelOrder',session_token:SESSION_TOKEN,order_id:oid,cancel_reason:reason,cancelled_by:'管理員'});
-  if(r.ok){showToast('✅ 訂單已取消','success');syncAll();}
-  else showToast('❌ '+r.error,'error');
+  try{
+    const r=await apiPost({action:'cancelOrder',session_token:SESSION_TOKEN,order_id:oid,cancel_reason:reason,cancelled_by:'管理員'});
+    if(r.ok){showToast('✅ 訂單已取消','success');syncAll();}
+    else showToast('❌ '+r.error,'error');
+  }catch(e){showToast('⚠️ 網路錯誤','error');}
 }
 
 async function confirmOrder(oid,deduct){
+  if(_lockOrder)return;
+  _lockOrder=true;
   closeModal();showToast('⟳ 處理中...','info');
-  const r=await apiPost({action:'updateOrder',session_token:SESSION_TOKEN,order_id:oid,status:'已確認',deduct:deduct?'true':'false'});
-  if(r.ok){showToast('✅ 訂單已確認','success');syncAll();}else showToast('❌ '+r.error,'error');
+  try{
+    const r=await apiPost({action:'updateOrder',session_token:SESSION_TOKEN,order_id:oid,status:'已確認',deduct:deduct?'true':'false'});
+    if(r.ok){showToast('✅ 訂單已確認','success');syncAll();}
+    else showToast('❌ '+r.error,'error');
+  }catch(e){showToast('⚠️ 網路錯誤','error');}
+  finally{_lockOrder=false;}
 }
 async function updOrder(oid,status){
   closeModal();showToast('⟳ 更新中...','info');
-  const r=await apiPost({action:'updateOrder',session_token:SESSION_TOKEN,order_id:oid,status});
-  if(r.ok){showToast('✅ 狀態已更新','success');syncAll();}else showToast('❌ '+r.error,'error');
+  try{
+    const r=await apiPost({action:'updateOrder',session_token:SESSION_TOKEN,order_id:oid,status});
+    if(r.ok){showToast('✅ 狀態已更新','success');syncAll();}
+    else showToast('❌ '+r.error,'error');
+  }catch(e){showToast('⚠️ 網路錯誤','error');}
 }
 
 function setAccFilter(f,el){accFilter=f;document.querySelectorAll('#page-accounts .chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');renderAccounts();}
@@ -1388,6 +1404,7 @@ const ACC_INCOME_TYPES=new Set(['其他收入','其他現場收款']);
 let accountSaving=false;
 let accRequestId='';
 let _lockIn=false,_lockOut=false,_lockMember=false,_lockPoints=false;
+let _lockOrder=false;
 function resetAccSavingState(){
   accountSaving=false;
   const btn=document.getElementById('acc-save-btn');
@@ -1652,32 +1669,40 @@ function showRegModal(rid){
 
 async function approveReg(rid,approved){
   closeModal();showToast('⟳ 處理中...','info');
-  const r=await apiPost({action:'approveRegistration',session_token:SESSION_TOKEN,reg_id:rid,approved:approved?'true':'false'});
-  if(r.ok){showToast(approved?'✅ 已通過審核，LINE 通知已推送':'✅ 已標記未錄取','success');syncAll();}
-  else showToast('❌ '+r.error,'error');
+  try{
+    const r=await apiPost({action:'approveRegistration',session_token:SESSION_TOKEN,reg_id:rid,approved:approved?'true':'false'});
+    if(r.ok){showToast(approved?'✅ 已通過審核，LINE 通知已推送':'✅ 已標記未錄取','success');syncAll();}
+    else showToast('❌ '+r.error,'error');
+  }catch(e){showToast('⚠️ 網路錯誤','error');}
 }
 
 async function markRegPaid(rid){
   closeModal();showToast('⟳ 更新中...','info');
-  const r=await apiPost({action:'updateRegistration',session_token:SESSION_TOKEN,reg_id:rid,fee_status:'已付款'});
-  if(r.ok){showToast('✅ 已標記已付款','success');syncAll();}
-  else showToast('❌ '+r.error,'error');
+  try{
+    const r=await apiPost({action:'updateRegistration',session_token:SESSION_TOKEN,reg_id:rid,fee_status:'已付款'});
+    if(r.ok){showToast('✅ 已標記已付款','success');syncAll();}
+    else showToast('❌ '+r.error,'error');
+  }catch(e){showToast('⚠️ 網路錯誤','error');}
 }
 
 async function updateRegStatus(rid,status){
   closeModal();showToast('⟳ 更新中...','info');
-  const r=await apiPost({action:'updateRegistration',session_token:SESSION_TOKEN,reg_id:rid,fee_status:status});
-  if(r.ok){showToast('✅ 已更新為：'+status,'success');syncAll();}
-  else showToast('❌ '+r.error,'error');
+  try{
+    const r=await apiPost({action:'updateRegistration',session_token:SESSION_TOKEN,reg_id:rid,fee_status:status});
+    if(r.ok){showToast('✅ 已更新為：'+status,'success');syncAll();}
+    else showToast('❌ '+r.error,'error');
+  }catch(e){showToast('⚠️ 網路錯誤','error');}
 }
 
 async function cancelReg(rid){
   const reason=prompt('取消原因（可空白）：');
   if(reason===null)return;
   closeModal();showToast('⟳ 取消中...','info');
-  const r=await apiPost({action:'cancelRegistration',session_token:SESSION_TOKEN,reg_id:rid,note:reason||'',cancelled_by:'管理員'});
-  if(r.ok){showToast('✅ 已取消報名','success');syncAll();}
-  else showToast('❌ '+r.error,'error');
+  try{
+    const r=await apiPost({action:'cancelRegistration',session_token:SESSION_TOKEN,reg_id:rid,note:reason||'',cancelled_by:'管理員'});
+    if(r.ok){showToast('✅ 已取消報名','success');syncAll();}
+    else showToast('❌ '+r.error,'error');
+  }catch(e){showToast('⚠️ 網路錯誤','error');}
 }
 
 // ── 新增活動 ──
