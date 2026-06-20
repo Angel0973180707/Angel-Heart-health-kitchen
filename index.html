@@ -252,7 +252,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       </div>
       <div id="in-img-previews" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px"></div>
     </div>
-    <button class="btn btn-in" onclick="submitIn()">✅ 確認入庫</button>
+    <button id="in-submit-btn" class="btn btn-in" onclick="submitIn()">✅ 確認入庫</button>
   </div>
 </div>
 
@@ -268,7 +268,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="field"><label>零售價（NT$）</label><input type="number" id="out-price" placeholder="0"></div>
     <div class="field"><label>客戶</label><input type="text" id="out-customer" placeholder="客戶名稱"></div>
     <div class="field"><label>備註</label><textarea id="out-note" placeholder="訂單號、備注..."></textarea></div>
-    <button class="btn btn-out" onclick="submitOut()">📤 確認出庫</button>
+    <button id="out-submit-btn" class="btn btn-out" onclick="submitOut()">📤 確認出庫</button>
   </div>
 </div>
 
@@ -922,11 +922,15 @@ function onProductChange(type){
 }
 
 async function submitIn(){
+  if(_lockIn)return;
   const pid=document.getElementById('in-product').value;
   const name=document.getElementById('in-name').value||pid;
   const qty=parseInt(document.getElementById('in-qty').value);
   if(!pid){showToast('請選擇商品','error');return;}
   if(!qty||qty<1){showToast('請填寫數量','error');return;}
+  _lockIn=true;
+  const _bi=document.getElementById('in-submit-btn');
+  if(_bi){_bi.disabled=true;_bi.textContent='處理中...';}
   showToast('⟳ 上傳圖片中...','info');
   let imgUrls=[];
   try{imgUrls=await uploadInImages(pid);}catch(e){}
@@ -942,9 +946,11 @@ async function submitIn(){
     if(r.ok){showToast(`✅ 入庫成功：${name} × ${qty}${imgUrls.length?' 📷'+imgUrls.length+'張':''}`,'success');resetForm('in');inImgFiles=[];renderImgPreviews();syncAll();}
     else showToast('❌ '+r.error,'error');
   }catch(e){showToast('⚠️ 網路錯誤：'+e.message,'error');console.error(e);}
+  finally{_lockIn=false;if(_bi){_bi.disabled=false;_bi.textContent='✅ 確認入庫';}}
 }
 
 async function submitOut(){
+  if(_lockOut)return;
   const pid=document.getElementById('out-product').value;
   const name=document.getElementById('out-name').value||pid;
   const qty=parseInt(document.getElementById('out-qty').value);
@@ -953,6 +959,9 @@ async function submitOut(){
   const _invItem=(cache.inventory||[]).find(i=>i.product_id===pid);
   const _stock=_invItem?Number(_invItem.qty):0;
   if(qty>_stock){showToast(`❌ 庫存不足（現有 ${_stock} 件）`,'error');return;}
+  _lockOut=true;
+  const _bo=document.getElementById('out-submit-btn');
+  if(_bo){_bo.disabled=true;_bo.textContent='處理中...';}
   showToast('⟳ 送出中...','info');
   try{
     const r=await apiPost({action:'stockOut',session_token:SESSION_TOKEN,product_id:pid,qty,
@@ -962,6 +971,7 @@ async function submitOut(){
     if(r.ok){showToast(`📤 出庫成功：${name} × ${qty}`,'success');resetForm('out');syncAll();}
     else showToast('❌ '+r.error,'error');
   }catch(e){showToast('⚠️ 網路錯誤','error');}
+  finally{_lockOut=false;if(_bo){_bo.disabled=false;_bo.textContent='📤 確認出庫';}}
 }
 
 function resetForm(type){
@@ -1377,6 +1387,7 @@ async function saveAdjustInventory() {
 const ACC_INCOME_TYPES=new Set(['其他收入','其他現場收款']);
 let accountSaving=false;
 let accRequestId='';
+let _lockIn=false,_lockOut=false,_lockMember=false,_lockPoints=false;
 function resetAccSavingState(){
   accountSaving=false;
   const btn=document.getElementById('acc-save-btn');
@@ -1895,21 +1906,28 @@ function showMemberModal(mid){
         <input type="number" id="add-points-input" placeholder="加入點數" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);padding:10px;font-size:15px;outline:none">
         <input type="number" id="add-amount-input" placeholder="消費金額" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);padding:10px;font-size:15px;outline:none">
       </div>
-      <button class="btn btn-in" onclick="doAddPoints('${m.phone}')">⭐ 新增點數</button>
+      <button id="add-points-btn" class="btn btn-in" onclick="doAddPoints('${m.phone}')">⭐ 新增點數</button>
     </div>
   `;
   document.getElementById('modal-overlay').classList.add('open');
 }
 
 async function doAddPoints(phone){
+  if(_lockPoints)return;
   const points=parseInt(document.getElementById('add-points-input').value)||0;
   const amount=parseInt(document.getElementById('add-amount-input').value)||0;
   if(!points&&!amount){showToast('請填入點數或消費金額','error');return;}
   const addPts=points||(Math.floor(amount/100));
+  _lockPoints=true;
+  const _bp=document.getElementById('add-points-btn');
+  if(_bp){_bp.disabled=true;_bp.textContent='處理中...';}
   showToast('⟳ 更新中...','info');
-  const r=await apiPost({action:'addPoints',session_token:SESSION_TOKEN,phone,points:addPts,amount});
-  if(r.ok){showToast(`✅ 已新增 ${addPts} 點`,'success');closeModal();syncAll();}
-  else showToast('❌ '+r.error,'error');
+  try{
+    const r=await apiPost({action:'addPoints',session_token:SESSION_TOKEN,phone,points:addPts,amount});
+    if(r.ok){showToast(`✅ 已新增 ${addPts} 點`,'success');closeModal();syncAll();}
+    else showToast('❌ '+r.error,'error');
+  }catch(e){showToast('⚠️ 網路錯誤','error');}
+  finally{_lockPoints=false;if(_bp){_bp.disabled=false;_bp.textContent='⭐ 新增點數';}}
 }
 
 function openAddMemberModal(){
@@ -1941,22 +1959,29 @@ function closeMemberModal(e){
 }
 
 async function submitMember(){
+  if(_lockMember)return;
   const name=document.getElementById('mm-name').value.trim();
   const phone=document.getElementById('mm-phone').value.trim();
   const birthday=document.getElementById('mm-birthday').value;
   const note=document.getElementById('mm-note').value.trim();
   if(!name||!phone){showToast('請填寫姓名和手機號碼','error');return;}
+  _lockMember=true;
+  const _bm=document.getElementById('mm-submit-btn');
+  if(_bm){_bm.disabled=true;_bm.textContent='儲存中...';}
   showToast('⟳ 儲存中...','info');
-  let r;
-  if(editingMember){
-    r=await apiPost({action:'updateMember',session_token:SESSION_TOKEN,phone,birthday,note});
-  } else {
-    r=await apiPost({action:'registerMember',name,phone,birthday,note});
-  }
-  if(r.ok){
-    showToast(editingMember?'✅ 已更新會員資料':'✅ 會員新增成功','success');
-    closeMemberModal();syncAll();
-  } else showToast('❌ '+r.error,'error');
+  try{
+    let r;
+    if(editingMember){
+      r=await apiPost({action:'updateMember',session_token:SESSION_TOKEN,phone,birthday,note});
+    } else {
+      r=await apiPost({action:'registerMember',name,phone,birthday,note});
+    }
+    if(r.ok){
+      showToast(editingMember?'✅ 已更新會員資料':'✅ 會員新增成功','success');
+      closeMemberModal();syncAll();
+    } else showToast('❌ '+r.error,'error');
+  }catch(e){showToast('⚠️ 網路錯誤','error');}
+  finally{_lockMember=false;if(_bm){_bm.disabled=false;_bm.textContent='✅ 儲存';}}
 }
 
 var lastReportData = null;
