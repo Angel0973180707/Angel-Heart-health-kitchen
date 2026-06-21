@@ -702,6 +702,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="field"><label>手機號碼 *</label><input type="tel" id="mm-phone" placeholder="0912345678" maxlength="10"></div>
     <div class="field"><label>生日</label><input type="date" id="mm-birthday"></div>
     <div class="field"><label>備註</label><input type="text" id="mm-note" placeholder="備注說明"></div>
+    <div class="field"><label>加入方式</label><select id="mm-join-method" style="width:100%;padding:9px;border-radius:var(--rs);border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px"><option value="manual">手動建立</option><option value="purchase">滿額加入</option><option value="gift">贈送資格</option></select></div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
       <button class="btn btn-gold" id="mm-submit-btn" onclick="submitMember()">✅ 儲存</button>
     </div>
@@ -1914,6 +1915,7 @@ function renderMembers(){
         <span style="font-size:12px;font-weight:700;color:var(--gold)">⭐ ${m.points||0} 點</span>
       </div>
       <div style="font-size:12px;color:var(--dim)">📞 ${m.phone}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">加入方式：${joinMethodLabel(parseJoinMethodFromNote(m.note))}</div>
       <div style="display:flex;justify-content:space-between;margin-top:6px">
         <span style="font-size:12px;color:var(--dim)">累積消費：NT$ ${Number(m.total_spent||0).toLocaleString()}</span>
         <span style="font-size:11px;color:var(--muted)">${m.birthday||'生日未填'}</span>
@@ -1948,7 +1950,8 @@ function showMemberModal(mid){
     <div class="modal-row"><span class="modal-key">累積點數</span><span class="modal-val gold">⭐ ${m.points||0} 點</span></div>
     <div class="modal-row"><span class="modal-key">累積消費</span><span class="modal-val">NT$ ${Number(m.total_spent||0).toLocaleString()}</span></div>
     <div class="modal-row"><span class="modal-key">加入日期</span><span class="modal-val">${m.joined_at?String(m.joined_at).slice(0,10):'—'}</span></div>
-    <div class="modal-row"><span class="modal-key">備註</span><span class="modal-val">${m.note||'—'}</span></div>
+    <div class="modal-row"><span class="modal-key">加入方式</span><span class="modal-val">${joinMethodLabel(parseJoinMethodFromNote(m.note))}</span></div>
+    <div class="modal-row"><span class="modal-key">備註</span><span class="modal-val">${cleanNoteForDisplay(m.note)}</span></div>
     <div style="margin-top:14px">
       <div style="font-size:12px;font-weight:700;color:var(--dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.8px">📋 消費記錄</div>
       ${orderHTML}
@@ -1990,6 +1993,7 @@ function openAddMemberModal(){
   document.getElementById('mm-phone').value='';
   document.getElementById('mm-birthday').value='';
   document.getElementById('mm-note').value='';
+  document.getElementById('mm-join-method').value='manual';
   document.getElementById('member-modal-overlay').classList.add('open');
 }
 
@@ -2002,7 +2006,8 @@ function openEditMember(mid){
   document.getElementById('mm-name').value=m.name||'';
   document.getElementById('mm-phone').value=m.phone||'';
   document.getElementById('mm-birthday').value=m.birthday?String(m.birthday).slice(0,10):'';
-  document.getElementById('mm-note').value=m.note||'';
+  document.getElementById('mm-note').value=cleanNoteForDisplay(m.note);
+  document.getElementById('mm-join-method').value=parseJoinMethodFromNote(m.note);
   document.getElementById('member-modal-overlay').classList.add('open');
 }
 
@@ -2011,12 +2016,30 @@ function closeMemberModal(e){
     document.getElementById('member-modal-overlay').classList.remove('open');
 }
 
+function joinMethodLabel(code){
+  var map={manual:'手動建立',purchase:'滿額加入',gift:'贈送資格'};
+  return map[code]||map.manual;
+}
+function parseJoinMethodFromNote(note){
+  var m=String(note||'').match(/\[JOIN_METHOD:([^\]]+)\]/);
+  return m?m[1]:'manual';
+}
+function applyJoinMethodToNote(note,method){
+  var clean=String(note||'').replace(/\[JOIN_METHOD:[^\]]*\]\s*/g,'').trim();
+  var code=['manual','purchase','gift'].includes(method)?method:'manual';
+  return '[JOIN_METHOD:'+code+']'+(clean?' '+clean:'');
+}
+function cleanNoteForDisplay(note){
+  return String(note||'').replace(/\[JOIN_METHOD:[^\]]*\]\s*/g,'').trim()||'—';
+}
 async function submitMember(){
   if(_lockMember)return;
   const name=document.getElementById('mm-name').value.trim();
   const phone=document.getElementById('mm-phone').value.trim();
   const birthday=document.getElementById('mm-birthday').value;
   const note=document.getElementById('mm-note').value.trim();
+  const _jm=document.getElementById('mm-join-method').value||'manual';
+  const _noteOut=applyJoinMethodToNote(note,_jm);
   if(!name||!phone){showToast('請填寫姓名和手機號碼','error');return;}
   _lockMember=true;
   const _bm=document.getElementById('mm-submit-btn');
@@ -2025,9 +2048,9 @@ async function submitMember(){
   try{
     let r;
     if(editingMember){
-      r=await apiPost({action:'updateMember',session_token:SESSION_TOKEN,phone,birthday,note});
+      r=await apiPost({action:'updateMember',session_token:SESSION_TOKEN,phone,birthday,note:_noteOut});
     } else {
-      r=await apiPost({action:'registerMember',name,phone,birthday,note});
+      r=await apiPost({action:'registerMember',name,phone,birthday,note:_noteOut});
     }
     if(r.ok){
       showToast(editingMember?'✅ 已更新會員資料':'✅ 會員新增成功','success');
