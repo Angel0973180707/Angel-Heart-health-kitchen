@@ -2432,12 +2432,14 @@ function getMonthlyReport(p) {
   const _OE = new Set(['其他支出', '雜項支出']);
   accounts.forEach(r => {
     if (ym_(r[ca.DATE]) !== month) return;
+    const status = String(r[ca.STATUS] || '').trim();
+    if (status === '已作廢') return;
     const type = String(r[ca.TYPE] || '').trim();
-    if (type === '進貨付款') {
+    if (type === '進貨付款' && status === '已付款') {
       cost += Number(r[ca.EXPENSE]) || 0;
-    } else if (_OI.has(type)) {
+    } else if (_OI.has(type) && status === '已收款') {
       revenue += Number(r[ca.INCOME]) || 0;
-    } else if (_OE.has(type)) {
+    } else if (_OE.has(type) && status === '已付款') {
       cost += Number(r[ca.EXPENSE]) || 0;
     }
     // '銷售收款' 不計入：ORDERS 已算，避免重複
