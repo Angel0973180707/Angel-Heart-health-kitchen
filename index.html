@@ -1488,6 +1488,9 @@ async function saveAccModal(){
     showToast('✅ 帳目已新增，正在更新統計...');
     try{
       await refreshAccountsOnly();
+      if(document.getElementById('page-reports')?.classList.contains('active')){
+        await loadReport();
+      }
       showToast('✅ 統計已更新');
     }catch(se){
       showToast('帳目已新增，統計稍後同步', 'error');
