@@ -1320,7 +1320,10 @@ async function updateAccountStatus(accountId,newStatus){
     });
     if(!r.ok)return showToast('❌ '+(r.error||'更新失敗'),'error');
     showToast('✅ 狀態已更新');
-    await syncAll();
+    await refreshAccountsOnly();
+    if(document.getElementById('page-reports')?.classList.contains('active')){
+      await loadReport();
+    }
   }catch(e){
     showToast('⚠️ 網路錯誤，請稍後再試','error');
   }
