@@ -853,6 +853,16 @@ async function syncAll(){
   btn.textContent='⟳ 同步';btn.classList.remove('syncing');
 }
 
+async function refreshAccountsOnly(){
+  const [acc,bal]=await Promise.all([
+    api({action:'getAccounts',session_token:SESSION_TOKEN}),
+    api({action:'getBalance',session_token:SESSION_TOKEN})
+  ]);
+  if(acc.ok)cache.accounts=acc.data;
+  if(bal.ok)cache.balance=bal.data;
+  renderAccounts();
+}
+
 function renderAll(){renderDashboard();renderInventory();renderHistory();renderOrders();renderAccounts();renderRegistrations();renderMembers();renderProducts();}
 
 function init(){
@@ -1435,7 +1445,8 @@ function updateAccStatusOptions(type){
   const isIncome=ACC_INCOME_TYPES.has(type);
   const opts=isIncome?[['已收款','已收款'],['待收款','待收款']]:[['已付款','已付款'],['待付款','待付款']];
   const sel=document.getElementById('am-status');
-  sel.innerHTML=opts.map(([v,t])=>`<option value="${v}">${t}</option>`).join('');
+  sel.innerHTML='';
+  opts.forEach(([v])=>{const o=document.createElement('option');o.value=v;o.textContent=v;sel.appendChild(o);});
   sel.value=isIncome?'已收款':'已付款';
 }
 function onAccTypeChange(){
@@ -1476,7 +1487,7 @@ async function saveAccModal(){
     document.getElementById('acc-modal-overlay').classList.remove('open');
     showToast('✅ 帳目已新增，正在更新統計...');
     try{
-      await syncAll();
+      await refreshAccountsOnly();
       showToast('✅ 統計已更新');
     }catch(se){
       showToast('帳目已新增，統計稍後同步', 'error');
