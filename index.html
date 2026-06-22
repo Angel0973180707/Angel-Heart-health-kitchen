@@ -207,6 +207,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab" onclick="switchTab('registrations')"><span class="tab-icon">📝</span>報名</div>
   <div class="tab" onclick="switchTab('reports')"><span class="tab-icon">📊</span>報表</div>
   <div class="tab" onclick="switchTab('products')"><span class="tab-icon">🏷️</span>商品</div>
+  <div class="tab" onclick="switchTab('members')"><span class="tab-icon">👥</span>會員</div>
 </div>
 
 <!-- 總覽 -->
@@ -874,7 +875,7 @@ function init(){
 }
 
 function switchTab(tab){
-  const tabs=['dashboard','in','out','inventory','history','orders','accounts','registrations','reports','products'];
+  const tabs=['dashboard','in','out','inventory','history','orders','accounts','registrations','reports','products','members'];
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',tabs[i]===tab));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById('page-'+tab).classList.add('active');
