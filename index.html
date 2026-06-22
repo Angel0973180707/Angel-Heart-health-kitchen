@@ -1877,6 +1877,7 @@ async function uploadProductImg(productId, input){
 
 // ── 會員管理 ──
 let editingMember = null;
+let editingMemberOriginalPhone = '';
 
 function setMemberFilter(f, el){
   memberFilter=f;
@@ -1989,6 +1990,7 @@ async function doAddPoints(phone){
 
 function openAddMemberModal(){
   editingMember=null;
+  editingMemberOriginalPhone='';
   document.getElementById('member-modal-title').textContent='➕ 新增會員';
   document.getElementById('mm-name').value='';
   document.getElementById('mm-phone').value='';
@@ -2002,6 +2004,7 @@ function openEditMember(mid){
   const m=cache.members.find(x=>x.member_id===mid);
   if(!m)return;
   editingMember=m;
+  editingMemberOriginalPhone=m.phone||'';
   closeModal();
   document.getElementById('member-modal-title').textContent='✏️ 編輯會員';
   document.getElementById('mm-name').value=m.name||'';
@@ -2049,7 +2052,7 @@ async function submitMember(){
   try{
     let r;
     if(editingMember){
-      r=await apiPost({action:'updateMember',session_token:SESSION_TOKEN,phone,birthday,note:_noteOut});
+      r=await apiPost({action:'updateMember',session_token:SESSION_TOKEN,original_phone:editingMemberOriginalPhone,name,phone,birthday,note:_noteOut});
     } else {
       r=await apiPost({action:'registerMember',name,phone,birthday,note:_noteOut});
     }

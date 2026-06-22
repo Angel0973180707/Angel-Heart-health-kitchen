@@ -1,4 +1,4 @@
-﻿// ================================================================
+// ================================================================
 // 養清倉管系統 GAS 後台 v2.4
 // Spreadsheet ID: 1geF1x3u9T_S6gmJlnLiV6-x77t66WtI4bON_Nr3FH6w
 // 更新日期：2026-06-15
@@ -1837,19 +1837,39 @@ function registerMember(p) {
 }
 
 function updateMember(p) {
-  if (!p.phone) return { ok: false, error: '缺少手機號碼' };
+  const lookupPhone = p.original_phone || p.phone;
+  if (!lookupPhone) return { ok: false, error: '\u7f3a\u5c11\u624b\u6a5f\u865f\u78bc' };
+
   const rows = getRows(SHEET.MEMBERS);
   const c = COL.MEMBERS;
+  let targetIdx = -1;
+
   for (let i = 0; i < rows.length; i++) {
-    if (String(rows[i][c.PHONE]) === String(p.phone)) {
-      const sheet = getSheet(SHEET.MEMBERS);
-      const rn = DATA_ROW + i;
-      if (p.birthday !== undefined) sheet.getRange(rn, c.BIRTHDAY+1).setValue(p.birthday);
-      if (p.note     !== undefined) sheet.getRange(rn, c.NOTE+1).setValue(p.note);
-      return { ok: true };
+    if (String(rows[i][c.PHONE]) === String(lookupPhone)) {
+      targetIdx = i;
+      break;
     }
   }
-  return { ok: false, error: '找不到會員' };
+
+  if (targetIdx === -1) return { ok: false, error: '\u627e\u4e0d\u5230\u6703\u54e1' };
+
+  if (p.phone && String(p.phone) !== String(lookupPhone)) {
+    for (let i = 0; i < rows.length; i++) {
+      if (i !== targetIdx && String(rows[i][c.PHONE]) === String(p.phone)) {
+        return { ok: false, error: '\u624b\u6a5f\u865f\u78bc\u5df2\u88ab\u5176\u4ed6\u6703\u54e1\u4f7f\u7528' };
+      }
+    }
+  }
+
+  const sheet = getSheet(SHEET.MEMBERS);
+  const rn = DATA_ROW + targetIdx;
+
+  if (p.name     !== undefined) sheet.getRange(rn, c.NAME+1).setValue(p.name);
+  if (p.phone    !== undefined) sheet.getRange(rn, c.PHONE+1).setValue(p.phone);
+  if (p.birthday !== undefined) sheet.getRange(rn, c.BIRTHDAY+1).setValue(p.birthday);
+  if (p.note     !== undefined) sheet.getRange(rn, c.NOTE+1).setValue(p.note);
+
+  return { ok: true };
 }
 
 function addPoints(p) {
