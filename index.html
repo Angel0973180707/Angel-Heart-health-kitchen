@@ -2535,8 +2535,23 @@ function setPosPayment(val, el) {
   document.querySelectorAll('#pos-payment-chips .chip').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
 }
+function buildPosInventory() {
+  const prodMap = {};
+  (cache.products || []).forEach(p => prodMap[p.product_id] = p);
+  return (cache.inventory || []).map(i => {
+    const p = prodMap[i.product_id] || {};
+    return {
+      product_id: i.product_id,
+      name: i.name || p.name || i.product_id,
+      category: p.category || '未分類',
+      status: p.status || '上架',
+      retail_price: p.retail_price || 0,
+      qty: Number(i.qty) || 0
+    };
+  }).filter(i => i.product_id);
+}
 function renderPosCategorySelect() {
-  const eligible = (cache.inventory || []).filter(p => p.status === '上架' && Number(p.qty) > 0);
+  const eligible = buildPosInventory().filter(p => p.status === '上架' && Number(p.qty) > 0);
   const cats = [...new Set(eligible.map(p => p.category || '未分類'))].sort();
   const sel = document.getElementById('pos-category-select');
   sel.innerHTML = '<option value="">-- 選擇分類 --</option>' +
@@ -2555,9 +2570,9 @@ function onPosCategorySelect() {
     prodSel.disabled = true;
     return;
   }
-  const list = (cache.inventory || []).filter(p =>
+  const list = buildPosInventory().filter(p =>
     p.status === '上架' && Number(p.qty) > 0 &&
-    (cat === '未分類' ? !p.category : p.category === cat)
+    (cat === '未分類' ? p.category === '未分類' : p.category === cat)
   );
   prodSel.innerHTML = '<option value="">-- 選擇商品 --</option>' +
     list.map(p => `<option value="${p.product_id}">${p.name} · NT$${Number(p.retail_price||0).toLocaleString()} · 庫存${p.qty}</option>`).join('');
@@ -2567,7 +2582,7 @@ function onPosProductSelect() {
   const pid = document.getElementById('pos-product-select').value;
   const info = document.getElementById('pos-select-info');
   if (!pid) { info.style.display = 'none'; return; }
-  const prod = (cache.inventory || []).find(p => p.product_id === pid);
+  const prod = buildPosInventory().find(p => p.product_id === pid);
   if (!prod) { info.style.display = 'none'; return; }
   document.getElementById('pos-price-disp').textContent = 'NT$ ' + Number(prod.retail_price||0).toLocaleString();
   document.getElementById('pos-stock-hint').textContent = '庫存 ' + prod.qty + ' 件';
@@ -2579,7 +2594,7 @@ function onPosProductSelect() {
 function addPosItemFromSelect() {
   const pid = document.getElementById('pos-product-select').value;
   if (!pid) { showToast('請先選擇商品', 'error'); return; }
-  const prod = (cache.inventory || []).find(p => p.product_id === pid);
+  const prod = buildPosInventory().find(p => p.product_id === pid);
   if (!prod) { showToast('找不到商品', 'error'); return; }
   const qtyInput = document.getElementById('pos-qty-input');
   const qty = parseInt(qtyInput.value);
