@@ -2543,15 +2543,16 @@ function buildPosInventory() {
     return {
       product_id: i.product_id,
       name: i.name || p.name || i.product_id,
-      category: p.category || '未分類',
-      status: p.status || '上架',
-      retail_price: p.retail_price || 0,
+      category: p.category || i.category || '未分類',
+      status: p.status || i.status || '上架',
+      retail_price: p.retail_price || i.retail_price || 0,
       qty: Number(i.qty) || 0
     };
   }).filter(i => i.product_id);
 }
 function renderPosCategorySelect() {
-  const eligible = buildPosInventory().filter(p => p.status === '上架' && Number(p.qty) > 0);
+  /* 分類下拉不過濾 qty，讓所有上架分類都出現；qty 過濾只在商品下拉做 */
+  const eligible = buildPosInventory().filter(p => p.status === '上架');
   const cats = [...new Set(eligible.map(p => p.category || '未分類'))].sort();
   const sel = document.getElementById('pos-category-select');
   sel.innerHTML = '<option value="">-- 選擇分類 --</option>' +
