@@ -2616,11 +2616,11 @@ function onPosCategorySelect() {
     return;
   }
   const list = buildPosInventory().filter(p =>
-    p.status === '上架' && Number(p.qty) > 0 &&
+    p.status === '上架' &&
     (cat === '未分類' ? p.category === '未分類' : p.category === cat)
   );
   prodSel.innerHTML = '<option value="">-- 選擇商品 --</option>' +
-    list.map(p => `<option value="${p.product_id}">${p.name} · NT$${Number(p.retail_price||0).toLocaleString()} · 庫存${p.qty}</option>`).join('');
+    list.map(p => `<option value="${p.product_id}"${Number(p.qty)<=0?' style="color:#aaa;"':''} >${p.name} · NT$${Number(p.retail_price||0).toLocaleString()} · 庫存${p.qty}${Number(p.qty)<=0?' ⚠️':''}</option>`).join('');
   prodSel.disabled = false;
 }
 function onPosProductSelect() {
