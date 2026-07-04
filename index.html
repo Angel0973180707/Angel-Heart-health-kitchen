@@ -208,6 +208,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab" onclick="switchTab('reports')"><span class="tab-icon">📊</span>報表</div>
   <div class="tab" onclick="switchTab('products')"><span class="tab-icon">🏷️</span>商品</div>
   <div class="tab" onclick="switchTab('members')"><span class="tab-icon">👥</span>會員</div>
+  <div class="tab" onclick="switchTab('returns')"><span class="tab-icon">↩️</span>退貨</div>
 </div>
 
 <!-- 總覽 -->
@@ -692,6 +693,48 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div id="member-list"><div class="loading">載入中...</div></div>
 </div>
 
+<!-- 退貨管理 -->
+<div class="page" id="page-returns">
+  <button class="btn btn-gold" onclick="openReturnModal()" style="margin-bottom:14px;padding:12px">↩️ 新增退貨申請</button>
+  <div class="filter-row">
+    <div class="chip active" onclick="setReturnFilter('all',this)">全部</div>
+    <div class="chip" onclick="setReturnFilter('待處理',this)">⏳ 待處理</div>
+    <div class="chip" onclick="setReturnFilter('已完成',this)">✅ 已完成</div>
+    <div class="chip" onclick="setReturnFilter('已拒絕',this)">❌ 已拒絕</div>
+  </div>
+  <div id="return-list"><div class="loading">載入中...</div></div>
+</div>
+
+<!-- 退貨 Modal -->
+<div class="modal-overlay" id="return-modal-overlay" onclick="closeReturnModal(event)">
+  <div class="modal" style="max-height:92dvh">
+    <div class="modal-header">
+      <div class="modal-title">↩️ 新增退貨申請</div>
+      <button class="modal-close" onclick="closeReturnModal()">✕</button>
+    </div>
+    <div class="field"><label>商品 *</label><select id="rm-product" onchange="calcReturnRefund()"><option value="">-- 選擇商品 --</option></select></div>
+    <div class="field-row">
+      <div class="field"><label>數量 *</label><input type="number" id="rm-qty" min="1" value="1" oninput="calcReturnRefund()"></div>
+      <div class="field"><label>退款金額 (NT$) *</label><input type="number" id="rm-refund" placeholder="0" min="0"></div>
+    </div>
+    <div class="field"><label>客戶姓名 *</label><input type="text" id="rm-name" placeholder="王小明"></div>
+    <div class="field"><label>手機</label><input type="tel" id="rm-phone" placeholder="0912345678" maxlength="10"></div>
+    <div class="field"><label>訂單編號（選填）</label><input type="text" id="rm-order-id" placeholder="ORD-xxxxxx"></div>
+    <div class="field"><label>退款方式</label>
+      <select id="rm-payment">
+        <option value="現金">現金</option>
+        <option value="轉帳">轉帳</option>
+        <option value="Line Pay">Line Pay</option>
+        <option value="信用卡">信用卡</option>
+      </select>
+    </div>
+    <div class="field"><label>退貨原因</label><input type="text" id="rm-reason" placeholder="品質問題、尺寸不符、不喜歡..."></div>
+    <div class="field"><label>預計扣除點數（若客戶當初有用點數兌換）</label><input type="number" id="rm-points" min="0" value="0" placeholder="0"></div>
+    <div class="field"><label>備註</label><textarea id="rm-note" placeholder="其他說明"></textarea></div>
+    <button class="btn btn-gold" id="rm-submit-btn" onclick="submitReturn()">✅ 送出退貨申請</button>
+  </div>
+</div>
+
 <!-- 新增/編輯會員 Modal -->
 <div class="modal-overlay" id="member-modal-overlay" onclick="closeMemberModal(event)">
   <div class="modal">
@@ -865,7 +908,7 @@ async function refreshAccountsOnly(){
   renderAccounts();
 }
 
-function renderAll(){renderDashboard();renderInventory();renderHistory();renderOrders();renderAccounts();renderRegistrations();renderMembers();renderProducts();}
+function renderAll(){renderDashboard();renderInventory();renderHistory();renderOrders();renderAccounts();renderRegistrations();renderMembers();renderProducts();renderReturns();}
 
 function init(){
   document.getElementById('topbar-date').textContent=new Date().toLocaleDateString('zh-TW',{weekday:'short',month:'long',day:'numeric'});
@@ -875,11 +918,12 @@ function init(){
 }
 
 function switchTab(tab){
-  const tabs=['dashboard','in','out','inventory','history','orders','accounts','registrations','reports','products','members'];
+  const tabs=['dashboard','in','out','inventory','history','orders','accounts','registrations','reports','products','members','returns'];
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',tabs[i]===tab));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById('page-'+tab).classList.add('active');
   if(tab==='reports')loadReport();
+  if(tab==='returns')loadReturns();
 }
 
 function handleImg(type){
@@ -2725,6 +2769,162 @@ function closePosReceipt(e, force) {
 function copyPosReceipt() {
   navigator.clipboard.writeText(document.getElementById('pos-receipt-text').textContent)
     .then(() => showToast('✅ 收據已複製'));
+}
+
+// ============================================================
+// 退貨管理
+// ============================================================
+let returnFilter = 'all';
+
+async function loadReturns() {
+  const el = document.getElementById('return-list');
+  el.innerHTML = '<div class="loading">載入中...</div>';
+  try {
+    const r = await api({ action: 'getReturns', session_token: SESSION_TOKEN });
+    if (r.ok) {
+      cache.returns = r.data;
+      renderReturns();
+    } else {
+      el.innerHTML = '<div class="empty-state"><div class="empty-text">載入失敗</div></div>';
+    }
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-text">網路錯誤</div></div>';
+  }
+}
+
+function setReturnFilter(f, el) {
+  returnFilter = f;
+  document.querySelectorAll('#page-returns .chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  renderReturns();
+}
+
+function renderReturns() {
+  const el = document.getElementById('return-list');
+  if (!el) return;
+  let list = cache.returns || [];
+  if (returnFilter !== 'all') list = list.filter(r => r.status === returnFilter);
+  if (!list.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">↩️</div><div class="empty-text">沒有退貨記錄</div></div>';
+    return;
+  }
+  const statusColor = { '待處理':'var(--gold)', '已完成':'var(--green)', '已拒絕':'var(--red)' };
+  el.innerHTML = list.map(r => `
+    <div class="order-card" style="margin-bottom:9px">
+      <div class="order-header">
+        <span class="order-id" style="font-size:12px;color:var(--dim)">${r.return_id}</span>
+        <span style="font-size:12px;font-weight:700;color:${statusColor[r.status]||'var(--dim)'}">${r.status}</span>
+      </div>
+      <div style="font-size:15px;font-weight:600;margin:5px 0 2px">${r.name} ${r.phone?'· '+r.phone:''}</div>
+      <div style="font-size:13px;color:var(--dim)">${r.product_name} × ${r.qty}</div>
+      <div style="font-size:14px;font-weight:700;color:var(--red);margin-top:4px">退款 NT$ ${Number(r.refund_amount).toLocaleString()} · ${r.payment}</div>
+      ${r.reason?`<div style="font-size:12px;color:var(--dim);margin-top:3px">原因：${r.reason}</div>`:''}
+      ${r.points_deducted>0?`<div style="font-size:12px;color:var(--gold);margin-top:2px">扣點：${r.points_deducted} 點</div>`:''}
+      <div style="font-size:11px;color:var(--muted);margin-top:6px">${r.created_at||''} ${r.order_id?'· 訂單 '+r.order_id:''}</div>
+      ${r.status==='待處理'?`
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button onclick="confirmReturn('${r.return_id}')" style="flex:1;padding:9px;background:var(--green);border:none;border-radius:var(--rs);color:#0F1117;font-weight:700;font-size:14px;cursor:pointer">✅ 確認退貨</button>
+        <button onclick="rejectReturn('${r.return_id}')" style="flex:1;padding:9px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);font-weight:700;font-size:14px;cursor:pointer">❌ 拒絕</button>
+      </div>`:''}
+    </div>`).join('');
+}
+
+function openReturnModal() {
+  const prodMap = {};
+  (cache.products || []).forEach(p => prodMap[p.product_id] = p);
+  const items = (cache.inventory || [])
+    .filter(i => i.product_id)
+    .map(i => ({ id: i.product_id, name: i.name || (prodMap[i.product_id]||{}).name || i.product_id, price: (prodMap[i.product_id]||{}).retail_price || 0 }));
+  const sel = document.getElementById('rm-product');
+  sel.innerHTML = '<option value="">-- 選擇商品 --</option>' +
+    items.map(i => `<option value="${i.id}" data-price="${i.price}">${i.name}</option>`).join('');
+  ['rm-qty','rm-refund','rm-name','rm-phone','rm-order-id','rm-reason','rm-note'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = id === 'rm-qty' ? '1' : '';
+  });
+  document.getElementById('rm-points').value = '0';
+  document.getElementById('rm-payment').value = '現金';
+  document.getElementById('return-modal-overlay').classList.add('open');
+}
+
+function closeReturnModal(event) {
+  if (event && event.target !== document.getElementById('return-modal-overlay')) return;
+  document.getElementById('return-modal-overlay').classList.remove('open');
+}
+
+function calcReturnRefund() {
+  const sel = document.getElementById('rm-product');
+  const opt = sel.options[sel.selectedIndex];
+  const price = opt ? Number(opt.dataset.price) || 0 : 0;
+  const qty = Number(document.getElementById('rm-qty').value) || 1;
+  if (price > 0) document.getElementById('rm-refund').value = price * qty;
+}
+
+async function submitReturn() {
+  const product = document.getElementById('rm-product');
+  const pid = product.value;
+  const pname = pid ? product.options[product.selectedIndex].text : '';
+  const qty = Number(document.getElementById('rm-qty').value);
+  const refund = Number(document.getElementById('rm-refund').value);
+  const name = document.getElementById('rm-name').value.trim();
+
+  if (!pid) return showToast('請選擇商品', 'error');
+  if (!qty || qty < 1) return showToast('請填寫數量', 'error');
+  if (!name) return showToast('請填寫客戶姓名', 'error');
+  if (!refund && refund !== 0) return showToast('請填寫退款金額', 'error');
+
+  const btn = document.getElementById('rm-submit-btn');
+  btn.disabled = true; btn.textContent = '送出中...';
+  try {
+    const r = await api({
+      action: 'addReturn',
+      session_token: SESSION_TOKEN,
+      product_id: pid,
+      product_name: pname,
+      qty,
+      refund_amount: refund,
+      name,
+      phone: document.getElementById('rm-phone').value.trim(),
+      order_id: document.getElementById('rm-order-id').value.trim(),
+      payment: document.getElementById('rm-payment').value,
+      reason: document.getElementById('rm-reason').value.trim(),
+      points_deducted: Number(document.getElementById('rm-points').value) || 0,
+      note: document.getElementById('rm-note').value.trim()
+    });
+    if (r.ok) {
+      showToast('退貨申請已送出（' + r.return_id + '）');
+      document.getElementById('return-modal-overlay').classList.remove('open');
+      loadReturns();
+    } else {
+      showToast(r.error || '送出失敗', 'error');
+    }
+  } finally {
+    btn.disabled = false; btn.textContent = '✅ 送出退貨申請';
+  }
+}
+
+async function confirmReturn(returnId) {
+  if (!confirm('確認退貨？系統將自動執行：庫存回補、帳本退款、點數扣除')) return;
+  showToast('處理中，請稍候...');
+  const r = await api({ action: 'updateReturn', session_token: SESSION_TOKEN, return_id: returnId, status: '確認退貨' });
+  if (r.ok) {
+    showToast('退貨完成！庫存、帳本、點數已自動更新');
+    loadReturns();
+  } else {
+    showToast(r.error || '處理失敗', 'error');
+  }
+}
+
+async function rejectReturn(returnId) {
+  const reason = prompt('請輸入拒絕原因（選填）：');
+  if (reason === null) return;
+  const r = await api({ action: 'updateReturn', session_token: SESSION_TOKEN, return_id: returnId, status: '已拒絕', note: reason });
+  if (r.ok) {
+    showToast('已拒絕退貨申請');
+    loadReturns();
+  } else {
+    showToast(r.error || '操作失敗', 'error');
+  }
 }
 
 // 頁面載入時自動恢復登入（6 小時內）
