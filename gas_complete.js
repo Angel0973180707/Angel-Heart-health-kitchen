@@ -44,6 +44,7 @@ const SHEET = {
   MEMBERS:         '會員',
   POINTS_LOG:      '點數記錄',
   RETURNS:         '退貨記錄',
+  RETURN_STEPS:    '退貨處理記錄',
   SETTINGS:        '系統設定',
   EVENT_ACCOUNTS:  '活動帳本'
 };
@@ -54,8 +55,8 @@ const COL = {
     ID:0, NAME:1, CODE:2, COST:3, PRICE:4, IMAGE:5,
     DESC:6, CATEGORY:7, STATUS:8, THRESHOLD:9, CREATED:10
   },
-  INVENTORY: { ID:0, NAME:1, QTY:2, UPDATED:3 },
-  STOCK_LOG: { ID:0, PID:1, NAME:2, TYPE:3, QTY:4, PRICE:5, PARTNER:6, NOTE:7, CREATED:8 },
+  INVENTORY: { ID:0, NAME:1, QTY:2, UPDATED:3, LAST_OP_ID:4 },
+  STOCK_LOG: { ID:0, PID:1, NAME:2, TYPE:3, QTY:4, PRICE:5, PARTNER:6, NOTE:7, CREATED:8, REF_ID:9 },
   ORDERS: {
     ID:0, CNAME:1, PHONE:2, ADDRESS:3, ITEMS:4, TOTAL:5, PAYMENT:6, STATUS:7, NOTE:8, CREATED:9,
     SUBTOTAL:10, SHIPPING_FEE:11, COUPON_CODE:12,
@@ -76,13 +77,17 @@ const COL = {
   },
   MEMBERS: {
     ID:0, NAME:1, PHONE:2, BIRTHDAY:3, POINTS:4, TOTAL_SPENT:5, JOINED:6, NOTE:7,
-    MEMBER_LEVEL:8, ANNUAL_SPEND:9, LEVEL_UPDATED_AT:10, BIRTH_DISC_YEAR:11
+    MEMBER_LEVEL:8, ANNUAL_SPEND:9, LEVEL_UPDATED_AT:10, BIRTH_DISC_YEAR:11, LAST_OP_ID:12
   },
-  POINTS_LOG: { ID:0, PHONE:1, NAME:2, ACTION:3, POINTS:4, BALANCE:5, NOTE:6, CREATED:7 },
+  POINTS_LOG: { ID:0, PHONE:1, NAME:2, ACTION:3, POINTS:4, BALANCE:5, NOTE:6, CREATED:7, REF_ID:8 },
   RETURNS: {
     ID:0, ORDER_ID:1, PHONE:2, NAME:3, PRODUCT_ID:4, PRODUCT_NAME:5,
     QTY:6, REFUND_AMOUNT:7, PAYMENT:8, REASON:9, POINTS_DEDUCTED:10,
-    STATUS:11, NOTE:12, CREATED:13
+    STATUS:11, NOTE:12, CREATED:13, ACTUAL_POINTS_DEDUCTED:14, POINTS_SHORTFALL:15
+  },
+  RETURN_STEPS: {
+    ID:0, RETURN_ID:1, STEP:2, STATUS:3, REF_ID:4,
+    BEFORE_VALUE:5, EXPECTED_AFTER:6, UPDATED_AT:7, ERROR:8, CREATED:9
   },
   SETTINGS: { KEY:0, VALUE:1, DESC:2, UPDATED:3 }
 };
@@ -177,7 +182,9 @@ function handleRequest(e) {
       'addReturn','getReturns','updateReturn',
       'updateSetting',
       'getMonthlyReport','getSalesRanking','getInventoryHealth','getMemberStats',
-      'sendLowStockNotification','installTriggers'
+      'sendLowStockNotification','installTriggers',
+      'adminEnableReturnMaintenance','adminDisableReturnMaintenance','adminCheckPendingReturns',
+      'adminTestUpdateQty_','adminTestOldCodeCompatibility'
     ];
 
     if (adminActions.includes(action) && !validateSession_(p.session_token)) {
@@ -241,6 +248,12 @@ function handleRequest(e) {
       case 'sendLowStockNotification': return res(sendLowStockNotification());
       case 'installTriggers':        return res(installTriggers());
 
+      case 'adminEnableReturnMaintenance':  return res(adminEnableReturnMaintenance());
+      case 'adminDisableReturnMaintenance': return res(adminDisableReturnMaintenance());
+      case 'adminCheckPendingReturns':      return res(adminCheckPendingReturns());
+      case 'adminTestUpdateQty_':           return res(adminTestUpdateQty_(p));
+      case 'adminTestOldCodeCompatibility': return res(adminTestOldCodeCompatibility());
+
       case 'loginAdmin':             return res(loginAdmin(p));
       default:
         return res({ ok: false, error: '未知動作: ' + action });
@@ -290,6 +303,39 @@ function findRow(sheetName, colIndex, value) {
     }
   }
   return null;
+}
+
+// ================================================================
+// 鎖定與維護模式
+// ================================================================
+function _acquireLock_() {
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); return lock; }
+  catch(e) { return null; }
+}
+
+function isReturnMaintenanceOn_() {
+  try {
+    return PropertiesService.getScriptProperties().getProperty('RETURN_MAINTENANCE') === 'true';
+  } catch(e) { return false; }
+}
+
+function adminEnableReturnMaintenance() {
+  PropertiesService.getScriptProperties().setProperty('RETURN_MAINTENANCE', 'true');
+  return { ok: true, message: '退貨維護模式已啟用' };
+}
+
+function adminDisableReturnMaintenance() {
+  PropertiesService.getScriptProperties().deleteProperty('RETURN_MAINTENANCE');
+  return { ok: true, message: '退貨維護模式已停用' };
+}
+
+function adminCheckPendingReturns() {
+  const rows = getRows(SHEET.RETURNS);
+  const c    = COL.RETURNS;
+  const pending = rows.filter(r => r[c.ID] && String(r[c.STATUS]) === '待處理')
+                      .map(r => ({ return_id: r[c.ID], name: r[c.NAME], product: r[c.PRODUCT_NAME], created_at: r[c.CREATED] }));
+  return { ok: true, count: pending.length, data: pending };
 }
 
 // ================================================================
@@ -394,35 +440,46 @@ function getInventory(p) {
 function stockIn(p) {
   const qty = parseInt(p.qty);
   if (!p.product_id || !qty || qty < 1) return { ok: false, error: '缺少必要欄位' };
-  const result = updateQty(p.product_id, qty, 'in');
-  if (!result.ok) return result;
-  getSheet(SHEET.STOCK_LOG).appendRow([
-    genId('L'), p.product_id, result.name, '入庫',
-    qty, p.price||'', p.partner||'總部', p.note||'', now()
-  ]);
-  if (p.price && p.auto_account !== 'false') {
-    addAccount({
-
-      date: today(), type: '進貨付款',
-      partner: p.partner||'總部',
-      items: result.name + ' x' + qty,
-      income: '', expense: Number(p.price) * qty,
-      payment: p.payment||'匯款', status: '待付款', note: p.note||''
-    });
+  const lock = _acquireLock_();
+  if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
+  try {
+    const result = updateQty_(p.product_id, qty, 'in');
+    if (!result.ok) return result;
+    getSheet(SHEET.STOCK_LOG).appendRow([
+      genId('L'), p.product_id, result.name, '入庫',
+      qty, p.price||'', p.partner||'總部', p.note||'', now(), ''
+    ]);
+    if (p.price && p.auto_account !== 'false') {
+      addAccount({
+        date: today(), type: '進貨付款',
+        partner: p.partner||'總部',
+        items: result.name + ' x' + qty,
+        income: '', expense: Number(p.price) * qty,
+        payment: p.payment||'匯款', status: '待付款', note: p.note||''
+      });
+    }
+    return { ok: true, new_qty: result.new_qty };
+  } finally {
+    lock.releaseLock();
   }
-  return { ok: true, new_qty: result.new_qty };
 }
 
 function stockOut(p) {
   const qty = parseInt(p.qty);
   if (!p.product_id || !qty || qty < 1) return { ok: false, error: '缺少必要欄位' };
-  const result = updateQty(p.product_id, qty, 'out');
-  if (!result.ok) return result;
-  getSheet(SHEET.STOCK_LOG).appendRow([
-    genId('L'), p.product_id, result.name, '出庫',
-    qty, p.price||'', p.partner||'', p.note||'', now()
-  ]);
-  return { ok: true, new_qty: result.new_qty };
+  const lock = _acquireLock_();
+  if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
+  try {
+    const result = updateQty_(p.product_id, qty, 'out');
+    if (!result.ok) return result;
+    getSheet(SHEET.STOCK_LOG).appendRow([
+      genId('L'), p.product_id, result.name, '出庫',
+      qty, p.price||'', p.partner||'', p.note||'', now(), ''
+    ]);
+    return { ok: true, new_qty: result.new_qty };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function updateQty(productId, qty, type) {
@@ -444,6 +501,32 @@ function updateQty(productId, qty, type) {
     } catch(e) {}
   }
   return { ok: true, new_qty: newQty, name: found.row[COL.INVENTORY.NAME] };
+}
+
+// 內部版：全列原子寫入（QTY + UPDATED + LAST_OP_ID 一次 setValues），呼叫前必須持有 lock
+function updateQty_(productId, qty, type, opId) {
+  const absQty = Math.abs(parseInt(qty) || 0);
+  if (absQty <= 0)                          return { ok:false, error:'qty 必須大於 0' };
+  if (type !== 'in' && type !== 'out')      return { ok:false, error:'未知 type: ' + type };
+  const sheet = getSheet(SHEET.INVENTORY);
+  const c     = COL.INVENTORY;
+  const found = findRow(SHEET.INVENTORY, c.ID, productId);
+  if (!found) return { ok:false, error:'找不到庫存記錄' };
+  const cur    = parseInt(found.row[c.QTY]) || 0;
+  const newQty = type === 'in' ? cur + absQty : cur - absQty;
+  if (newQty < 0) return { ok:false, error:`庫存不足，現有 ${cur} 件` };
+  const rowData = found.row.slice();
+  rowData[c.QTY]     = newQty;
+  rowData[c.UPDATED] = now();
+  if (opId) rowData[c.LAST_OP_ID] = opId;
+  sheet.getRange(found.rowNum, 1, 1, rowData.length).setValues([rowData]);
+  if (newQty === 0 && type === 'out') {
+    try {
+      const pf = findRow(SHEET.PRODUCTS, COL.PRODUCTS.ID, productId);
+      if (pf) getSheet(SHEET.PRODUCTS).getRange(pf.rowNum, COL.PRODUCTS.STATUS+1).setValue('下架');
+    } catch(e) {}
+  }
+  return { ok:true, new_qty:newQty, name:found.row[c.NAME] };
 }
 
 function syncInventory() {
@@ -573,20 +656,28 @@ function updateOrder(p) {
   const sheet = getSheet(SHEET.ORDERS);
   const c = COL.ORDERS;
   const rn = found.rowNum;
-  const currentStatus = String(found.row[c.STATUS]);
-  // 防止重複扣庫存：已確認以後的狀態不可再次傳 deduct=true
-  if (p.status === '已確認' && p.deduct === 'true' &&
-      ['已確認','已出貨','已付款','已完成'].includes(currentStatus)) {
-    return { ok: false, error: '訂單已確認，不可重複扣庫存' };
-  }
-  if (p.status !== undefined) sheet.getRange(rn, c.STATUS+1).setValue(p.status);
-  if (p.note   !== undefined) sheet.getRange(rn, c.NOTE+1).setValue(p.note);
+
   if (p.status === '已確認' && p.deduct === 'true') {
+    // 取鎖後重新讀取狀態，防止 TOCTOU 競態
+    const lock = _acquireLock_();
+    if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
     try {
+      const fresh = findRow(SHEET.ORDERS, COL.ORDERS.ID, p.order_id);
+      const currentStatus = String(fresh.row[c.STATUS]);
+      if (['已確認','已出貨','已付款','已完成'].includes(currentStatus)) {
+        return { ok: false, error: '訂單已確認，不可重複扣庫存' };
+      }
+      sheet.getRange(rn, c.STATUS+1).setValue(p.status);
+      if (p.note !== undefined) sheet.getRange(rn, c.NOTE+1).setValue(p.note);
       const items = JSON.parse(found.row[c.ITEMS]);
+      const logSheet = getSheet(SHEET.STOCK_LOG);
       items.forEach(item => {
-        stockOut({ product_id: item.product_id, qty: item.qty,
-                   price: item.price, partner: found.row[c.CNAME], note: '訂單:'+p.order_id });
+        const qr = updateQty_(item.product_id, parseInt(item.qty)||0, 'out');
+        if (!qr.ok) throw new Error(qr.error);
+        logSheet.appendRow([
+          genId('L'), item.product_id, item.name||qr.name, '出庫',
+          parseInt(item.qty)||0, item.price||'', found.row[c.CNAME], '訂單:'+p.order_id, now(), ''
+        ]);
       });
       addAccount({
         date: today(), type: '銷售收款',
@@ -595,61 +686,78 @@ function updateOrder(p) {
         income: found.row[c.TOTAL], expense: '',
         payment: found.row[c.PAYMENT], status: '待收款', note: ''
       });
-    } catch(e) {}
+    } catch(e) {
+      return { ok: false, error: '扣庫存失敗：' + e.message };
+    } finally {
+      lock.releaseLock();
+    }
+  } else {
+    if (p.status !== undefined) sheet.getRange(rn, c.STATUS+1).setValue(p.status);
+    if (p.note   !== undefined) sheet.getRange(rn, c.NOTE+1).setValue(p.note);
   }
   return { ok: true };
 }
 
 function cancelOrder(p) {
   if (!p.order_id) return { ok: false, error: '缺少 order_id' };
-  const found = findRow(SHEET.ORDERS, COL.ORDERS.ID, p.order_id);
-  if (!found) return { ok: false, error: '找不到訂單' };
-  const order = found.row;
-  const c = COL.ORDERS;
-  const status = String(order[c.STATUS]);
-  if (['已完成', '已取消', '已付款'].includes(status)) {
-    return { ok: false, error: `此訂單狀態「${status}」無法取消，需走退款流程` };
-  }
-  const sheet = getSheet(SHEET.ORDERS);
-  const rn = found.rowNum;
-  sheet.getRange(rn, c.STATUS+1).setValue('已取消');
-  sheet.getRange(rn, c.CANCELLED_BY+1).setValue(p.cancelled_by || '管理員');
-  sheet.getRange(rn, c.CANCELLED_AT+1).setValue(now());
-  sheet.getRange(rn, c.CANCEL_REASON+1).setValue(p.cancel_reason || '');
+  // 快速存在確認（讀取，不需鎖）
+  if (!findRow(SHEET.ORDERS, COL.ORDERS.ID, p.order_id)) return { ok: false, error: '找不到訂單' };
 
-  // 庫存回補：訂單已確認或已出貨才補
-  if (['已確認', '已出貨'].includes(status)) {
-    try {
-      const orderItems = JSON.parse(order[c.ITEMS] || '[]');
-      const logSheet = getSheet(SHEET.STOCK_LOG);
-      orderItems.forEach(item => {
-        const qty = parseInt(item.qty) || 0;
-        if (!item.product_id || qty <= 0) return;
-        updateQty(item.product_id, qty, 'in');
-        logSheet.appendRow([
-          genId('SL'), item.product_id, item.name || '', '退回',
-          qty, item.price || '', order[c.CNAME] || '', '取消訂單退回：' + p.order_id, now()
-        ]);
-      });
-    } catch(e) {
-      Logger.log('取消訂單庫存回補失敗：' + e.toString());
-    }
-  }
-
-  // 作廢待收款
+  const lock = _acquireLock_();
+  if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
   try {
-    const accRows = getRows(SHEET.ACCOUNTS);
-    const ca = COL.ACCOUNTS;
-    const pendingIdx = accRows.findIndex(r =>
-      String(r[ca.ITEMS]).includes(p.order_id) && String(r[ca.STATUS]) === '待收款'
-    );
-    if (pendingIdx >= 0) {
-      getSheet(SHEET.ACCOUNTS).getRange(DATA_ROW + pendingIdx, ca.STATUS+1).setValue('已作廢');
+    // 取鎖後重新讀取，取得最新狀態，防止 TOCTOU 競態
+    const found = findRow(SHEET.ORDERS, COL.ORDERS.ID, p.order_id);
+    const order = found.row;
+    const c = COL.ORDERS;
+    const status = String(order[c.STATUS]);
+    if (['已完成', '已取消', '已付款'].includes(status)) {
+      return { ok: false, error: `此訂單狀態「${status}」無法取消，需走退款流程` };
     }
-  } catch(e) {}
+    const sheet = getSheet(SHEET.ORDERS);
+    const rn = found.rowNum;
+    // 取鎖後才寫入狀態
+    sheet.getRange(rn, c.STATUS+1).setValue('已取消');
+    sheet.getRange(rn, c.CANCELLED_BY+1).setValue(p.cancelled_by || '管理員');
+    sheet.getRange(rn, c.CANCELLED_AT+1).setValue(now());
+    sheet.getRange(rn, c.CANCEL_REASON+1).setValue(p.cancel_reason || '');
 
-  sendLineMsg(`❌ 訂單取消\n訂單：${p.order_id}\n客人：${order[c.CNAME]}\n原因：${p.cancel_reason||'—'}\n時間：${now()}`);
-  return { ok: true };
+    // 庫存回補（已在鎖內，無需再取鎖）
+    if (['已確認', '已出貨'].includes(status)) {
+      try {
+        const orderItems = JSON.parse(order[c.ITEMS] || '[]');
+        const logSheet = getSheet(SHEET.STOCK_LOG);
+        orderItems.forEach(item => {
+          const qty = parseInt(item.qty) || 0;
+          if (!item.product_id || qty <= 0) return;
+          updateQty_(item.product_id, qty, 'in');
+          logSheet.appendRow([
+            genId('SL'), item.product_id, item.name || '', '退回',
+            qty, item.price || '', order[c.CNAME] || '', '取消訂單退回：' + p.order_id, now(), ''
+          ]);
+        });
+      } catch(e) {
+        Logger.log('取消訂單庫存回補失敗：' + e.toString());
+      }
+    }
+
+    // 作廢待收款
+    try {
+      const accRows = getRows(SHEET.ACCOUNTS);
+      const ca = COL.ACCOUNTS;
+      const pendingIdx = accRows.findIndex(r =>
+        String(r[ca.ITEMS]).includes(p.order_id) && String(r[ca.STATUS]) === '待收款'
+      );
+      if (pendingIdx >= 0) {
+        getSheet(SHEET.ACCOUNTS).getRange(DATA_ROW + pendingIdx, ca.STATUS+1).setValue('已作廢');
+      }
+    } catch(e) {}
+
+    sendLineMsg(`❌ 訂單取消\n訂單：${p.order_id}\n客人：${order[c.CNAME]}\n原因：${p.cancel_reason||'—'}\n時間：${now()}`);
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function applyPointsDiscount(p) {
@@ -724,7 +832,23 @@ function getAccounts(p) {
 }
 
 function addAccount(p) {
-  const id = genId('A');
+  // 冪等性：若呼叫端指定 id，先查是否已存在
+  if (p.id) {
+    const existing = findRow(SHEET.ACCOUNTS, COL.ACCOUNTS.ID, p.id);
+    if (existing) {
+      const ca        = COL.ACCOUNTS;
+      const exType    = String(existing.row[ca.TYPE]);
+      const exIncome  = Number(existing.row[ca.INCOME])  || 0;
+      const exExpense = Number(existing.row[ca.EXPENSE]) || 0;
+      if (exType    === (p.type || '') &&
+          exIncome  === (Number(p.income)  || 0) &&
+          exExpense === (Number(p.expense) || 0)) {
+        return { ok: true, account_id: p.id };
+      }
+      return { ok: false, error: 'needs_review：帳目 ' + p.id + ' 已存在但內容不符（類型/金額）' };
+    }
+  }
+  const id = p.id || genId('A');
   getSheet(SHEET.ACCOUNTS).appendRow([
     id, p.date||today(), p.type||'', p.partner||'',
     p.items||'', p.income||0, p.expense||0,
@@ -777,7 +901,7 @@ function refreshBalance() {
         if (status === '已收款') { totalIncome  += income;  }
         if (status === '已付款' || status === '已完成') { totalExpense += expense; }
         if (status === '待收款') { receivable   += income;  }
-        if (status === '待付款') { payable       += expense; }
+        if (status === '待付款' || status === '待退款') { payable += expense; }
         if (String(r[c.DATE]).startsWith(thisMonth)) {
           if (status === '已收款') { monthIncome  += income;  }
           if (status === '已付款' || status === '已完成') { monthExpense += expense; }
@@ -916,44 +1040,68 @@ const REG_TOKEN = 'YC_EVENT_2026';
 function addRegistration(p) {
   if (p.token !== REG_TOKEN) return { ok: false, error: '驗證失敗' };
   if (!p.event_id || !p.name || !p.phone) return { ok: false, error: '缺少必要欄位' };
-  const found = findRow(SHEET.EVENTS, COL.EVENTS.ID, p.event_id);
-  if (!found) return { ok: false, error: '找不到活動' };
-  const event = found.row;
-  const c = COL.EVENTS;
-  const capacity   = parseInt(event[c.CAPACITY])   || 0;
-  const registered = parseInt(event[c.REGISTERED]) || 0;
-  if (capacity > 0 && registered >= capacity) return { ok: false, error: '報名人數已額滿' };
-  const feeType   = p.fee_type || '單次';
-  const feeAmount = feeType === '年繳'   ? (event[c.FEE_YEARLY] || 120000) :
-                    feeType === '半年繳' ? (event[c.FEE_HALF]   || 132000) :
-                                           (event[c.FEE_SINGLE] || 12000);
-  const id = genId('R');
-  const regSheet = getSheet(SHEET.REGISTRATIONS);
-  regSheet.appendRow([
-    id, p.event_id, event[c.NAME],
-    p.name, p.phone, p.address||'',
-    feeType, feeAmount, '申請中',
-    p.health||'', p.religion||'', p.skills||'',
-    p.emergency_name||'', p.emergency_phone||'',
-    p.accommodation||'不住宿', p.note||'', now(),
-    p.gender||'', '', ''
-  ]);
-  const lastReg = regSheet.getLastRow();
-  regSheet.getRange(lastReg, COL.REGISTRATIONS.PHONE+1).setNumberFormat('@').setValue(p.phone||'');
-  regSheet.getRange(lastReg, COL.REGISTRATIONS.EMERGENCY_PHONE+1).setNumberFormat('@').setValue(p.emergency_phone||'');
-  const evSheet = getSheet(SHEET.EVENTS);
-  evSheet.getRange(found.rowNum, c.REGISTERED+1).setValue(registered + 1);
-  // 住宿/不住宿名額分開追蹤
-  const accom = p.accommodation || '不住宿';
-  if (accom === '住宿') {
-    const cur = parseInt(event[c.ACCOM_REGISTERED]) || 0;
-    evSheet.getRange(found.rowNum, c.ACCOM_REGISTERED+1).setValue(cur + 1);
-  } else {
-    const cur = parseInt(event[c.NO_ACCOM_REGISTERED]) || 0;
-    evSheet.getRange(found.rowNum, c.NO_ACCOM_REGISTERED+1).setValue(cur + 1);
+
+  const lock = _acquireLock_();
+  if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
+  try {
+    // 取鎖後讀取最新活動資料
+    const found = findRow(SHEET.EVENTS, COL.EVENTS.ID, p.event_id);
+    if (!found) return { ok: false, error: '找不到活動' };
+    const event = found.row;
+    const c = COL.EVENTS;
+
+    // 重複報名檢查：正規化手機，未取消的記錄視為重複（已取消可重新報名）
+    const normalPhone = String(p.phone).replace(/[\s\-\(\)]/g, '');
+    const existingRegs = getRows(SHEET.REGISTRATIONS);
+    const cr = COL.REGISTRATIONS;
+    const duplicate = existingRegs.find(r =>
+      String(r[cr.EID]) === p.event_id &&
+      String(r[cr.PHONE]).replace(/[\s\-\(\)]/g, '') === normalPhone &&
+      String(r[cr.FEE_STATUS]) !== '已取消'
+    );
+    if (duplicate) return { ok: false, error: '此手機已報名本活動' };
+
+    // 名額檢查
+    const capacity   = parseInt(event[c.CAPACITY])   || 0;
+    const registered = parseInt(event[c.REGISTERED]) || 0;
+    if (capacity > 0 && registered >= capacity) return { ok: false, error: '報名人數已額滿' };
+
+    const feeType   = p.fee_type || '單次';
+    const feeAmount = feeType === '年繳'   ? (event[c.FEE_YEARLY] || 120000) :
+                      feeType === '半年繳' ? (event[c.FEE_HALF]   || 132000) :
+                                             (event[c.FEE_SINGLE] || 12000);
+    const id = genId('R');
+    const regSheet = getSheet(SHEET.REGISTRATIONS);
+    regSheet.appendRow([
+      id, p.event_id, event[c.NAME],
+      p.name, p.phone, p.address||'',
+      feeType, feeAmount, '申請中',
+      p.health||'', p.religion||'', p.skills||'',
+      p.emergency_name||'', p.emergency_phone||'',
+      p.accommodation||'不住宿', p.note||'', now(),
+      p.gender||'', '', ''
+    ]);
+    const lastReg = regSheet.getLastRow();
+    regSheet.getRange(lastReg, cr.PHONE+1).setNumberFormat('@').setValue(p.phone||'');
+    regSheet.getRange(lastReg, cr.EMERGENCY_PHONE+1).setNumberFormat('@').setValue(p.emergency_phone||'');
+
+    // 名額更新（已在鎖內，資料一致）
+    const evSheet = getSheet(SHEET.EVENTS);
+    evSheet.getRange(found.rowNum, c.REGISTERED+1).setValue(registered + 1);
+    const accom = p.accommodation || '不住宿';
+    if (accom === '住宿') {
+      const cur = parseInt(event[c.ACCOM_REGISTERED]) || 0;
+      evSheet.getRange(found.rowNum, c.ACCOM_REGISTERED+1).setValue(cur + 1);
+    } else {
+      const cur = parseInt(event[c.NO_ACCOM_REGISTERED]) || 0;
+      evSheet.getRange(found.rowNum, c.NO_ACCOM_REGISTERED+1).setValue(cur + 1);
+    }
+
+    sendLineMsg(`📅 新報名！\n活動：${event[c.NAME]}\n姓名：${p.name}\n電話：${p.phone}\n住宿：${accom}\n繳費：${feeType} NT$ ${Number(feeAmount).toLocaleString()}\n時間：${now()}`);
+    return { ok: true, reg_id: id, fee_amount: feeAmount };
+  } finally {
+    lock.releaseLock();
   }
-  sendLineMsg(`📅 新報名！\n活動：${event[c.NAME]}\n姓名：${p.name}\n電話：${p.phone}\n住宿：${accom}\n繳費：${feeType} NT$ ${Number(feeAmount).toLocaleString()}\n時間：${now()}`);
-  return { ok: true, reg_id: id, fee_amount: feeAmount };
 }
 
 function updateRegistration(p) {
@@ -1151,16 +1299,39 @@ function addPoints(p) {
       const newBal = cur + addPts;
       sheet.getRange(rn, c.POINTS+1).setValue(newBal);
       sheet.getRange(rn, c.TOTAL_SPENT+1).setValue(spent + Number(p.amount || 0));
-      // 寫點數記錄
+      // 寫點數記錄（9 欄，最後一欄 ref_id 留空）
       const logSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET.POINTS_LOG);
       if (logSheet) {
         logSheet.appendRow(['PT'+Date.now(), p.phone, rows[i][c.NAME],
-          addPts > 0 ? '加點' : '扣點', addPts, newBal, p.note||'', now()]);
+          addPts > 0 ? '加點' : '扣點', addPts, newBal, p.note||'', now(), '']);
       }
       return { ok: true, new_points: newBal };
     }
   }
   return { ok: false, error: '找不到會員' };
+}
+
+// 內部版：全列原子寫入（POINTS + TOTAL_SPENT + LAST_OP_ID 一次 setValues），呼叫前必須持有 lock
+function addPoints_(p) {
+  const rows = getRows(SHEET.MEMBERS);
+  const c    = COL.MEMBERS;
+  const i    = rows.findIndex(r => String(r[c.PHONE]) === String(p.phone));
+  if (i < 0) return { ok:false, error:'找不到會員' };
+  const sheet  = getSheet(SHEET.MEMBERS);
+  const rn     = DATA_ROW + i;
+  const cur    = Number(rows[i][c.POINTS]) || 0;
+  const newBal = cur + Number(p.points);
+  const rowData = rows[i].slice();
+  rowData[c.POINTS]      = newBal;
+  rowData[c.TOTAL_SPENT] = (Number(rows[i][c.TOTAL_SPENT]) || 0) + Number(p.amount || 0);
+  if (p.refId) rowData[c.LAST_OP_ID] = p.refId;
+  sheet.getRange(rn, 1, 1, rowData.length).setValues([rowData]);
+  getSheet(SHEET.POINTS_LOG).appendRow([
+    genId('PL'), p.phone, rows[i][c.NAME],
+    Number(p.points) > 0 ? '加點' : '扣點',
+    p.points, newBal, p.note || '', now(), p.refId || ''
+  ]);
+  return { ok:true, new_points:newBal };
 }
 
 // ================================================================
@@ -1172,7 +1343,7 @@ function getPointsLog(p) {
   const last = sheet.getLastRow();
   if (last < DATA_ROW) return { ok: true, data: [] };
   const c = COL.POINTS_LOG;
-  let list = sheet.getRange(DATA_ROW, 1, last - DATA_ROW + 1, 8).getValues()
+  let list = sheet.getRange(DATA_ROW, 1, last - DATA_ROW + 1, 9).getValues()
     .map(r => ({
       log_id:       r[c.ID],
       member_phone: r[c.PHONE],
@@ -1193,111 +1364,293 @@ function getPointsLog(p) {
 // ================================================================
 function confirmOrderPayment(p) {
   if (!p.order_id) return { ok: false, error: '缺少 order_id' };
-  const found = findRow(SHEET.ORDERS, COL.ORDERS.ID, p.order_id);
-  if (!found) return { ok: false, error: '找不到訂單' };
-  const order = found.row;
-  const c = COL.ORDERS;
-
-  // 防止重複確認付款
-  const curStatus = String(order[c.STATUS]);
-  if (curStatus === '已付款' || curStatus === '已完成') {
-    return { ok: false, error: '此訂單已付款，不可重複確認' };
-  }
-
-  const amount = Number(p.received_amount) || Number(order[c.TOTAL]) || 0;
-  const payDate = p.payment_date || today();
-
-  // 更新訂單狀態
-  const sheet = getSheet(SHEET.ORDERS);
-  sheet.getRange(found.rowNum, c.STATUS+1).setValue('已付款');
-
-  // 待收款 → 已收款（找到就更新，沒找到才新增）
-  const accRows = getRows(SHEET.ACCOUNTS);
-  const ca = COL.ACCOUNTS;
-  const pendingIdx = accRows.findIndex(r =>
-    String(r[ca.ITEMS]).includes(p.order_id) && String(r[ca.STATUS]) === '待收款'
-  );
-  if (pendingIdx >= 0) {
-    const accSheet = getSheet(SHEET.ACCOUNTS);
-    const accRn = DATA_ROW + pendingIdx;
-    accSheet.getRange(accRn, ca.STATUS+1).setValue('已收款');
-    accSheet.getRange(accRn, ca.INCOME+1).setValue(amount);
-    accSheet.getRange(accRn, ca.DATE+1).setValue(payDate);
-  } else {
-    addAccount({
-      date: payDate, type: '銷售收款',
-      partner: order[c.CNAME],
-      items: '訂單 ' + p.order_id,
-      income: amount, expense: '',
-      payment: order[c.PAYMENT] || 'ATM轉帳',
-      status: '已收款', note: ''
-    });
-  }
-
-  // 加點數：依商品小計計算（不含運費），每 N 元得 1 點
-  let pointsAdded = 0;
-  if (p.member_phone && amount > 0) {
-    const settings   = getSettingsMap_();
-    const earnRate   = Number(settings.points_earn_rate) || 100;
-    const subtotalAmt = Number(order[c.SUBTOTAL]) || amount;
-    pointsAdded = Math.floor(subtotalAmt / earnRate);
-    if (pointsAdded > 0) {
-      try {
-        addPoints({ phone: p.member_phone, points: pointsAdded,
-                    amount: subtotalAmt, note: '訂單消費：' + p.order_id });
-      } catch(e) {}
+  const lock = _acquireLock_();
+  if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
+  try {
+    // 取鎖後讀取，確保狀態檢查與寫入之間無競態
+    const found = findRow(SHEET.ORDERS, COL.ORDERS.ID, p.order_id);
+    if (!found) return { ok: false, error: '找不到訂單' };
+    const order = found.row;
+    const c = COL.ORDERS;
+    // 防止重複確認付款（鎖內讀取）
+    const curStatus = String(order[c.STATUS]);
+    if (curStatus === '已付款' || curStatus === '已完成') {
+      return { ok: false, error: '此訂單已付款，不可重複確認' };
     }
-  }
+    const amount  = Number(p.received_amount) || Number(order[c.TOTAL]) || 0;
+    const payDate = p.payment_date || today();
 
-  refreshBalance();
-  sendLineMsg(`💰 收款確認\n客人：${order[c.CNAME]}\n實收：NT$ ${amount.toLocaleString()}\n訂單：${p.order_id}${pointsAdded>0?'\n加點：'+pointsAdded+' 點':''}\n時間：${now()}`);
-  return { ok: true, points_added: pointsAdded };
+    // 更新訂單狀態
+    const sheet = getSheet(SHEET.ORDERS);
+    sheet.getRange(found.rowNum, c.STATUS+1).setValue('已付款');
+
+    // 待收款 → 已收款（找到就更新，沒找到才新增）
+    const accRows = getRows(SHEET.ACCOUNTS);
+    const ca = COL.ACCOUNTS;
+    const pendingIdx = accRows.findIndex(r =>
+      String(r[ca.ITEMS]).includes(p.order_id) && String(r[ca.STATUS]) === '待收款'
+    );
+    if (pendingIdx >= 0) {
+      const accSheet = getSheet(SHEET.ACCOUNTS);
+      const accRn = DATA_ROW + pendingIdx;
+      accSheet.getRange(accRn, ca.STATUS+1).setValue('已收款');
+      accSheet.getRange(accRn, ca.INCOME+1).setValue(amount);
+      accSheet.getRange(accRn, ca.DATE+1).setValue(payDate);
+    } else {
+      addAccount({
+        date: payDate, type: '銷售收款',
+        partner: order[c.CNAME],
+        items: '訂單 ' + p.order_id,
+        income: amount, expense: '',
+        payment: order[c.PAYMENT] || 'ATM轉帳',
+        status: '已收款', note: ''
+      });
+    }
+
+    // 加點數：依商品小計計算（不含運費），每 N 元得 1 點
+    let pointsAdded = 0;
+    if (p.member_phone && amount > 0) {
+      const settings    = getSettingsMap_();
+      const earnRate    = Number(settings.points_earn_rate) || 100;
+      const subtotalAmt = Number(order[c.SUBTOTAL]) || amount;
+      pointsAdded = Math.floor(subtotalAmt / earnRate);
+      if (pointsAdded > 0) {
+        try {
+          addPoints_({ phone: p.member_phone, points: pointsAdded,
+                       amount: subtotalAmt, note: '訂單消費：' + p.order_id });
+        } catch(e) {}
+      }
+    }
+
+    refreshBalance();
+    sendLineMsg(`💰 收款確認\n客人：${order[c.CNAME]}\n實收：NT$ ${amount.toLocaleString()}\n訂單：${p.order_id}${pointsAdded>0?'\n加點：'+pointsAdded+' 點':''}\n時間：${now()}`);
+    return { ok: true, points_added: pointsAdded };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ================================================================
 // 退貨退款
 // ================================================================
+
+// ── 退貨流程輔助函式（內部用，呼叫前須持有 lock 或確認單執行緒） ──
+
+function findReturnStep_(returnId, step) {
+  const rows = getRows(SHEET.RETURN_STEPS);
+  const c    = COL.RETURN_STEPS;
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i][c.RETURN_ID]) === String(returnId) &&
+        String(rows[i][c.STEP])      === String(step)) {
+      return { row: rows[i], rowNum: DATA_ROW + i };
+    }
+  }
+  return null;
+}
+
+function findStockLogByRefId_(refId) {
+  if (!refId) return null;
+  return findRow(SHEET.STOCK_LOG, COL.STOCK_LOG.REF_ID, refId);
+}
+
+function findPointsLogByRefId_(refId) {
+  if (!refId) return null;
+  return findRow(SHEET.POINTS_LOG, COL.POINTS_LOG.REF_ID, refId);
+}
+
+function _getOrCreateStep_(returnId, step, beforeVal, expectedVal, newOpId) {
+  const existing = findReturnStep_(returnId, step);
+  if (existing) return existing;
+  const sheet = getSheet(SHEET.RETURN_STEPS);
+  sheet.appendRow([
+    genId('RS'), returnId, step, 'pending', newOpId,
+    beforeVal, expectedVal, now(), '', now()
+  ]);
+  const rowNum = sheet.getLastRow();
+  return { rowNum, row: [null, returnId, step, 'pending', newOpId, beforeVal, expectedVal, now(), '', now()] };
+}
+
+function _updateReturnStepRow(rowNum, status, refId, error) {
+  const sheet = getSheet(SHEET.RETURN_STEPS);
+  const c     = COL.RETURN_STEPS;
+  sheet.getRange(rowNum, c.STATUS + 1).setValue(status);
+  if (refId !== undefined && refId !== null) {
+    sheet.getRange(rowNum, c.REF_ID + 1).setValue(refId);
+  }
+  sheet.getRange(rowNum, c.UPDATED_AT + 1, 1, 2).setValues([[now(), error || '']]);
+}
+
+function _executeInventoryStep_(ret, returnId) {
+  const cs  = COL.RETURN_STEPS;
+  const productId = String(ret.row[COL.RETURNS.PRODUCT_ID]);
+  if (!productId) return { ok: true, skipped: true };
+
+  const qty    = parseInt(ret.row[COL.RETURNS.QTY]) || 0;
+  const invRow = findRow(SHEET.INVENTORY, COL.INVENTORY.ID, productId);
+  const curQty = invRow ? parseInt(invRow.row[COL.INVENTORY.QTY]) || 0 : 0;
+  const opId   = genId('OP');
+  const step   = _getOrCreateStep_(returnId, 'inventory', curQty, curQty + qty, opId);
+  const storedOpId = String(step.row[cs.REF_ID]);
+  const stepStatus = String(step.row[cs.STATUS]);
+
+  if (stepStatus === 'done') return { ok: true };
+  if (stepStatus === 'needs_review') return { ok: false, error: 'inventory step needs_review' };
+
+  // 路徑 A：stock_log 已有 ref_id 記錄
+  if (findStockLogByRefId_(storedOpId)) {
+    _updateReturnStepRow(step.rowNum, 'done', storedOpId, '');
+    return { ok: true };
+  }
+  // 路徑 B：INVENTORY.LAST_OP_ID 已等於 storedOpId（log 寫入失敗）
+  const invCheck = findRow(SHEET.INVENTORY, COL.INVENTORY.ID, productId);
+  if (invCheck && String(invCheck.row[COL.INVENTORY.LAST_OP_ID]) === storedOpId) {
+    getSheet(SHEET.STOCK_LOG).appendRow([
+      genId('SL'), productId, invCheck.row[COL.INVENTORY.NAME], '退貨入庫',
+      qty, '', ret.row[COL.RETURNS.NAME], '退貨：' + returnId, now(), storedOpId
+    ]);
+    _updateReturnStepRow(step.rowNum, 'done', storedOpId, '');
+    return { ok: true };
+  }
+  // 路徑 C：當前數量 === before_value → 尚未執行，安全重試
+  const beforeVal = Number(step.row[cs.BEFORE_VALUE]);
+  if (invCheck && (parseInt(invCheck.row[COL.INVENTORY.QTY]) || 0) === beforeVal) {
+    const qr = updateQty_(productId, qty, 'in', storedOpId);
+    if (!qr.ok) { _updateReturnStepRow(step.rowNum, 'needs_review', null, qr.error); return { ok: false, error: qr.error }; }
+    getSheet(SHEET.STOCK_LOG).appendRow([
+      genId('SL'), productId, qr.name, '退貨入庫',
+      qty, '', ret.row[COL.RETURNS.NAME], '退貨：' + returnId, now(), storedOpId
+    ]);
+    _updateReturnStepRow(step.rowNum, 'done', storedOpId, '');
+    return { ok: true };
+  }
+  // 路徑 D：需人工確認
+  _updateReturnStepRow(step.rowNum, 'needs_review', null, '庫存數量與 before_value 不符，需人工確認');
+  return { ok: false, error: 'inventory step needs_review：庫存數量異常' };
+}
+
+function _executeAccountStep_(ret, returnId) {
+  const cs          = COL.RETURN_STEPS;
+  const refundAmt   = Number(ret.row[COL.RETURNS.REFUND_AMOUNT]) || 0;
+  const opId        = genId('OP');
+  const step        = _getOrCreateStep_(returnId, 'account', 0, refundAmt, opId);
+  const storedOpId  = String(step.row[cs.REF_ID]);
+  const stepStatus  = String(step.row[cs.STATUS]);
+
+  if (stepStatus === 'done') return { ok: true };
+  if (stepStatus === 'needs_review') return { ok: false, error: 'account step needs_review' };
+
+  // 冪等：addAccount 以 storedOpId 為 id，若已存在則自動回傳 ok
+  const ar = addAccount({
+    id: storedOpId,
+    date: today(), type: '退款支出',
+    partner: String(ret.row[COL.RETURNS.NAME]),
+    items: String(ret.row[COL.RETURNS.PRODUCT_NAME]) + ' x' + String(ret.row[COL.RETURNS.QTY]) + ' 退貨',
+    income: '', expense: refundAmt,
+    payment: String(ret.row[COL.RETURNS.PAYMENT]) || '現金',
+    status: '待退款',
+    note: String(ret.row[COL.RETURNS.REASON]) || ''
+  });
+  if (!ar.ok) { _updateReturnStepRow(step.rowNum, 'needs_review', null, ar.error); return { ok: false, error: ar.error }; }
+  _updateReturnStepRow(step.rowNum, 'done', storedOpId, '');
+  return { ok: true };
+}
+
+function _executePointsStep_(ret, returnId) {
+  const cs         = COL.RETURN_STEPS;
+  const pointsDed  = Number(ret.row[COL.RETURNS.POINTS_DEDUCTED]) || 0;
+  const phone      = String(ret.row[COL.RETURNS.PHONE]);
+
+  if (pointsDed <= 0 || !phone) {
+    // 沒有點數需扣，直接標記 done
+    const step = _getOrCreateStep_(returnId, 'points', 0, 0, genId('OP'));
+    if (String(step.row[cs.STATUS]) !== 'done') _updateReturnStepRow(step.rowNum, 'done', '', '');
+    getSheet(SHEET.RETURNS).getRange(ret.rowNum, COL.RETURNS.ACTUAL_POINTS_DEDUCTED + 1, 1, 2)
+      .setValues([[0, 0]]);
+    return { ok: true };
+  }
+
+  const existingPtStep = findReturnStep_(returnId, 'points');
+  let ptStep, ptOpId, frozenBefore, frozenExpect, frozenDeduct, frozenShortfall;
+
+  if (existingPtStep) {
+    ptStep         = existingPtStep;
+    ptOpId         = String(ptStep.row[cs.REF_ID]);
+    frozenBefore   = Number(ptStep.row[cs.BEFORE_VALUE]);
+    frozenExpect   = Number(ptStep.row[cs.EXPECTED_AFTER]);
+    frozenDeduct   = frozenBefore - frozenExpect;
+    frozenShortfall = pointsDed - frozenDeduct;
+  } else {
+    const memRow    = findRow(SHEET.MEMBERS, COL.MEMBERS.PHONE, phone);
+    const currentPts = memRow ? Number(memRow.row[COL.MEMBERS.POINTS]) || 0 : 0;
+    frozenBefore    = currentPts;
+    frozenDeduct    = Math.min(pointsDed, currentPts);
+    frozenExpect    = currentPts - frozenDeduct;
+    frozenShortfall = pointsDed - frozenDeduct;
+    ptOpId          = genId('OP');
+    ptStep          = _getOrCreateStep_(returnId, 'points', frozenBefore, frozenExpect, ptOpId);
+    ptOpId          = String(ptStep.row[cs.REF_ID]);
+  }
+
+  // 寫入凍結值至 RETURNS（冪等）
+  getSheet(SHEET.RETURNS).getRange(ret.rowNum, COL.RETURNS.ACTUAL_POINTS_DEDUCTED + 1, 1, 2)
+    .setValues([[frozenDeduct, frozenShortfall]]);
+
+  const stepStatus = String(ptStep.row[cs.STATUS]);
+  if (stepStatus === 'done') return { ok: true };
+  if (stepStatus === 'needs_review') return { ok: false, error: 'points step needs_review' };
+
+  if (frozenDeduct <= 0) {
+    _updateReturnStepRow(ptStep.rowNum, 'done', ptOpId, '');
+    return { ok: true };
+  }
+
+  // 路徑 A：points_log 已有 ref_id
+  if (findPointsLogByRefId_(ptOpId)) {
+    _updateReturnStepRow(ptStep.rowNum, 'done', ptOpId, '');
+    return { ok: true };
+  }
+  // 路徑 B：MEMBERS.LAST_OP_ID === ptOpId
+  const memCheck = findRow(SHEET.MEMBERS, COL.MEMBERS.PHONE, phone);
+  if (memCheck && String(memCheck.row[COL.MEMBERS.LAST_OP_ID]) === ptOpId) {
+    getSheet(SHEET.POINTS_LOG).appendRow([
+      genId('PL'), phone, memCheck.row[COL.MEMBERS.NAME], '扣點',
+      -frozenDeduct, frozenExpect, '退貨扣點（補記錄）：' + returnId, now(), ptOpId
+    ]);
+    _updateReturnStepRow(ptStep.rowNum, 'done', ptOpId, '');
+    return { ok: true };
+  }
+  // 路徑 C：當前點數 === frozenBefore
+  if (memCheck && (Number(memCheck.row[COL.MEMBERS.POINTS]) || 0) === frozenBefore) {
+    const pr = addPoints_({ phone, points: -frozenDeduct, refId: ptOpId,
+                             note: '退貨扣點：' + String(ret.row[COL.RETURNS.PRODUCT_NAME]) });
+    if (!pr.ok) { _updateReturnStepRow(ptStep.rowNum, 'needs_review', null, pr.error); return { ok: false, error: pr.error }; }
+    _updateReturnStepRow(ptStep.rowNum, 'done', ptOpId, '');
+    return { ok: true };
+  }
+  // 路徑 D
+  _updateReturnStepRow(ptStep.rowNum, 'needs_review', null, '點數與 before_value 不符，需人工確認');
+  return { ok: false, error: 'points step needs_review：點數異常' };
+}
+
 function addReturn(p) {
   if (!p.name || !p.product_name || !p.qty) return { ok: false, error: '缺少必要欄位' };
-  const id = genId('RT');
-  const qty = parseInt(p.qty);
-  const refundAmount = Number(p.refund_amount) || 0;
+  if (isReturnMaintenanceOn_()) return { ok: false, error: '退貨功能維護中，請稍後再試' };
+
+  const id             = genId('RT');
+  const qty            = parseInt(p.qty);
+  const refundAmount   = Number(p.refund_amount) || 0;
   const pointsDeducted = parseInt(p.points_deducted) || 0;
 
-  // 寫退貨記錄
+  // 只寫退貨記錄（status=待處理），不立即執行庫存/帳本/點數
   getSheet(SHEET.RETURNS).appendRow([
     id, p.order_id||'', p.phone||'', p.name,
     p.product_id||'', p.product_name,
     qty, refundAmount, p.payment||'現金',
     p.reason||'', pointsDeducted,
-    '待處理', p.note||'', now()
+    '待處理', p.note||'', now(), '', ''
   ]);
 
-  // 庫存加回
-  if (p.product_id) {
-    try { updateQty(p.product_id, qty, 'in'); } catch(e) {}
-  }
-
-  // 帳本寫退款支出
-  addAccount({
-
-    date: today(), type: '退款支出',
-    partner: p.name,
-    items: p.product_name + ' x' + qty + ' 退貨',
-    income: '', expense: refundAmount,
-    payment: p.payment||'現金', status: '待退款', note: p.reason||''
-  });
-
-  // 扣回點數
-  if (pointsDeducted > 0 && p.phone) {
-    try {
-      addPoints({ phone: p.phone, points: -pointsDeducted, note: '退貨扣點：' + p.product_name });
-    } catch(e) {}
-  }
-
-  // LINE 通知
   sendLineMsg(`↩️ 退貨申請\n客人：${p.name}${p.phone?' · '+p.phone:''}\n商品：${p.product_name} × ${qty}\n退款：NT$ ${refundAmount.toLocaleString()}\n原因：${p.reason||'—'}\n時間：${now()}`);
-
   return { ok: true, return_id: id };
 }
 
@@ -1305,20 +1658,22 @@ function getReturns(p) {
   const rows = getRows(SHEET.RETURNS);
   const c = COL.RETURNS;
   let list = rows.map(r => ({
-    return_id:       r[c.ID],
-    order_id:        r[c.ORDER_ID],
-    phone:           r[c.PHONE],
-    name:            r[c.NAME],
-    product_id:      r[c.PRODUCT_ID],
-    product_name:    r[c.PRODUCT_NAME],
-    qty:             r[c.QTY],
-    refund_amount:   r[c.REFUND_AMOUNT],
-    payment:         r[c.PAYMENT],
-    reason:          r[c.REASON],
-    points_deducted: r[c.POINTS_DEDUCTED],
-    status:          r[c.STATUS],
-    note:            r[c.NOTE],
-    created_at:      r[c.CREATED]
+    return_id:              r[c.ID],
+    order_id:               r[c.ORDER_ID],
+    phone:                  r[c.PHONE],
+    name:                   r[c.NAME],
+    product_id:             r[c.PRODUCT_ID],
+    product_name:           r[c.PRODUCT_NAME],
+    qty:                    r[c.QTY],
+    refund_amount:          r[c.REFUND_AMOUNT],
+    payment:                r[c.PAYMENT],
+    reason:                 r[c.REASON],
+    points_deducted:        r[c.POINTS_DEDUCTED],
+    status:                 r[c.STATUS],
+    note:                   r[c.NOTE],
+    created_at:             r[c.CREATED],
+    actual_points_deducted: r[c.ACTUAL_POINTS_DEDUCTED] || '',
+    points_shortfall:       r[c.POINTS_SHORTFALL] || ''
   })).filter(x => x.return_id);
   if (p.status) list = list.filter(x => x.status === p.status);
   list.reverse();
@@ -1327,16 +1682,67 @@ function getReturns(p) {
 
 function updateReturn(p) {
   if (!p.return_id) return { ok: false, error: '缺少 return_id' };
-  const found = findRow(SHEET.RETURNS, COL.RETURNS.ID, p.return_id);
-  if (!found) return { ok: false, error: '找不到退貨記錄' };
-  const sheet = getSheet(SHEET.RETURNS);
-  const c = COL.RETURNS;
-  const rn = found.rowNum;
-  if (p.status !== undefined) sheet.getRange(rn, c.STATUS+1).setValue(p.status);
-  if (p.note   !== undefined) sheet.getRange(rn, c.NOTE+1).setValue(p.note);
-  // 確認已退款 → 更新帳本狀態
-  if (p.status === '已退款') refreshBalance();
-  return { ok: true };
+  if (isReturnMaintenanceOn_()) return { ok: false, error: '退貨功能維護中，請稍後再試' };
+  if (p.status !== undefined) {
+    const VALID_STATUSES = ['待處理', '確認退貨', '已退款', '已完成', '已拒絕'];
+    if (!VALID_STATUSES.includes(p.status)) {
+      return { ok: false, error: '無效退貨狀態：' + p.status };
+    }
+  }
+
+  const lock = _acquireLock_();
+  if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
+
+  try {
+    const found = findRow(SHEET.RETURNS, COL.RETURNS.ID, p.return_id);
+    if (!found) return { ok: false, error: '找不到退貨記錄' };
+
+    const sheet     = getSheet(SHEET.RETURNS);
+    const c         = COL.RETURNS;
+    const rn        = found.rowNum;
+    const returnId  = p.return_id;
+    const curStatus = String(found.row[c.STATUS]);
+
+    // 只更新備註（不觸發流程）
+    if (p.note !== undefined) sheet.getRange(rn, c.NOTE+1).setValue(p.note);
+
+    // 狀態為「確認退貨」→ 執行三步驟流程
+    if (p.status === '確認退貨') {
+      if (curStatus === '已完成') return { ok: true, message: '已完成，略過' };
+
+      const steps = [];
+      const invResult  = _executeInventoryStep_(found, returnId);
+      steps.push({ step:'inventory', ok: invResult.ok, error: invResult.error });
+      if (!invResult.ok && !invResult.skipped) {
+        return { ok: false, error: '庫存步驟失敗：' + invResult.error, steps };
+      }
+
+      const accResult = _executeAccountStep_(found, returnId);
+      steps.push({ step:'account', ok: accResult.ok, error: accResult.error });
+      if (!accResult.ok) {
+        return { ok: false, error: '帳本步驟失敗：' + accResult.error, steps };
+      }
+
+      const ptResult  = _executePointsStep_(found, returnId);
+      steps.push({ step:'points', ok: ptResult.ok, error: ptResult.error });
+      if (!ptResult.ok) {
+        return { ok: false, error: '點數步驟失敗：' + ptResult.error, steps };
+      }
+
+      sheet.getRange(rn, c.STATUS+1).setValue('已完成');
+      refreshBalance();
+      sendLineMsg(`✅ 退貨完成\n退貨ID：${returnId}\n客人：${found.row[c.NAME]}\n商品：${found.row[c.PRODUCT_NAME]}\n時間：${now()}`);
+      return { ok: true, steps };
+    }
+
+    // 一般狀態更新（非確認退貨）
+    if (p.status !== undefined) sheet.getRange(rn, c.STATUS+1).setValue(p.status);
+    if (p.status === '已退款') refreshBalance();
+    return { ok: true };
+
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ================================================================
@@ -1546,6 +1952,88 @@ function installTriggers() {
 }
 
 // ================================================================
+// updateQty_ 單元測試（在 GAS 編輯器執行，不異動真實資料）
+// ================================================================
+function adminTestUpdateQty_(p) {
+  const log = [];
+  const errors = [];
+  function pass(msg) { log.push('✅ ' + msg); }
+  function fail(msg) { errors.push('❌ ' + msg); log.push('❌ ' + msg); }
+
+  // 情境 1：qty 為 0 應被擋
+  const r1 = updateQty_('DUMMY', 0, 'in');
+  if (!r1.ok && r1.error.includes('qty')) pass('情境1 qty=0 被擋：' + r1.error);
+  else fail('情境1 qty=0 未被擋');
+
+  // 情境 2：type 未知應被擋
+  const r2 = updateQty_('DUMMY', 5, 'unknown');
+  if (!r2.ok && r2.error.includes('type')) pass('情境2 type=unknown 被擋：' + r2.error);
+  else fail('情境2 type=unknown 未被擋');
+
+  // 情境 3：找不到商品
+  const r3 = updateQty_('NONEXIST_XYZ_99999', 5, 'in');
+  if (!r3.ok && r3.error.includes('找不到')) pass('情境3 商品不存在被擋');
+  else fail('情境3 商品不存在未被擋');
+
+  // 情境 4/5：找第一個有庫存的商品，驗證 in/out 各加減一次（需有真實資料，跳過 dry-run）
+  // 若想測試真實庫存寫入，請搭配 adminRunPaymentTest 使用
+  const summary = errors.length === 0
+    ? '✅ updateQty_ 基本驗證全部通過'
+    : '⚠️ 有 ' + errors.length + ' 項失敗';
+  Logger.log(log.join('\n'));
+  return { ok: errors.length === 0, summary, log };
+}
+
+// 驗證舊碼索引不受新欄位影響（non-destructive read-only 測試）
+function adminTestOldCodeCompatibility() {
+  const log = [];
+  const errors = [];
+  function pass(msg) { log.push('✅ ' + msg); }
+  function fail(msg) { errors.push('❌ ' + msg); log.push('❌ ' + msg); }
+
+  // INVENTORY：舊碼讀 r[ci.QTY] (col 2)，新 LAST_OP_ID 在 col 4
+  const invRows = getRows(SHEET.INVENTORY);
+  const ci = COL.INVENTORY;
+  if (ci.QTY === 2 && ci.UPDATED === 3 && ci.LAST_OP_ID === 4) pass('INVENTORY 索引正確（QTY=2, UPDATED=3, LAST_OP_ID=4）');
+  else fail('INVENTORY 索引錯誤');
+
+  // MEMBERS：舊碼讀 r[c.POINTS] (col 4)，新 LAST_OP_ID 在 col 12
+  const cm = COL.MEMBERS;
+  if (cm.POINTS === 4 && cm.TOTAL_SPENT === 5 && cm.BIRTH_DISC_YEAR === 11 && cm.LAST_OP_ID === 12)
+    pass('MEMBERS 索引正確（POINTS=4, LAST_OP_ID=12）');
+  else fail('MEMBERS 索引錯誤');
+
+  // POINTS_LOG：舊碼讀 8 欄，REF_ID 在 col 8（新第 9 欄）
+  const cp = COL.POINTS_LOG;
+  if (cp.CREATED === 7 && cp.REF_ID === 8) pass('POINTS_LOG 索引正確（CREATED=7, REF_ID=8）');
+  else fail('POINTS_LOG 索引錯誤');
+
+  // STOCK_LOG：REF_ID 在 col 9
+  const cs = COL.STOCK_LOG;
+  if (cs.CREATED === 8 && cs.REF_ID === 9) pass('STOCK_LOG 索引正確（CREATED=8, REF_ID=9）');
+  else fail('STOCK_LOG 索引錯誤');
+
+  // RETURNS：新欄在 14/15
+  const cr = COL.RETURNS;
+  if (cr.CREATED === 13 && cr.ACTUAL_POINTS_DEDUCTED === 14 && cr.POINTS_SHORTFALL === 15)
+    pass('RETURNS 索引正確（CREATED=13, ACTUAL_POINTS_DEDUCTED=14, POINTS_SHORTFALL=15）');
+  else fail('RETURNS 索引錯誤');
+
+  // 舊碼讀取 INVENTORY 第一筆，驗證 QTY 欄位還是數字
+  if (invRows.length > 0) {
+    const qty = Number(invRows[0][ci.QTY]);
+    if (!isNaN(qty)) pass('舊碼讀 INVENTORY[0].QTY = ' + qty + '（正常）');
+    else fail('INVENTORY[0].QTY 讀取失敗，值：' + invRows[0][ci.QTY]);
+  }
+
+  const summary = errors.length === 0
+    ? '✅ 舊碼相容性驗證全部通過'
+    : '⚠️ 有 ' + errors.length + ' 項失敗';
+  Logger.log(log.join('\n'));
+  return { ok: errors.length === 0, summary, log };
+}
+
+// ================================================================
 // 一次性初始化：電話欄位格式設為純文字（避免首字0消失）
 // 在 GAS 編輯器直接點「執行」這個函式即可，只需執行一次
 // ================================================================
@@ -1592,10 +2080,43 @@ function adminSetupSchema() {
     log.push(sheetName + ' OK（' + headers.join(', ') + '）');
   }
 
+  // 確保指定欄位存在於最後一欄（不移動現有欄位）
+  function _ensureLastCol_(sheetName, colHeader) {
+    const s = ss.getSheetByName(sheetName);
+    if (!s) { log.push('找不到工作表（ensureLastCol）：' + sheetName); return; }
+    const lastCol = s.getLastColumn();
+    const headers = lastCol > 0 ? s.getRange(HEADER_ROW, 1, 1, lastCol).getValues()[0] : [];
+    if (headers.includes(colHeader)) {
+      log.push(sheetName + ' 欄位已存在：' + colHeader);
+    } else {
+      s.getRange(HEADER_ROW, lastCol + 1).setValue(colHeader);
+      log.push(sheetName + ' 新增欄位：' + colHeader + '（第 ' + (lastCol+1) + ' 欄）');
+    }
+  }
+
   writeHeaders(SHEET.ORDERS,        11, ['subtotal','shipping_fee','coupon_code','cancelled_by','cancelled_at','cancel_reason']);
   writeHeaders(SHEET.REGISTRATIONS, 18, ['gender','cancelled_by','cancelled_at']);
   writeHeaders(SHEET.EVENTS,        16, ['accom_registered','no_accom_registered']);
   writeHeaders(SHEET.MEMBERS,        9, ['member_level','annual_spend','level_updated_at','birth_disc_year']);
+
+  // v10.1 新增欄位（append-only，不影響現有索引）
+  _ensureLastCol_(SHEET.INVENTORY,  'last_op_id');
+  _ensureLastCol_(SHEET.MEMBERS,    'last_op_id');
+  _ensureLastCol_(SHEET.STOCK_LOG,  'ref_id');
+  _ensureLastCol_(SHEET.POINTS_LOG, 'ref_id');
+  _ensureLastCol_(SHEET.RETURNS,    'actual_points_deducted');
+  _ensureLastCol_(SHEET.RETURNS,    'points_shortfall');
+
+  // 退貨處理記錄（新工作表）
+  let retStepsSheet = ss.getSheetByName(SHEET.RETURN_STEPS);
+  if (!retStepsSheet) {
+    retStepsSheet = ss.insertSheet(SHEET.RETURN_STEPS);
+    log.push('建立工作表：' + SHEET.RETURN_STEPS);
+  }
+  retStepsSheet.getRange(HEADER_ROW, 1, 1, 10).setValues([[
+    'id','return_id','step','status','ref_id','before_value','expected_after','updated_at','error','created_at'
+  ]]);
+  log.push(SHEET.RETURN_STEPS + ' 表頭 OK');
 
   // 活動帳本（與商品帳本同結構）
   let evtAccSheet = ss.getSheetByName(SHEET.EVENT_ACCOUNTS);
@@ -1806,4 +2327,94 @@ function adminRunPaymentTest() {
   log.unshift('=== 付款流程驗收測試 ' + summary + ' ===');
   Logger.log(log.join('\n'));
   return { ok: errors.length === 0, summary, log };
+}
+
+// ================================================================
+// 雙行表頭設定：第 1 行英文、第 2 行中文
+// 在 GAS 編輯器選此函式點「執行」，只需執行一次
+// ================================================================
+function adminSetupBilingualHeaders() {
+  const ss  = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const log = [];
+
+  function setHeaders(sheetName, enRow, zhRow) {
+    const s = ss.getSheetByName(sheetName);
+    if (!s) { log.push('⚠️ 找不到工作表：' + sheetName); return; }
+    s.getRange(1, 1, 1, enRow.length).setValues([enRow]);
+    s.getRange(2, 1, 1, zhRow.length).setValues([zhRow]);
+    log.push('✅ ' + sheetName + '（' + enRow.length + ' 欄）');
+  }
+
+  setHeaders('商品主檔',
+    ['product_id','name','code','cost_price','retail_price','image_url','description','category','status','low_stock_threshold','created_at'],
+    ['商品編號','商品名稱','商品代碼','進貨成本','定價','圖片連結','商品說明','分類','狀態','警示庫存量','建立時間']
+  );
+
+  setHeaders('庫存',
+    ['product_id','name','qty','updated_at','last_op_id'],
+    ['商品編號','商品名稱','庫存數量','最後更新','最後操作ID']
+  );
+
+  setHeaders('進出貨記錄',
+    ['log_id','product_id','name','type','qty','unit_price','partner','note','created_at','ref_id'],
+    ['記錄編號','商品編號','商品名稱','類型','數量','單價','往來對象','備註','建立時間','關聯單號']
+  );
+
+  setHeaders('客戶訂單',
+    ['order_id','customer_name','phone','address','items','total','payment','status','note','created_at','subtotal','shipping_fee','coupon_code','cancelled_by','cancelled_at','cancel_reason'],
+    ['訂單編號','客戶姓名','手機','地址','商品明細','總金額','付款方式','狀態','備註','建立時間','商品小計','運費','折扣碼','取消人員','取消時間','取消原因']
+  );
+
+  setHeaders('商品帳本',
+    ['account_id','date','type','partner','items','income','expense','payment','status','note','created_at'],
+    ['帳務編號','日期','類型','往來對象','品項說明','收入','支出','付款方式','狀態','備註','建立時間']
+  );
+
+  setHeaders('帳務總覽',
+    ['item','amount','updated_at'],
+    ['項目','金額','最後更新']
+  );
+
+  setHeaders('活動主檔',
+    ['event_id','name','date','location','description','capacity','registered','accom_quota','no_accom_quota','fee_single','fee_yearly','fee_half_year','status','created_at','image_url','accom_registered','no_accom_registered'],
+    ['活動編號','活動名稱','日期','地點','說明','總名額','已報名數','住宿名額','不住宿名額','單次費用','年費','半年費','狀態','建立時間','圖片連結','住宿已報名','不住宿已報名']
+  );
+
+  setHeaders('報名記錄',
+    ['reg_id','event_id','event_name','name','phone','address','fee_type','fee_amount','fee_status','health_notes','religion','special_skills','emergency_contact','emergency_phone','accommodation','note','created_at','gender','cancelled_by','cancelled_at'],
+    ['報名編號','活動編號','活動名稱','姓名','手機','地址','費用類型','費用金額','付款狀態','健康狀況','宗教信仰','特殊技能','緊急聯絡人','緊急聯絡電話','住宿','備註','建立時間','性別','取消人員','取消時間']
+  );
+
+  setHeaders('會員',
+    ['member_id','name','phone','birthday','points','total_spent','joined_at','note','member_level','annual_spend','level_updated_at','birth_disc_year','last_op_id'],
+    ['會員編號','姓名','手機','生日','點數餘額','累計消費','加入日期','備註','會員等級','年度消費','等級更新時間','生日折扣年份','最後操作ID']
+  );
+
+  setHeaders('點數記錄',
+    ['log_id','phone','name','action','points','balance','note','created_at','ref_id'],
+    ['記錄編號','手機','姓名','動作','點數變動','餘額','備註','建立時間','關聯單號']
+  );
+
+  setHeaders('退貨記錄',
+    ['return_id','order_id','phone','name','product_id','product_name','qty','refund_amount','payment','reason','points_deducted','status','note','created_at','actual_points_deducted','points_shortfall'],
+    ['退貨編號','訂單編號','手機','客戶姓名','商品編號','商品名稱','數量','退款金額','退款方式','退貨原因','預計扣點','狀態','備註','建立時間','實際扣點數','點數不足數']
+  );
+
+  setHeaders('退貨處理記錄',
+    ['step_id','return_id','step','status','ref_id','before_value','expected_after','updated_at','error','created_at'],
+    ['步驟編號','退貨單號','步驟名稱','狀態','關聯編號','執行前數值','預期結果','更新時間','錯誤訊息','建立時間']
+  );
+
+  setHeaders('系統設定',
+    ['key','value','description','updated_at'],
+    ['設定鍵值','設定值','說明','最後更新']
+  );
+
+  setHeaders('活動帳本',
+    ['account_id','date','type','partner','items','income','expense','payment','status','note','created_at'],
+    ['帳務編號','日期','類型','往來對象','品項說明','收入','支出','付款方式','狀態','備註','建立時間']
+  );
+
+  Logger.log(log.join('\n'));
+  return { ok: true, log };
 }
