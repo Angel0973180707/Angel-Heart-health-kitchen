@@ -126,6 +126,7 @@ COL.GROUP_PLEDGES = {
   ID:0, CID:1, CNAME:2, PHONE:3, LINE_UID:4,
   QTY:5, ORDER_ID:6, CREATED:7, STATUS:8, NOTE:9
 };
+COL.GROUP_PLEDGES.SYSTEM_NOTE = 10;
 COL.GROUP_LEADERS = {
   ID:0, PHONE:1, NAME:2, LEVEL:3,
   APPROVE_METHOD:4, APPROVE_DATE:5,
@@ -312,6 +313,7 @@ function handleRequest(e) {
       case 'createGroupCampaign':      return res(createGroupCampaign(p));
       case 'updateGroupCampaign':      return res(updateGroupCampaign(p));
       case 'adminCloseGroupCampaign':  return res(adminCloseGroupCampaign(p));
+      case 'createGroupPledge':        return res(createGroupPledge(p));
 
       case 'loginAdmin':             return res(loginAdmin(p));
       case 'loginEventAdmin':        return res(loginEventAdmin(p));
@@ -749,6 +751,8 @@ function getOrders(p) {
 }
 
 const ORDER_TOKEN = 'YC_SHOP_2026';
+// 不是安全驗證，只是防誤打，任何知道此 token 的前端都能呼叫
+const PLEDGE_TOKEN = 'YC_GROUP_PLEDGE_SUBMIT_2026';
 
 // 前台查詢訂單（公開端點，僅回傳白名單欄位，不含地址/備註/取消原因）
 function queryOrdersByPhone(p) {
@@ -3402,6 +3406,158 @@ function adminCloseGroupCampaign(p) {
     sheet.getRange(rn, c.SYSTEM_NOTE + 1).setValue(oldSys ? (oldSys + '\n' + newLine) : newLine);
 
     return { ok: true, action: p.action, id: p.id, status: newStatus };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ================================================================
+// 團購模組 — GROUP_PLEDGES v5A 遷移（GAS 編輯器手動執行一次）
+// 補充 col 11 表頭（system_note），不碰 row3+，不改既有 14 張表
+// ================================================================
+function adminMigrateGroupPledgesV5A() {
+  var ss    = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(SHEET.GROUP_PLEDGES);
+  if (!sheet) return { ok: false, error: '找不到團購明細表' };
+
+  sheet.getRange(1, 11, 1, 1).setValues([['system_note']]);
+  sheet.getRange(2, 11, 1, 1).setValues([['系統記錄']]);
+
+  var log = [
+    'GROUP_PLEDGES col 11 表頭補充完成（row1=英文, row2=中文）',
+    'row3+ 資料列未異動',
+    '既有 14 張表未異動'
+  ];
+  Logger.log(log.join('\n'));
+  return { ok: true, log: log };
+}
+
+// ================================================================
+// 團購模組 — 客人登記（public API，token 防誤打，非安全驗證）
+// ================================================================
+function createGroupPledge(p) {
+  // ── token ─────────────────────────────────────────────
+  if (p.token !== PLEDGE_TOKEN)
+    return { ok: false, error: '驗證失敗' };
+
+  // ── 必填欄位 ──────────────────────────────────────────
+  var campaignId = String(p.campaign_id || '').trim();
+  var cname      = String(p.cname       || '').trim();
+  var phone      = String(p.phone       || '').trim();
+  if (!campaignId) return { ok: false, error: '缺少 campaign_id' };
+  if (!cname)      return { ok: false, error: '請填寫姓名' };
+  if (!phone)      return { ok: false, error: '請填寫電話' };
+
+  // ── phone 格式（台灣手機 09xxxxxxxx）─────────────────
+  if (!/^09\d{8}$/.test(phone))
+    return { ok: false, error: '電話格式錯誤，請填寫 09 開頭的 10 位手機號碼' };
+
+  // ── qty 驗證 ──────────────────────────────────────────
+  var qty = Number(p.qty);
+  if (!p.qty || isNaN(qty) || qty < 1 || Math.floor(qty) !== qty)
+    return { ok: false, error: '數量必須是 >= 1 的整數' };
+  if (qty > 99)
+    return { ok: false, error: '單次登記數量上限為 99，若有大量需求請聯繫幸福緣' };
+
+  // ── 查活動 ────────────────────────────────────────────
+  var campaignFound = findRow(SHEET.GROUP_CAMPAIGNS, COL.GROUP_CAMPAIGNS.ID, campaignId);
+  if (!campaignFound) return { ok: false, error: '找不到此活動' };
+
+  var camp = campaignFound.row;
+  var c    = COL.GROUP_CAMPAIGNS;
+
+  if (String(camp[c.STATUS]) !== '集單中')
+    return { ok: false, error: '此活動已結束，無法登記' };
+
+  var nowDate  = new Date();
+  var deadline = new Date(camp[c.DEADLINE]);
+  if (isNaN(deadline.getTime()) || deadline <= nowDate)
+    return { ok: false, error: '活動已截止，無法登記' };
+
+  var startDateRaw = camp[c.START_DATE];
+  if (startDateRaw) {
+    var sd = new Date(startDateRaw);
+    if (!isNaN(sd.getTime()) && sd > nowDate)
+      return { ok: false, error: '活動尚未開始' };
+  }
+
+  var thresholdQty = Number(camp[c.THRESHOLD_QTY]) || 0;
+  if (thresholdQty < 1)
+    return { ok: false, error: '此活動尚未設定目標數量，請聯繫幸福緣' };
+
+  // ── LockService ───────────────────────────────────────
+  var lock = _acquireLock_();
+  try {
+    var sheet      = getSheet(SHEET.GROUP_PLEDGES);
+    var pledgeRows = getRows(SHEET.GROUP_PLEDGES);
+    var pc         = COL.GROUP_PLEDGES;
+    var ts         = now();
+    var pledgeId, action;
+
+    // ── 防重複：同 campaign_id + phone + status=有效 只保留一筆 ──
+    var existingIdx = -1;
+    for (var i = 0; i < pledgeRows.length; i++) {
+      if (String(pledgeRows[i][pc.CID])    === campaignId &&
+          String(pledgeRows[i][pc.PHONE])  === phone      &&
+          String(pledgeRows[i][pc.STATUS]) === '有效') {
+        existingIdx = i;
+        break;
+      }
+    }
+
+    if (existingIdx >= 0) {
+      // 更新現有筆（qty 覆蓋，非累加）
+      var rn     = DATA_ROW + existingIdx;
+      pledgeId   = String(pledgeRows[existingIdx][pc.ID]);
+      var oldSys = String(sheet.getRange(rn, pc.SYSTEM_NOTE + 1).getValue() || '');
+      var newLine = '客人更新登記 ' + ts + '（新 qty=' + qty + '）';
+      sheet.getRange(rn, pc.QTY         + 1).setValue(qty);
+      sheet.getRange(rn, pc.NOTE        + 1).setValue(p.note || '');
+      sheet.getRange(rn, pc.SYSTEM_NOTE + 1).setValue(oldSys ? (oldSys + '\n' + newLine) : newLine);
+      action = 'updated';
+    } else {
+      // 新增一筆
+      pledgeId = genId('GP');
+      sheet.appendRow([
+        pledgeId,          // 0  id
+        campaignId,        // 1  campaign_id
+        cname,             // 2  cname
+        phone,             // 3  phone
+        p.line_uid || '',  // 4  line_uid
+        qty,               // 5  qty
+        '',                // 6  order_id（本輪空白，5-B 後填）
+        ts,                // 7  created_at
+        '有效',             // 8  status
+        p.note || '',      // 9  note
+        '客人登記 ' + ts   // 10 system_note
+      ]);
+      action = 'created';
+    }
+
+    // ── 重新計算 current_qty（寫入後重讀確保最新值）────────
+    var freshPledges = getRows(SHEET.GROUP_PLEDGES);
+    var currentQty = 0;
+    freshPledges.forEach(function(r) {
+      if (String(r[pc.CID]) === campaignId && String(r[pc.STATUS]) === '有效')
+        currentQty += Number(r[pc.QTY]) || 0;
+    });
+
+    var remaining = thresholdQty - currentQty;   // 負數 = 超標
+    var pct       = Math.min(100, Math.round(currentQty / thresholdQty * 100));
+    var reached   = currentQty >= thresholdQty;
+
+    return {
+      ok:            true,
+      action:        action,
+      pledge_id:     pledgeId,
+      campaign_id:   campaignId,
+      current_qty:   currentQty,
+      threshold_qty: thresholdQty,
+      remaining_qty: remaining,
+      progress_pct:  pct,
+      reached:       reached
+    };
+
   } finally {
     lock.releaseLock();
   }
