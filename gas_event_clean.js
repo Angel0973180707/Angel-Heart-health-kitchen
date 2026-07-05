@@ -105,6 +105,12 @@ COL.GROUP_PRODUCT_SETTINGS = {
   ID:0, PID:1, SUPPLIER:2, BASE_PRICE:3, MIN_GROUP_PRICE:4,
   COUNTS_THRESHOLD:5, SUPPORTS_GATHERING:6, STATUS:7, NOTE:8, UPDATED_AT:9
 };
+COL.GROUP_PRODUCT_SETTINGS.FIXED_RETAIL_PRICE     = 10;
+COL.GROUP_PRODUCT_SETTINGS.REGULAR_PURCHASE_PRICE = 11;
+COL.GROUP_PRODUCT_SETTINGS.LEADER_COMMISSION_RATE = 12;
+COL.GROUP_PRODUCT_SETTINGS.PLATFORM_MIN_RATE      = 13;
+COL.GROUP_PRODUCT_SETTINGS.TIERS_JSON             = 14;
+COL.GROUP_PRODUCT_SETTINGS.SYSTEM_NOTE            = 15;
 COL.GROUP_CAMPAIGNS = {
   ID:0, LEADER:1, PID:2, THRESHOLD_TYPE:3, MARKUP:4,
   DEADLINE:5, STATUS:6, GROUP_PRICE:7, BASE_SNAPSHOT:8,
@@ -2761,10 +2767,10 @@ function adminSetupGroupBuy() {
     } else {
       log.push('工作表已存在，略過建立：' + sheetName);
     }
-    // row 1：中文欄名（供人工查閱）
-    s.getRange(1, 1, 1, zhHeaders.length).setValues([zhHeaders]);
-    // row 2：英文欄名（供程式碼對照，HEADER_ROW = 2）
-    s.getRange(2, 1, 1, enHeaders.length).setValues([enHeaders]);
+    // row 1：英文欄名（供程式碼對照）
+    s.getRange(1, 1, 1, enHeaders.length).setValues([enHeaders]);
+    // row 2：中文欄名（供人工查閱）
+    s.getRange(2, 1, 1, zhHeaders.length).setValues([zhHeaders]);
     log.push(sheetName + ' 表頭寫入完成');
   }
 
@@ -2803,8 +2809,98 @@ function adminSetupGroupBuy() {
 }
 
 // ================================================================
-// 團購模組 — 商品設定 CRUD（v2.2 零欄位異動版）
+// 團購模組 — 商品設定 CRUD（v2.2 零欄位異動版，3B 定價擴充）
 // ================================================================
+
+function parseTiersJson_(raw) {
+  var def = [
+    {qty:1,  purchase_price:'', retail_price:''},
+    {qty:10, purchase_price:'', retail_price:''},
+    {qty:20, purchase_price:'', retail_price:''}
+  ];
+  if (!raw) return def;
+  try   { return JSON.parse(String(raw)); }
+  catch (e) { return def; }
+}
+
+function validateTiers_(tiersInput, leaderRate, platformMinRate) {
+  var tiers;
+  try {
+    tiers = typeof tiersInput === 'string'
+            ? JSON.parse(tiersInput)
+            : (tiersInput || []);
+  } catch(e) {
+    return { ok: false, error: '階梯格式錯誤，請重新填寫' };
+  }
+  if (!Array.isArray(tiers)) return { ok: false, error: '階梯格式錯誤' };
+
+  var validatedTiers = [];
+
+  for (var i = 0; i < tiers.length; i++) {
+    var t      = tiers[i];
+    var hasQty = (t.qty            !== '' && t.qty            !== null && t.qty            !== undefined);
+    var hasPP  = (t.purchase_price !== '' && t.purchase_price !== null && t.purchase_price !== undefined);
+    var hasRP  = (t.retail_price   !== '' && t.retail_price   !== null && t.retail_price   !== undefined);
+    var hasAny = hasQty || hasPP || hasRP;
+    var hasAll = hasQty && hasPP && hasRP;
+
+    if (!hasAny) continue;
+
+    if (!hasAll) {
+      var missing = [];
+      if (!hasQty) missing.push('起始數量');
+      if (!hasPP)  missing.push('進貨價');
+      if (!hasRP)  missing.push('售價');
+      return { ok: false, error: '第' + (i + 1) + '階梯尚未填寫完整，缺少：' + missing.join('、') };
+    }
+
+    var qty = Number(t.qty);
+    if (isNaN(qty) || qty < 1 || Math.floor(qty) !== qty)
+      return { ok: false, error: '第' + (i + 1) + '階梯起始數量必須是 >= 1 的整數' };
+
+    var pp = Number(t.purchase_price);
+    var rp = Number(t.retail_price);
+    if (isNaN(pp) || pp < 0)
+      return { ok: false, error: '第' + (i + 1) + '階梯進貨價格式錯誤' };
+    if (isNaN(rp) || rp <= 0)
+      return { ok: false, error: '第' + (i + 1) + '階梯售價格式錯誤' };
+    if (rp < pp)
+      return { ok: false, error: '第' + (i + 1) + '階梯售價（' + rp + '）不得低於進貨價（' + pp + '）' };
+
+    var margin     = rp - pp;
+    var marginRate = margin / rp;
+    var platRetain = margin * (1 - leaderRate);
+    var platRate   = margin > 0 ? platRetain / margin : 0;
+
+    if (marginRate < 0.10)
+      return { ok: false, error: '第' + (i + 1) + '階梯毛利率 ' +
+               (marginRate * 100).toFixed(1) + '%，低於 10% 禁止儲存' };
+    if (platRate < platformMinRate)
+      return { ok: false, error: '第' + (i + 1) + '階梯平台保留 ' +
+               (platRate * 100).toFixed(1) + '%，低於最低要求 ' +
+               (platformMinRate * 100).toFixed(0) + '%' };
+
+    validatedTiers.push({ qty: qty, purchase_price: pp, retail_price: rp });
+  }
+
+  if (validatedTiers.length > 1) {
+    var qtys   = validatedTiers.map(function(x) { return x.qty; });
+    var qtySet = {};
+    for (var j = 0; j < qtys.length; j++) {
+      if (qtySet[qtys[j]])
+        return { ok: false, error: '階梯起始數量不可重複（' + qtys[j] + ' 出現兩次）' };
+      qtySet[qtys[j]] = true;
+    }
+    for (var k = 1; k < qtys.length; k++) {
+      if (qtys[k] <= qtys[k - 1])
+        return { ok: false, error: '階梯 ' + (k + 1) + ' 起始數量（' + qtys[k] +
+                 '）必須大於階梯 ' + k + '（' + qtys[k - 1] + '）' };
+    }
+  }
+
+  return { ok: true, tiers: validatedTiers };
+}
+
 function getGroupProductSettings() {
   const rows = getRows(SHEET.GROUP_PRODUCT_SETTINGS);
   const c    = COL.GROUP_PRODUCT_SETTINGS;
@@ -2818,7 +2914,15 @@ function getGroupProductSettings() {
     supports_group_gathering: r[c.SUPPORTS_GATHERING],
     status:                   r[c.STATUS],
     note:                     r[c.NOTE],
-    updated_at:               r[c.UPDATED_AT]
+    updated_at:               r[c.UPDATED_AT],
+    fixed_retail_price:       (r[c.FIXED_RETAIL_PRICE]     !== undefined) ? r[c.FIXED_RETAIL_PRICE]     : '',
+    regular_purchase_price:   (r[c.REGULAR_PURCHASE_PRICE] !== undefined) ? r[c.REGULAR_PURCHASE_PRICE] : '',
+    leader_commission_rate:   (r[c.LEADER_COMMISSION_RATE] !== '' && r[c.LEADER_COMMISSION_RATE] !== undefined)
+                              ? Number(r[c.LEADER_COMMISSION_RATE]) : 0.25,
+    platform_min_rate:        (r[c.PLATFORM_MIN_RATE] !== '' && r[c.PLATFORM_MIN_RATE] !== undefined)
+                              ? Number(r[c.PLATFORM_MIN_RATE]) : 0.50,
+    tiers:                    parseTiersJson_(r[c.TIERS_JSON]),
+    system_note:              r[c.SYSTEM_NOTE] || ''
   })).filter(x => x.id);
   return { ok: true, data: list };
 }
@@ -2845,6 +2949,19 @@ function saveGroupProductSetting(p) {
   if (p.status && !validStatus.includes(p.status))
     return { ok: false, error: 'status 只允許：啟用 / 停用' };
 
+  const leaderRate = (p.leader_commission_rate !== undefined && p.leader_commission_rate !== '')
+                     ? Number(p.leader_commission_rate) : 0.25;
+  const platformMinRate = (p.platform_min_rate !== undefined && p.platform_min_rate !== '')
+                          ? Number(p.platform_min_rate) : 0.50;
+  if (isNaN(leaderRate) || leaderRate < 0 || leaderRate >= 1)
+    return { ok: false, error: 'leader_commission_rate 必須介於 0 和 1 之間（例：0.25）' };
+  if (isNaN(platformMinRate) || platformMinRate < 0 || platformMinRate >= 1)
+    return { ok: false, error: 'platform_min_rate 必須介於 0 和 1 之間（例：0.50）' };
+
+  const tiersResult = validateTiers_(p.tiers_json, leaderRate, platformMinRate);
+  if (!tiersResult.ok) return { ok: false, error: tiersResult.error };
+  const tiersJson = JSON.stringify(tiersResult.tiers);
+
   const minGP = (p.min_group_price !== undefined && p.min_group_price !== '')
                 ? Number(p.min_group_price)
                 : basePrice;
@@ -2856,19 +2973,28 @@ function saveGroupProductSetting(p) {
     const ts       = now();
 
     if (existing) {
-      const sheet = getSheet(SHEET.GROUP_PRODUCT_SETTINGS);
-      const rn    = existing.rowNum;
-      sheet.getRange(rn, c.SUPPLIER          + 1).setValue(p.supplier || '自營');
-      sheet.getRange(rn, c.BASE_PRICE        + 1).setValue(basePrice);
-      sheet.getRange(rn, c.MIN_GROUP_PRICE   + 1).setValue(minGP);
-      sheet.getRange(rn, c.COUNTS_THRESHOLD  + 1).setValue(p.counts_toward_threshold  || '否');
-      sheet.getRange(rn, c.SUPPORTS_GATHERING+ 1).setValue(p.supports_group_gathering || '否');
-      sheet.getRange(rn, c.STATUS            + 1).setValue(p.status || '啟用');
-      sheet.getRange(rn, c.NOTE              + 1).setValue(p.note   || '');
-      sheet.getRange(rn, c.UPDATED_AT        + 1).setValue(ts);
+      const sheet    = getSheet(SHEET.GROUP_PRODUCT_SETTINGS);
+      const rn       = existing.rowNum;
+      sheet.getRange(rn, c.SUPPLIER           + 1).setValue(p.supplier || '自營');
+      sheet.getRange(rn, c.BASE_PRICE         + 1).setValue(basePrice);
+      sheet.getRange(rn, c.MIN_GROUP_PRICE    + 1).setValue(minGP);
+      sheet.getRange(rn, c.COUNTS_THRESHOLD   + 1).setValue(p.counts_toward_threshold  || '否');
+      sheet.getRange(rn, c.SUPPORTS_GATHERING + 1).setValue(p.supports_group_gathering || '否');
+      sheet.getRange(rn, c.STATUS             + 1).setValue(p.status || '啟用');
+      sheet.getRange(rn, c.NOTE               + 1).setValue(p.note   || '');
+      sheet.getRange(rn, c.UPDATED_AT         + 1).setValue(ts);
+      sheet.getRange(rn, c.FIXED_RETAIL_PRICE     + 1).setValue(p.fixed_retail_price     || '');
+      sheet.getRange(rn, c.REGULAR_PURCHASE_PRICE + 1).setValue(p.regular_purchase_price || '');
+      sheet.getRange(rn, c.LEADER_COMMISSION_RATE + 1).setValue(leaderRate);
+      sheet.getRange(rn, c.PLATFORM_MIN_RATE      + 1).setValue(platformMinRate);
+      sheet.getRange(rn, c.TIERS_JSON             + 1).setValue(tiersJson);
+      const oldNote  = String(sheet.getRange(rn, c.SYSTEM_NOTE + 1).getValue() || '');
+      const newEntry = '管理員更新定價設定 ' + ts;
+      sheet.getRange(rn, c.SYSTEM_NOTE + 1).setValue(oldNote ? (oldNote + '\n' + newEntry) : newEntry);
       return { ok: true, action: 'updated', id: String(existing.row[c.ID]) };
     } else {
-      const id = genId('GPS');
+      const id      = genId('GPS');
+      const sysNote = '管理員新增定價設定 ' + ts;
       getSheet(SHEET.GROUP_PRODUCT_SETTINGS).appendRow([
         id, p.product_id,
         p.supplier || '自營',
@@ -2877,13 +3003,117 @@ function saveGroupProductSetting(p) {
         p.supports_group_gathering || '否',
         p.status || '啟用',
         p.note   || '',
-        ts
+        ts,
+        p.fixed_retail_price     || '',
+        p.regular_purchase_price || '',
+        leaderRate,
+        platformMinRate,
+        tiersJson,
+        sysNote
       ]);
       return { ok: true, action: 'created', id };
     }
   } finally {
     lock.releaseLock();
   }
+}
+
+// ================================================================
+// 團購模組 — GROUP_PRODUCT_SETTINGS v2 遷移（執行一次）
+// 補充欄 11-16 表頭；資料列只補空值，不覆蓋既有非空值
+// ================================================================
+function adminMigrateGroupProductSettingsV2() {
+  var ss    = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(SHEET.GROUP_PRODUCT_SETTINGS);
+  if (!sheet) return { ok: false, error: '找不到團購商品設定表' };
+  var log = [];
+
+  // ── Step 1a：GROUP_PRODUCT_SETTINGS 補充欄 11-16 表頭（row1=英文，row2=中文）──
+  var enNew = ['fixed_retail_price','regular_purchase_price',
+               'leader_commission_rate','platform_min_rate','tiers_json','system_note'];
+  var zhNew = ['固定終端售價','一般進貨價','團長分潤比例','平台最低保留比例','階梯價格','系統備註'];
+  sheet.getRange(1, 11, 1, 6).setValues([enNew]);
+  sheet.getRange(2, 11, 1, 6).setValues([zhNew]);
+  log.push('GROUP_PRODUCT_SETTINGS 欄 11-16 表頭補充完成');
+
+  // ── Step 1b：修正 5 張表的 row1/row2 全部表頭（現有資料不動）──
+  var headerFixes = [
+    {
+      name: SHEET.GROUP_PRODUCT_SETTINGS,
+      en: ['id','product_id','supplier','base_price','min_group_price',
+           'counts_toward_threshold','supports_group_gathering','status','note','updated_at',
+           'fixed_retail_price','regular_purchase_price',
+           'leader_commission_rate','platform_min_rate','tiers_json','system_note'],
+      zh: ['記錄ID','商品ID','供應方','底價','最低開團售價',
+           '計入團長門檻','適用集單模式','狀態','備註','更新時間',
+           '固定終端售價','一般進貨價','團長分潤比例','平台最低保留比例','階梯價格','系統備註']
+    },
+    {
+      name: SHEET.GROUP_CAMPAIGNS,
+      en: ['id','leader','product_id','threshold_type','markup',
+           'deadline','status','group_price','base_price_snapshot','pickup_note','created_at'],
+      zh: ['活動ID','團長','商品ID','門檻類型','固定加價',
+           '截止時間','狀態','最終開團售價','底價快照','取貨備註','建立時間']
+    },
+    {
+      name: SHEET.GROUP_PLEDGES,
+      en: ['id','campaign_id','cname','phone','line_uid',
+           'qty','order_id','created_at','status','note'],
+      zh: ['登記ID','活動ID','客人姓名','電話','LINE User ID',
+           '數量','訂單ID','登記時間','狀態','備註']
+    },
+    {
+      name: SHEET.GROUP_LEADERS,
+      en: ['id','phone','name','member_level','approve_method',
+           'approve_date','no_show_count','group_buy_status',
+           'source_leader','first_led_at','line_uid','note'],
+      zh: ['記錄ID','會員電話','姓名','會員等級','核准方式',
+           '核准日期','未取貨次數','團購資格狀態',
+           '來源團長','首次帶入時間','LINE User ID','備註']
+    },
+    {
+      name: SHEET.GROUP_LEDGER,
+      en: ['id','order_id','campaign_id','date','role',
+           'target','product_id','product_name','qty','unit_price',
+           'subtotal','status','note','created_at'],
+      zh: ['記錄ID','訂單ID','活動ID','日期','角色',
+           '對象','商品ID','商品名稱','數量','單價',
+           '小計金額','狀態','備註','建立時間']
+    }
+  ];
+  headerFixes.forEach(function(spec) {
+    var s = ss.getSheetByName(spec.name);
+    if (!s) { log.push('找不到工作表，略過：' + spec.name); return; }
+    s.getRange(1, 1, 1, spec.en.length).setValues([spec.en]);
+    s.getRange(2, 1, 1, spec.zh.length).setValues([spec.zh]);
+    log.push(spec.name + ' row1/row2 表頭已修正（英文/中文）');
+  });
+
+  var defaultTiers = JSON.stringify([
+    {qty:1,  purchase_price:'', retail_price:''},
+    {qty:10, purchase_price:'', retail_price:''},
+    {qty:20, purchase_price:'', retail_price:''}
+  ]);
+  var ts      = now();
+  var lastRow = sheet.getLastRow();
+  var filled  = 0;
+  for (var row = DATA_ROW; row <= lastRow; row++) {
+    var vals        = sheet.getRange(row, 11, 1, 6).getValues()[0];
+    var leaderVal   = (vals[2] !== '' && vals[2] !== null) ? vals[2] : 0.25;
+    var platformVal = (vals[3] !== '' && vals[3] !== null) ? vals[3] : 0.50;
+    var tiersVal    = (vals[4] !== '' && vals[4] !== null) ? vals[4] : defaultTiers;
+    var sysNoteVal  = (vals[5] !== '' && vals[5] !== null)
+                      ? vals[5] : ('系統遷移回填預設值 ' + ts);
+    sheet.getRange(row, 13).setValue(leaderVal);
+    sheet.getRange(row, 14).setValue(platformVal);
+    sheet.getRange(row, 15).setValue(tiersVal);
+    sheet.getRange(row, 16).setValue(sysNoteVal);
+    filled++;
+  }
+  log.push('資料列回填完成：' + filled + ' 列（只補空值）');
+
+  Logger.log(log.join('\n'));
+  return { ok: true, log: log };
 }
 
 // ================================================================
