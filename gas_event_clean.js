@@ -116,6 +116,12 @@ COL.GROUP_CAMPAIGNS = {
   DEADLINE:5, STATUS:6, GROUP_PRICE:7, BASE_SNAPSHOT:8,
   PICKUP_NOTE:9, CREATED:10
 };
+COL.GROUP_CAMPAIGNS.CAMPAIGN_NAME  = 11;
+COL.GROUP_CAMPAIGNS.START_DATE     = 12;
+COL.GROUP_CAMPAIGNS.THRESHOLD_QTY  = 13;
+COL.GROUP_CAMPAIGNS.TIERS_SNAPSHOT = 14;
+COL.GROUP_CAMPAIGNS.NOTE           = 15;
+COL.GROUP_CAMPAIGNS.SYSTEM_NOTE    = 16;
 COL.GROUP_PLEDGES = {
   ID:0, CID:1, CNAME:2, PHONE:3, LINE_UID:4,
   QTY:5, ORDER_ID:6, CREATED:7, STATUS:8, NOTE:9
@@ -226,7 +232,9 @@ function handleRequest(e) {
       'getMonthlyReport','getSalesRanking','getInventoryHealth','getMemberStats',
       'sendLowStockNotification','installTriggers',
       'adminEnableReturnMaintenance','adminDisableReturnMaintenance','adminCheckPendingReturns',
-      'getGroupProductSettings','saveGroupProductSetting'
+      'getGroupProductSettings','saveGroupProductSetting',
+      'getGroupCampaigns',
+      'createGroupCampaign','updateGroupCampaign','adminCloseGroupCampaign'
     ];
 
     if (adminActions.includes(action) && !validateSession_(p.session_token)) {
@@ -300,6 +308,10 @@ function handleRequest(e) {
       case 'adminCheckPendingReturns':      return res(adminCheckPendingReturns());
       case 'getGroupProductSettings':  return res(getGroupProductSettings());
       case 'saveGroupProductSetting':  return res(saveGroupProductSetting(p));
+      case 'getGroupCampaigns':        return res(getGroupCampaigns());
+      case 'createGroupCampaign':      return res(createGroupCampaign(p));
+      case 'updateGroupCampaign':      return res(updateGroupCampaign(p));
+      case 'adminCloseGroupCampaign':  return res(adminCloseGroupCampaign(p));
 
       case 'loginAdmin':             return res(loginAdmin(p));
       case 'loginEventAdmin':        return res(loginEventAdmin(p));
@@ -3114,6 +3126,285 @@ function adminMigrateGroupProductSettingsV2() {
 
   Logger.log(log.join('\n'));
   return { ok: true, log: log };
+}
+
+// ================================================================
+// 團購模組 — GROUP_CAMPAIGNS v4 遷移（執行一次）
+// 只補充 GROUP_CAMPAIGNS row1/row2 的 col 12-17 表頭
+// 不碰 row3+，不改既有 14 張表，不清空，不刪列
+// ================================================================
+function adminMigrateGroupCampaignsV4() {
+  var ss    = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(SHEET.GROUP_CAMPAIGNS);
+  if (!sheet) return { ok: false, error: '找不到團購活動表' };
+  var log = [];
+
+  var enNew = ['campaign_name','start_date','threshold_qty','tiers_snapshot_json','note','system_note'];
+  var zhNew = ['活動名稱','開始日期','目標數量','階梯快照','備註','系統記錄'];
+
+  sheet.getRange(1, 12, 1, 6).setValues([enNew]);
+  sheet.getRange(2, 12, 1, 6).setValues([zhNew]);
+  log.push('GROUP_CAMPAIGNS col 12-17 表頭補充完成（row1=英文, row2=中文）');
+  log.push('row3+ 資料列未異動；既有 14 張表未異動');
+
+  Logger.log(log.join('\n'));
+  return { ok: true, log: log };
+}
+
+// ================================================================
+// 團購模組 — 活動列表（含各活動有效登記數量）
+// ================================================================
+function getGroupCampaigns() {
+  var rows    = getRows(SHEET.GROUP_CAMPAIGNS);
+  var c       = COL.GROUP_CAMPAIGNS;
+  var pledges = getRows(SHEET.GROUP_PLEDGES);
+  var pc      = COL.GROUP_PLEDGES;
+
+  var qtyMap = {};
+  pledges.forEach(function(r) {
+    var cid    = String(r[pc.CID]    || '');
+    var status = String(r[pc.STATUS] || '');
+    var qty    = Number(r[pc.QTY])   || 0;
+    if (cid && status === '有效') qtyMap[cid] = (qtyMap[cid] || 0) + qty;
+  });
+
+  var list = rows.map(function(r) {
+    var id = String(r[c.ID] || '');
+    if (!id) return null;
+    return {
+      id:                  id,
+      leader:              String(r[c.LEADER]         || ''),
+      product_id:          String(r[c.PID]            || ''),
+      threshold_type:      String(r[c.THRESHOLD_TYPE] || ''),
+      markup:              Number(r[c.MARKUP])         || 0,
+      deadline:            r[c.DEADLINE]               || '',
+      status:              String(r[c.STATUS]          || ''),
+      group_price:         r[c.GROUP_PRICE]            || '',
+      base_price_snapshot: r[c.BASE_SNAPSHOT]          || '',
+      pickup_note:         String(r[c.PICKUP_NOTE]     || ''),
+      created_at:          r[c.CREATED]                || '',
+      campaign_name:       String(r[c.CAMPAIGN_NAME]  !== undefined ? r[c.CAMPAIGN_NAME]  : ''),
+      start_date:          r[c.START_DATE]             !== undefined ? r[c.START_DATE]     : '',
+      threshold_qty:       Number(r[c.THRESHOLD_QTY]) || 0,
+      tiers_snapshot_json: String(r[c.TIERS_SNAPSHOT] !== undefined ? r[c.TIERS_SNAPSHOT] : ''),
+      note:                String(r[c.NOTE]            !== undefined ? r[c.NOTE]            : ''),
+      system_note:         String(r[c.SYSTEM_NOTE]     !== undefined ? r[c.SYSTEM_NOTE]     : ''),
+      current_qty:         qtyMap[id] || 0
+    };
+  }).filter(Boolean);
+
+  return { ok: true, data: list };
+}
+
+// ================================================================
+// 團購模組 — 建立活動
+// tiers_snapshot_json 立即快照，永不更新
+// ================================================================
+function createGroupCampaign(p) {
+  if (!p.product_id)
+    return { ok: false, error: '缺少 product_id' };
+  if (!p.campaign_name || !String(p.campaign_name).trim())
+    return { ok: false, error: '活動名稱不可空白' };
+  if (!p.deadline)
+    return { ok: false, error: '缺少截止時間' };
+
+  var thresholdQty = Number(p.threshold_qty);
+  if (isNaN(thresholdQty) || thresholdQty < 1 || Math.floor(thresholdQty) !== thresholdQty)
+    return { ok: false, error: 'threshold_qty 必須是 >= 1 的整數' };
+
+  var deadlineDate = new Date(p.deadline);
+  if (isNaN(deadlineDate.getTime()) || deadlineDate <= new Date())
+    return { ok: false, error: '截止時間必須晚於現在' };
+
+  if (p.start_date) {
+    var startD = new Date(p.start_date);
+    if (isNaN(startD.getTime()))
+      return { ok: false, error: 'start_date 格式錯誤' };
+    if (startD > deadlineDate)
+      return { ok: false, error: '開始日期不可晚於截止時間' };
+  }
+
+  var markup = (p.markup !== undefined && p.markup !== '') ? Number(p.markup) : 0;
+  if (isNaN(markup) || markup < 0)
+    return { ok: false, error: 'markup 不可為負數' };
+
+  var validTypes = ['數量', '金額'];
+  var thresholdType = p.threshold_type || '數量';
+  if (!validTypes.includes(thresholdType))
+    return { ok: false, error: 'threshold_type 只允許：數量 / 金額' };
+
+  var setting = findRow(SHEET.GROUP_PRODUCT_SETTINGS, COL.GROUP_PRODUCT_SETTINGS.PID, p.product_id);
+  if (!setting)
+    return { ok: false, error: '找不到此商品的團購設定，請先完成定價設定' };
+
+  var sr = setting.row;
+  var sc = COL.GROUP_PRODUCT_SETTINGS;
+
+  if (String(sr[sc.STATUS]) !== '啟用')
+    return { ok: false, error: '此商品的團購設定為停用狀態，無法開團' };
+
+  var supportsGathering = String(sr[sc.SUPPORTS_GATHERING]) === '是';
+  if (supportsGathering && thresholdType !== '數量')
+    return { ok: false, error: '集單模式只支援「數量」門檻類型' };
+
+  var tiersRaw = sr[sc.TIERS_JSON];
+  var parsedTiers;
+  try   { parsedTiers = JSON.parse(String(tiersRaw || '[]')); }
+  catch (e) { parsedTiers = []; }
+  var validTiers = parsedTiers.filter(function(t) {
+    return t.qty !== '' && t.qty !== null && t.qty !== undefined &&
+           t.purchase_price !== '' && t.purchase_price !== null &&
+           t.retail_price   !== '' && t.retail_price   !== null;
+  });
+  if (supportsGathering && validTiers.length === 0)
+    return { ok: false, error: '適用集單模式的商品必須先設定有效的階梯定價' };
+
+  var ts = now();
+  var tiersSnapshot = JSON.stringify({
+    snapshot_at:            ts,
+    product_id:             p.product_id,
+    supplier:               String(sr[sc.SUPPLIER]                || ''),
+    base_price:             Number(sr[sc.BASE_PRICE])             || 0,
+    min_group_price:        Number(sr[sc.MIN_GROUP_PRICE])        || 0,
+    fixed_retail_price:     (sr[sc.FIXED_RETAIL_PRICE]     !== undefined && sr[sc.FIXED_RETAIL_PRICE]     !== '') ? Number(sr[sc.FIXED_RETAIL_PRICE])     : '',
+    regular_purchase_price: (sr[sc.REGULAR_PURCHASE_PRICE] !== undefined && sr[sc.REGULAR_PURCHASE_PRICE] !== '') ? Number(sr[sc.REGULAR_PURCHASE_PRICE]) : '',
+    leader_commission_rate: Number(sr[sc.LEADER_COMMISSION_RATE]) || 0.25,
+    platform_min_rate:      Number(sr[sc.PLATFORM_MIN_RATE])      || 0.50,
+    tiers:                  parsedTiers
+  });
+
+  var lock = _acquireLock_();
+  try {
+    var c       = COL.GROUP_CAMPAIGNS;
+    var id      = genId('GC');
+    var sdVal   = p.start_date || ts;
+    var sysNote = '管理員建立活動 ' + ts;
+
+    getSheet(SHEET.GROUP_CAMPAIGNS).appendRow([
+      id,                              // 0  id
+      p.leader || '幸福緣',             // 1  leader
+      p.product_id,                    // 2  product_id
+      thresholdType,                   // 3  threshold_type
+      markup,                          // 4  markup
+      p.deadline,                      // 5  deadline
+      '集單中',                         // 6  status
+      '',                              // 7  group_price（成團確認時才寫）
+      '',                              // 8  base_price_snapshot（成團確認時才寫，舊欄位相容）
+      p.pickup_note || '',             // 9  pickup_note
+      ts,                              // 10 created_at
+      String(p.campaign_name).trim(),  // 11 campaign_name
+      sdVal,                           // 12 start_date（未填預設 created_at）
+      thresholdQty,                    // 13 threshold_qty
+      tiersSnapshot,                   // 14 tiers_snapshot_json（永不更新）
+      p.note || '',                    // 15 note
+      sysNote                          // 16 system_note
+    ]);
+
+    return { ok: true, action: 'created', id: id };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ================================================================
+// 團購模組 — 更新活動（不得修改 tiers_snapshot_json）
+// ================================================================
+function updateGroupCampaign(p) {
+  if (!p.id) return { ok: false, error: '缺少活動 ID' };
+
+  var lock = _acquireLock_();
+  try {
+    var existing = findRow(SHEET.GROUP_CAMPAIGNS, COL.GROUP_CAMPAIGNS.ID, p.id);
+    if (!existing) return { ok: false, error: '找不到活動 ID：' + p.id };
+
+    var sheet = getSheet(SHEET.GROUP_CAMPAIGNS);
+    var rn    = existing.rowNum;
+    var c     = COL.GROUP_CAMPAIGNS;
+    var ts    = now();
+
+    if (String(existing.row[c.STATUS]) === '已下單')
+      return { ok: false, error: '已下單狀態的活動不可編輯' };
+
+    var newStart    = (p.start_date !== undefined) ? new Date(p.start_date)   : new Date(existing.row[c.START_DATE]);
+    var newDeadline = (p.deadline   !== undefined) ? new Date(p.deadline)     : new Date(existing.row[c.DEADLINE]);
+    if (!isNaN(newStart.getTime()) && !isNaN(newDeadline.getTime()) && newStart > newDeadline)
+      return { ok: false, error: '開始日期不可晚於截止時間' };
+
+    if (p.campaign_name !== undefined) {
+      if (!String(p.campaign_name).trim()) return { ok: false, error: '活動名稱不可空白' };
+      sheet.getRange(rn, c.CAMPAIGN_NAME + 1).setValue(String(p.campaign_name).trim());
+    }
+    if (p.start_date !== undefined) {
+      if (p.start_date && isNaN(new Date(p.start_date).getTime()))
+        return { ok: false, error: 'start_date 格式錯誤' };
+      sheet.getRange(rn, c.START_DATE + 1).setValue(p.start_date || '');
+    }
+    if (p.deadline !== undefined) {
+      if (!p.deadline || isNaN(new Date(p.deadline).getTime()))
+        return { ok: false, error: '截止時間格式錯誤' };
+      sheet.getRange(rn, c.DEADLINE + 1).setValue(p.deadline);
+    }
+    if (p.markup !== undefined) {
+      var markup = Number(p.markup);
+      if (isNaN(markup) || markup < 0) return { ok: false, error: 'markup 不可為負數' };
+      sheet.getRange(rn, c.MARKUP + 1).setValue(markup);
+    }
+    if (p.pickup_note !== undefined)
+      sheet.getRange(rn, c.PICKUP_NOTE + 1).setValue(p.pickup_note || '');
+    if (p.note !== undefined)
+      sheet.getRange(rn, c.NOTE + 1).setValue(p.note || '');
+    // tiers_snapshot_json 明確排除，永不更新
+
+    var oldSys  = String(sheet.getRange(rn, c.SYSTEM_NOTE + 1).getValue() || '');
+    var newLine = '管理員編輯活動 ' + ts;
+    sheet.getRange(rn, c.SYSTEM_NOTE + 1).setValue(oldSys ? (oldSys + '\n' + newLine) : newLine);
+
+    return { ok: true, action: 'updated', id: p.id };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ================================================================
+// 團購模組 — 結團 / 流團（只改 status + note + system_note）
+// 本輪不寫 GROUP_LEDGER / 訂單 / 庫存 / 帳務
+// ================================================================
+function adminCloseGroupCampaign(p) {
+  if (!p.id)     return { ok: false, error: '缺少活動 ID' };
+  if (!p.action) return { ok: false, error: '缺少 action（close 或 cancel）' };
+  if (!p.note || !String(p.note).trim())
+    return { ok: false, error: '結團/流團備註必填' };
+  if (!['close', 'cancel'].includes(p.action))
+    return { ok: false, error: 'action 只允許：close（已成團）/ cancel（流團）' };
+
+  var lock = _acquireLock_();
+  try {
+    var existing = findRow(SHEET.GROUP_CAMPAIGNS, COL.GROUP_CAMPAIGNS.ID, p.id);
+    if (!existing) return { ok: false, error: '找不到活動 ID：' + p.id };
+
+    var sheet = getSheet(SHEET.GROUP_CAMPAIGNS);
+    var rn    = existing.rowNum;
+    var c     = COL.GROUP_CAMPAIGNS;
+    var ts    = now();
+
+    var currentStatus = String(existing.row[c.STATUS]);
+    if (['已下單', '已成團', '流團'].includes(currentStatus))
+      return { ok: false, error: '此活動狀態（' + currentStatus + '）無法再次操作' };
+
+    var newStatus  = p.action === 'close' ? '已成團' : '流團';
+    var actionText = p.action === 'close' ? '管理員結團' : '管理員標記流團';
+
+    sheet.getRange(rn, c.STATUS + 1).setValue(newStatus);
+    sheet.getRange(rn, c.NOTE   + 1).setValue(String(p.note).trim());
+
+    var oldSys  = String(sheet.getRange(rn, c.SYSTEM_NOTE + 1).getValue() || '');
+    var newLine = actionText + ' ' + ts + '（備註：' + String(p.note).trim() + '）';
+    sheet.getRange(rn, c.SYSTEM_NOTE + 1).setValue(oldSys ? (oldSys + '\n' + newLine) : newLine);
+
+    return { ok: true, action: p.action, id: p.id, status: newStatus };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ================================================================

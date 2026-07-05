@@ -210,6 +210,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab" onclick="switchTab('products')"><span class="tab-icon">🏷️</span>商品</div>
   <div class="tab" onclick="switchTab('members')"><span class="tab-icon">👥</span>會員</div>
   <div class="tab" onclick="switchTab('returns')"><span class="tab-icon">↩️</span>退貨</div>
+  <div class="tab" onclick="switchTab('campaigns')"><span class="tab-icon">🎯</span>開團</div>
 </div>
 
 <!-- 總覽 -->
@@ -706,6 +707,16 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div id="return-list"><div class="loading">載入中...</div></div>
 </div>
 
+<!-- 團購活動管理 -->
+<div class="page" id="page-campaigns">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <div class="section-title" style="margin:0">🎯 團購活動</div>
+    <button class="btn btn-gold" style="width:auto;padding:10px 18px;font-size:14px"
+            onclick="openCampaignModal()">＋ 建立活動</button>
+  </div>
+  <div id="campaign-list"><div class="loading">載入中...</div></div>
+</div>
+
 <!-- 退貨 Modal -->
 <div class="modal-overlay" id="return-modal-overlay" onclick="closeReturnModal(event)">
   <div class="modal" style="max-height:92dvh">
@@ -903,12 +914,75 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   </div>
 </div>
 
+<!-- 團購活動 Modal -->
+<div class="modal-overlay" id="campaign-overlay" onclick="closeCampaignModal(event)">
+  <div class="modal" onclick="event.stopPropagation()" style="max-height:92dvh;overflow-y:auto">
+    <div class="modal-title">🎯 <span id="cm-modal-title">建立團購活動</span></div>
+    <input type="hidden" id="cm-id">
+    <div class="field">
+      <label>選擇商品 <span style="color:var(--red)">*</span></label>
+      <select id="cm-product-id" onchange="onCampaignProductChange()">
+        <option value="">— 請選擇 —</option>
+      </select>
+    </div>
+    <div id="cm-product-info" style="display:none;background:var(--surface2);border-radius:8px;
+         padding:10px;margin-bottom:12px;font-size:12px;color:var(--dim);line-height:1.7"></div>
+    <div class="field">
+      <label>活動名稱 <span style="color:var(--red)">*</span></label>
+      <input type="text" id="cm-name" placeholder="例：青汁7月揪團">
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>團長</label>
+        <input type="text" id="cm-leader" value="幸福緣">
+      </div>
+      <div class="field">
+        <label>門檻類型</label>
+        <select id="cm-threshold-type">
+          <option value="數量">數量</option>
+          <option value="金額">金額</option>
+        </select>
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>目標數量 <span style="color:var(--red)">*</span></label>
+        <input type="number" id="cm-threshold-qty" min="1" step="1" placeholder="達標件數">
+      </div>
+      <div class="field">
+        <label>固定加價（NT$）</label>
+        <input type="number" id="cm-markup" min="0" value="0">
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>開始日期</label>
+        <input type="datetime-local" id="cm-start-date">
+      </div>
+      <div class="field">
+        <label>截止時間 <span style="color:var(--red)">*</span></label>
+        <input type="datetime-local" id="cm-deadline">
+      </div>
+    </div>
+    <div class="field">
+      <label>取貨備註</label>
+      <input type="text" id="cm-pickup-note" placeholder="例：週六 10:00-12:00 取貨">
+    </div>
+    <div class="field">
+      <label>備註</label>
+      <input type="text" id="cm-note" placeholder="選填">
+    </div>
+    <button class="btn btn-gold" id="cm-save-btn" onclick="saveCampaign()">建立活動</button>
+    <button class="btn btn-ghost" style="margin-top:8px" onclick="closeCampaignModal()">取消</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
 const GAS_URL='https://script.google.com/macros/s/AKfycbz4-pJ5jWtu9nevKDl98LxRqfwyVdGApEqEzcKKR9LDxanUM5BCneCZttkH3rkxLlUtYA/exec';
 let SESSION_TOKEN=localStorage.getItem('yc_admin_token')||'';
-let cache={products:[],inventory:[],stockLog:[],orders:[],accounts:[],balance:{},registrations:[],members:[],groupProductSettings:[]};
+let cache={products:[],inventory:[],stockLog:[],orders:[],accounts:[],balance:{},registrations:[],members:[],groupProductSettings:[],groupCampaigns:[]};
 let invFilter='all',histFilter='all',orderFilter='all',accFilter='all',regFilter='all',memberFilter='all';
 let imgData={in:null};
 
@@ -973,6 +1047,7 @@ async function syncAll(){
     try{const mem=await api({action:'getMember',session_token:SESSION_TOKEN,all:'true'});if(mem.ok)cache.members=mem.data||[];}catch(e){}
     try{const cfg=await api({action:'getSettings'});if(cfg.ok)cache.settings=cfg.data;}catch(e){}
     try{const gs=await api({action:'getGroupProductSettings',session_token:SESSION_TOKEN});if(gs.ok)cache.groupProductSettings=gs.data;}catch(e){}
+    try{const gc=await api({action:'getGroupCampaigns',session_token:SESSION_TOKEN});if(gc.ok)cache.groupCampaigns=gc.data;}catch(e){}
     localStorage.setItem('yc_cache',JSON.stringify(cache));
     refreshProductDropdowns();renderAll();
     showToast('✅ 同步完成','success');
@@ -990,7 +1065,7 @@ async function refreshAccountsOnly(){
   renderAccounts();
 }
 
-function renderAll(){renderDashboard();renderInventory();renderHistory();renderOrders();renderAccounts();renderRegistrations();renderMembers();renderProducts();renderReturns();}
+function renderAll(){renderDashboard();renderInventory();renderHistory();renderOrders();renderAccounts();renderRegistrations();renderMembers();renderProducts();renderReturns();renderCampaigns();}
 
 function init(){
   document.getElementById('topbar-date').textContent=new Date().toLocaleDateString('zh-TW',{weekday:'short',month:'long',day:'numeric'});
@@ -1000,12 +1075,13 @@ function init(){
 }
 
 function switchTab(tab){
-  const tabs=['dashboard','in','out','inventory','history','orders','accounts','registrations','reports','products','members','returns'];
+  const tabs=['dashboard','in','out','inventory','history','orders','accounts','registrations','reports','products','members','returns','campaigns'];
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',tabs[i]===tab));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById('page-'+tab).classList.add('active');
   if(tab==='reports')loadReport();
   if(tab==='returns')loadReturns();
+  if(tab==='campaigns')renderCampaigns();
 }
 
 function handleImg(type){
@@ -3223,6 +3299,215 @@ async function rejectReturn(returnId) {
 })();
 
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
+
+// ── 團購活動管理 ────────────────────────────────────────────────
+let campaignSaving = false;
+let editCampaignId = null;
+
+function resetCampaignSavingState() {
+  campaignSaving = false;
+  const btn = document.getElementById('cm-save-btn');
+  if (btn) { btn.disabled = false; btn.textContent = editCampaignId ? '儲存變更' : '建立活動'; }
+}
+
+function openCampaignModal(cid) {
+  resetCampaignSavingState();
+  editCampaignId = cid || null;
+
+  const enabled = (cache.groupProductSettings || []).filter(s => s.status === '啟用');
+  const sel = document.getElementById('cm-product-id');
+  sel.innerHTML = '<option value="">— 請選擇 —</option>' +
+    enabled.map(s => {
+      const prod = (cache.products || []).find(p => p.product_id === s.product_id);
+      return `<option value="${s.product_id}">${prod ? prod.name : s.product_id}</option>`;
+    }).join('');
+
+  document.getElementById('cm-modal-title').textContent = cid ? '編輯活動' : '建立活動';
+  document.getElementById('cm-save-btn').textContent    = cid ? '儲存變更' : '建立活動';
+  document.getElementById('cm-id').value                = cid || '';
+
+  if (cid) {
+    const camp = (cache.groupCampaigns || []).find(x => x.id === cid);
+    if (camp) {
+      sel.value = camp.product_id;
+      onCampaignProductChange();
+      document.getElementById('cm-name').value           = camp.campaign_name  || '';
+      document.getElementById('cm-leader').value         = camp.leader         || '幸福緣';
+      document.getElementById('cm-threshold-type').value = camp.threshold_type || '數量';
+      document.getElementById('cm-threshold-qty').value  = camp.threshold_qty  || '';
+      document.getElementById('cm-markup').value         = camp.markup         ?? 0;
+      document.getElementById('cm-pickup-note').value    = camp.pickup_note    || '';
+      document.getElementById('cm-note').value           = camp.note           || '';
+      const toLocal = v => { if(!v) return ''; const d=new Date(v); return isNaN(d)?'':d.toISOString().slice(0,16); };
+      document.getElementById('cm-start-date').value = toLocal(camp.start_date);
+      document.getElementById('cm-deadline').value   = toLocal(camp.deadline);
+    }
+  } else {
+    sel.value = '';
+    document.getElementById('cm-product-info').style.display = 'none';
+    ['cm-name','cm-threshold-qty','cm-pickup-note','cm-note','cm-start-date','cm-deadline'].forEach(id =>
+      document.getElementById(id).value = '');
+    document.getElementById('cm-leader').value         = '幸福緣';
+    document.getElementById('cm-threshold-type').value = '數量';
+    document.getElementById('cm-markup').value         = 0;
+  }
+  document.getElementById('campaign-overlay').classList.add('open');
+}
+
+function closeCampaignModal(e) {
+  if (e && e.target !== document.getElementById('campaign-overlay')) return;
+  document.getElementById('campaign-overlay').classList.remove('open');
+  resetCampaignSavingState();
+}
+
+function onCampaignProductChange() {
+  const pid  = document.getElementById('cm-product-id').value;
+  const info = document.getElementById('cm-product-info');
+  if (!pid) { info.style.display = 'none'; return; }
+  const s = (cache.groupProductSettings || []).find(x => x.product_id === pid);
+  if (!s)  { info.style.display = 'none'; return; }
+
+  const typeEl = document.getElementById('cm-threshold-type');
+  if (s.supports_group_gathering === '是') {
+    typeEl.value = '數量'; typeEl.disabled = true;
+  } else {
+    typeEl.disabled = false;
+  }
+
+  const validTiers = (s.tiers || []).filter(t =>
+    t.qty !== '' && t.purchase_price !== '' && t.retail_price !== '');
+  const tiersHtml = validTiers.length
+    ? validTiers.map((t,i) =>
+        `第${i+1}階 ${t.qty}件｜進貨 NT$${t.purchase_price}｜售價 NT$${t.retail_price}`
+      ).join('<br>')
+    : '⚠️ 尚無有效階梯設定';
+
+  info.innerHTML =
+    `底價：NT$${s.base_price||'—'} ｜ 建議售價：NT$${s.fixed_retail_price||'—'} ｜ ` +
+    `一般進貨：NT$${s.regular_purchase_price||'—'}<br>` +
+    `團長分潤：${Math.round((s.leader_commission_rate||0.25)*100)}% ｜ ` +
+    `平台保留：${Math.round((s.platform_min_rate||0.50)*100)}%<br>` + tiersHtml;
+  info.style.display = 'block';
+
+  const nameEl = document.getElementById('cm-name');
+  if (!nameEl.value && !editCampaignId) {
+    const prod = (cache.products || []).find(p => p.product_id === pid);
+    const dl   = document.getElementById('cm-deadline').value;
+    nameEl.value = (prod ? prod.name : pid) +
+      (dl ? '-' + dl.slice(5,10).replace('-','/') : '');
+  }
+}
+
+async function saveCampaign() {
+  if (campaignSaving) return;
+  const id            = document.getElementById('cm-id').value;
+  const productId     = document.getElementById('cm-product-id').value;
+  const campaignName  = document.getElementById('cm-name').value.trim();
+  const leader        = document.getElementById('cm-leader').value.trim();
+  const thresholdType = document.getElementById('cm-threshold-type').value;
+  const thresholdQty  = document.getElementById('cm-threshold-qty').value.trim();
+  const markup        = document.getElementById('cm-markup').value.trim();
+  const startDate     = document.getElementById('cm-start-date').value;
+  const deadline      = document.getElementById('cm-deadline').value;
+  const pickupNote    = document.getElementById('cm-pickup-note').value.trim();
+  const note          = document.getElementById('cm-note').value.trim();
+
+  if (!productId)    { showToast('請選擇商品', 'error'); return; }
+  if (!campaignName) { showToast('活動名稱不可空白', 'error'); return; }
+  if (!deadline)     { showToast('請填寫截止時間', 'error'); return; }
+  const tqNum = Number(thresholdQty);
+  if (!thresholdQty || isNaN(tqNum) || tqNum < 1 || Math.floor(tqNum) !== tqNum)
+    { showToast('目標數量必須是 >= 1 的整數', 'error'); return; }
+  if (startDate && deadline && new Date(startDate) > new Date(deadline))
+    { showToast('開始日期不可晚於截止時間', 'error'); return; }
+
+  const s = (cache.groupProductSettings || []).find(x => x.product_id === productId);
+  if (s && s.supports_group_gathering === '是') {
+    const vt = (s.tiers || []).filter(t =>
+      t.qty !== '' && t.purchase_price !== '' && t.retail_price !== '');
+    if (!vt.length)
+      { showToast('此商品尚未設定有效階梯定價，請先完成定價設定', 'error'); return; }
+  }
+
+  campaignSaving = true;
+  const btn = document.getElementById('cm-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '儲存中…'; }
+
+  try {
+    const action = id ? 'updateGroupCampaign' : 'createGroupCampaign';
+    const payload = {
+      action, session_token: SESSION_TOKEN,
+      product_id: productId, campaign_name: campaignName,
+      leader: leader || '幸福緣', threshold_type: thresholdType,
+      threshold_qty: tqNum, markup: Number(markup) || 0,
+      start_date: startDate || '', deadline, pickup_note: pickupNote, note
+    };
+    if (id) payload.id = id;
+
+    const r = await apiPost(payload);
+    if (!r.ok) throw new Error(r.error || '儲存失敗');
+
+    showToast('✅ 活動已' + (id ? '更新' : '建立'), 'success');
+    document.getElementById('campaign-overlay').classList.remove('open');
+    const fresh = await api({ action: 'getGroupCampaigns', session_token: SESSION_TOKEN });
+    if (fresh.ok) { cache.groupCampaigns = fresh.data; renderCampaigns(); }
+  } catch(e) {
+    showToast(e.message || '儲存失敗', 'error');
+    resetCampaignSavingState();
+  }
+}
+
+async function closeCampaignAction(cid, action) {
+  const label = action === 'close' ? '結團' : '流團';
+  const note  = prompt(label + '備註（必填）：');
+  if (!note || !note.trim()) { showToast('請填寫備註', 'error'); return; }
+  try {
+    const r = await apiPost({
+      action: 'adminCloseGroupCampaign', session_token: SESSION_TOKEN,
+      id: cid, action, note: note.trim()
+    });
+    if (!r.ok) throw new Error(r.error || '操作失敗');
+    showToast('✅ 已' + label, 'success');
+    const fresh = await api({ action: 'getGroupCampaigns', session_token: SESSION_TOKEN });
+    if (fresh.ok) { cache.groupCampaigns = fresh.data; renderCampaigns(); }
+  } catch(e) { showToast(e.message || '操作失敗', 'error'); }
+}
+
+function renderCampaigns() {
+  const el = document.getElementById('campaign-list');
+  if (!el) return;
+  const list = cache.groupCampaigns || [];
+  if (!list.length) {
+    el.innerHTML = '<div class="loading">尚無活動，點右上角「＋ 建立活動」開始</div>';
+    return;
+  }
+  const sColor = { '集單中':'blue','已成團':'green','已下單':'green','流團':'red' };
+  el.innerHTML = list.map(c => {
+    const prod     = (cache.products || []).find(p => p.product_id === c.product_id);
+    const prodName = prod ? prod.name : c.product_id;
+    const pct      = c.threshold_qty > 0
+                     ? Math.min(100, Math.round(c.current_qty / c.threshold_qty * 100)) : 0;
+    const dlStr    = c.deadline
+                     ? new Date(c.deadline).toLocaleString('zh-TW',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
+    const canEdit  = c.status !== '已下單';
+    const canClose = c.status === '集單中';
+    return `
+    <div class="order-card">
+      <div class="order-header">
+        <span class="order-name" style="font-size:14px">${c.campaign_name||prodName}</span>
+        <span class="order-status ${sColor[c.status]||'blue'}">${c.status||'—'}</span>
+      </div>
+      <div class="order-meta">商品：${prodName} ｜ 團長：${c.leader||'—'} ｜ 截止：${dlStr}</div>
+      <div class="order-meta">進度：${c.current_qty} / ${c.threshold_qty} 件（${pct}%）${c.markup>0?' ｜ 加價：NT$'+c.markup:''}</div>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+        ${canEdit  ? `<button class="btn btn-gold" style="width:auto;padding:8px 14px;font-size:13px" onclick="openCampaignModal('${c.id}')">✏️ 編輯</button>`:'' }
+        ${canClose ? `<button class="btn btn-ghost" style="width:auto;padding:8px 14px;font-size:13px" onclick="closeCampaignAction('${c.id}','close')">✅ 結團</button>`:'' }
+        ${canClose ? `<button class="btn btn-ghost" style="width:auto;padding:8px 14px;font-size:13px;color:var(--red)" onclick="closeCampaignAction('${c.id}','cancel')">❌ 流團</button>`:'' }
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px">ID：${c.id}</div>
+    </div>`;
+  }).join('');
+}
 </script>
 </body>
 </html>
