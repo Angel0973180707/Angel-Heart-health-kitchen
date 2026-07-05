@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <meta name="theme-color" content="#0F1117">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>養清倉管</title>
+<title>幸福緣好物市集｜倉管後台</title>
 <link rel="manifest" href="manifest.json">
 <style>
 :root{--bg:#1B3A2A;--surface:#234D38;--surface2:#2D5C42;--border:#3D7055;--gold:#4A7C59;--green:#5BAA7A;--red:#E05757;--blue:#4A9EFF;--text:#FFFFFF;--dim:#8FB5A0;--muted:#5A8A6A;--bg-card:#234D38;--text-mid:#8FB5A0;--font:'Segoe UI','PingFang TC','Microsoft JhengHei',sans-serif;--r:12px;--rs:8px}
@@ -181,7 +181,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 
 <div id="lock-screen">
   <div class="lock-logo">🏪</div>
-  <div class="lock-title">養清倉管</div>
+  <div class="lock-title">幸福緣好物市集</div>
   <div class="lock-sub">請輸入管理密碼</div>
   <input class="lock-input" type="password" id="lock-pwd" placeholder="••••••" maxlength="20" onkeydown="if(event.key==='Enter')unlock()">
   <button class="lock-btn" onclick="unlock()">進入系統</button>
@@ -190,7 +190,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 
 <div id="main-app" style="display:none">
 <div class="topbar">
-  <div><div class="topbar-title">🏪 養清倉管</div><div class="topbar-sub" id="topbar-date"></div></div>
+  <div><div class="topbar-title">🏪 幸福緣好物市集｜倉管後台</div><div class="topbar-sub" id="topbar-date"></div></div>
   <div class="topbar-right">
     <button class="sync-btn" id="sync-btn" onclick="syncAll()">⟳ 同步</button>
     <span class="alert-badge" id="alert-count" style="display:none">0</span>
@@ -243,7 +243,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       <div class="field"><label>進價（NT$）</label><input type="number" id="in-price" placeholder="0"></div>
       <div class="field"><label>低庫存警示值</label><input type="number" id="in-threshold" placeholder="10"></div>
     </div>
-    <div class="field"><label>供應商</label><input type="text" id="in-supplier" placeholder="養清廚房總部"></div>
+    <div class="field"><label>供應商</label><input type="text" id="in-supplier" placeholder="幸福緣好物市集"></div>
     <div class="field"><label>備註</label><textarea id="in-note" placeholder="批次號、備注..."></textarea></div>
     <div class="field"><label>商品圖片（最多5張）</label>
       <div class="img-upload" id="in-img-zone">
@@ -995,7 +995,7 @@ async function submitIn(){
     const params={action:'stockIn',session_token:SESSION_TOKEN,product_id:pid,qty,
       price:document.getElementById('in-price').value||'',
       threshold:document.getElementById('in-threshold').value||10,
-      partner:document.getElementById('in-supplier').value.trim()||'養清廚房總部',
+      partner:document.getElementById('in-supplier').value.trim()||'幸福緣好物市集',
       note:document.getElementById('in-note').value.trim()};
     if(imgUrls.length)params.image_url=imgUrls[0]; // 第一張存商品主圖
     const r=await apiPost(params);

@@ -1,7 +1,7 @@
 {
-  "name": "養清倉管",
-  "short_name": "養清倉管",
-  "description": "個人小店進出貨與庫存管理工具",
+  "name": "幸福緣好物市集",
+  "short_name": "幸福緣",
+  "description": "幸福緣好物市集官方訂購與管理系統",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0F1117",
