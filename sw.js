@@ -1,4 +1,4 @@
-﻿const CACHE_NAME = 'inventory-pwa-v55';
+﻿const CACHE_NAME = 'inventory-pwa-v56';
 const ASSETS = [
   './index.html',
   './manifest.json',

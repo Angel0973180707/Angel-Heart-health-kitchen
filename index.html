@@ -822,12 +822,63 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div id="modal-body"></div>
   </div>
 </div>
+<!-- 團購商品設定 Modal -->
+<div class="modal-overlay" id="group-setting-overlay" onclick="closeGroupSettingModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-title">🛒 團購設定 — <span id="gs-prod-name"></span></div>
+    <input type="hidden" id="gs-product-id">
+    <div class="field">
+      <label>供應方</label>
+      <input type="text" id="gs-supplier" placeholder="自營">
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>底價（NT$）</label>
+        <input type="number" id="gs-base-price" min="0" placeholder="0">
+      </div>
+      <div class="field">
+        <label>最低開團售價（NT$）</label>
+        <input type="number" id="gs-min-group-price" min="0" placeholder="與底價相同則留空">
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>計入團長門檻</label>
+        <select id="gs-counts-threshold">
+          <option value="否">否</option>
+          <option value="是">是</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>適用集單模式</label>
+        <select id="gs-supports-gathering">
+          <option value="否">否</option>
+          <option value="是">是</option>
+        </select>
+      </div>
+    </div>
+    <div class="field">
+      <label>狀態</label>
+      <select id="gs-status">
+        <option value="啟用">啟用</option>
+        <option value="停用">停用</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>備註</label>
+      <input type="text" id="gs-note" placeholder="選填">
+    </div>
+    <button class="btn btn-gold" id="gs-save-btn" onclick="saveGroupSetting()">儲存</button>
+    <button class="btn btn-ghost" style="margin-top:8px" onclick="closeGroupSettingModal()">取消</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
 const GAS_URL='https://script.google.com/macros/s/AKfycbz4-pJ5jWtu9nevKDl98LxRqfwyVdGApEqEzcKKR9LDxanUM5BCneCZttkH3rkxLlUtYA/exec';
 let SESSION_TOKEN=localStorage.getItem('yc_admin_token')||'';
-let cache={products:[],inventory:[],stockLog:[],orders:[],accounts:[],balance:{},registrations:[],members:[]};
+let cache={products:[],inventory:[],stockLog:[],orders:[],accounts:[],balance:{},registrations:[],members:[],groupProductSettings:[]};
 let invFilter='all',histFilter='all',orderFilter='all',accFilter='all',regFilter='all',memberFilter='all';
 let imgData={in:null};
 
@@ -891,6 +942,7 @@ async function syncAll(){
     try{const reg=await api({action:'getRegistrations',session_token:SESSION_TOKEN});if(reg.ok)cache.registrations=reg.data;}catch(e){}
     try{const mem=await api({action:'getMember',session_token:SESSION_TOKEN,all:'true'});if(mem.ok)cache.members=mem.data||[];}catch(e){}
     try{const cfg=await api({action:'getSettings'});if(cfg.ok)cache.settings=cfg.data;}catch(e){}
+    try{const gs=await api({action:'getGroupProductSettings',session_token:SESSION_TOKEN});if(gs.ok)cache.groupProductSettings=gs.data;}catch(e){}
     localStorage.setItem('yc_cache',JSON.stringify(cache));
     refreshProductDropdowns();renderAll();
     showToast('✅ 同步完成','success');
@@ -2444,10 +2496,85 @@ function renderProducts() {
       <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-gold" style="width:auto;padding:8px 14px;font-size:13px" onclick="openEditProductModal('${p.product_id}')">✏️ 編輯</button>
         ${toggleBtn}${disableBtn}
+        <button class="btn btn-ghost" style="width:auto;padding:8px 14px;font-size:13px" onclick="openGroupSettingModal('${p.product_id}')">🛒 團購設定</button>
       </div>
       <div style="font-size:10px;color:var(--muted);margin-top:6px">ID：${p.product_id}</div>
     </div>`;
   }).join('');
+}
+
+// ── 團購商品設定 modal ──
+let groupSettingSaving = false;
+
+function resetGroupSettingSavingState() {
+  groupSettingSaving = false;
+  const btn = document.getElementById('gs-save-btn');
+  if (btn) { btn.disabled = false; btn.textContent = '儲存'; }
+}
+
+function openGroupSettingModal(pid) {
+  resetGroupSettingSavingState();
+  const prod = (cache.products || []).find(x => x.product_id === pid);
+  document.getElementById('gs-prod-name').textContent = prod ? prod.name : pid;
+  document.getElementById('gs-product-id').value = pid;
+  const s = (cache.groupProductSettings || []).find(x => x.product_id === pid);
+  document.getElementById('gs-supplier').value           = s ? (s.supplier           || '') : '';
+  document.getElementById('gs-base-price').value         = s ? s.base_price          : '';
+  document.getElementById('gs-min-group-price').value    = s ? s.min_group_price     : '';
+  document.getElementById('gs-counts-threshold').value   = s ? (s.counts_toward_threshold  || '否') : '否';
+  document.getElementById('gs-supports-gathering').value = s ? (s.supports_group_gathering || '否') : '否';
+  document.getElementById('gs-status').value             = s ? (s.status             || '啟用') : '啟用';
+  document.getElementById('gs-note').value               = s ? (s.note               || '') : '';
+  document.getElementById('group-setting-overlay').classList.add('open');
+}
+
+function closeGroupSettingModal(e) {
+  if (e && e.target !== document.getElementById('group-setting-overlay')) return;
+  document.getElementById('group-setting-overlay').classList.remove('open');
+  resetGroupSettingSavingState();
+}
+
+async function saveGroupSetting() {
+  if (groupSettingSaving) return;
+  const pid       = document.getElementById('gs-product-id').value;
+  const basePrice = document.getElementById('gs-base-price').value.trim();
+  if (!pid)           { showToast('缺少商品 ID', 'error'); return; }
+  if (basePrice === '') { showToast('請填寫底價', 'error'); return; }
+  if (Number(basePrice) < 0) { showToast('底價不可為負數', 'error'); return; }
+  groupSettingSaving = true;
+  const btn = document.getElementById('gs-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '儲存中...'; }
+  const minGP = document.getElementById('gs-min-group-price').value.trim();
+  let success = false;
+  try {
+    const r = await apiPost({
+      action:                   'saveGroupProductSetting',
+      session_token:            SESSION_TOKEN,
+      product_id:               pid,
+      supplier:                 document.getElementById('gs-supplier').value.trim(),
+      base_price:               basePrice,
+      min_group_price:          minGP,
+      counts_toward_threshold:  document.getElementById('gs-counts-threshold').value,
+      supports_group_gathering: document.getElementById('gs-supports-gathering').value,
+      status:                   document.getElementById('gs-status').value,
+      note:                     document.getElementById('gs-note').value.trim()
+    });
+    if (r.ok) {
+      success = true;
+      showToast('✅ 團購設定已' + (r.action === 'created' ? '建立' : '更新'), 'success');
+      document.getElementById('group-setting-overlay').classList.remove('open');
+      try {
+        const fresh = await api({ action: 'getGroupProductSettings', session_token: SESSION_TOKEN });
+        if (fresh.ok) cache.groupProductSettings = fresh.data;
+      } catch(e) {}
+    } else {
+      showToast('❌ ' + (r.error || '儲存失敗'), 'error');
+    }
+  } catch(e) {
+    showToast('⚠️ 網路錯誤', 'error');
+  } finally {
+    if (!success) resetGroupSettingSavingState();
+  }
 }
 
 function openAddProductModal() {

@@ -219,7 +219,8 @@ function handleRequest(e) {
       'updateSetting',
       'getMonthlyReport','getSalesRanking','getInventoryHealth','getMemberStats',
       'sendLowStockNotification','installTriggers',
-      'adminEnableReturnMaintenance','adminDisableReturnMaintenance','adminCheckPendingReturns'
+      'adminEnableReturnMaintenance','adminDisableReturnMaintenance','adminCheckPendingReturns',
+      'getGroupProductSettings','saveGroupProductSetting'
     ];
 
     if (adminActions.includes(action) && !validateSession_(p.session_token)) {
@@ -291,6 +292,9 @@ function handleRequest(e) {
       case 'adminEnableReturnMaintenance':  return res(adminEnableReturnMaintenance());
       case 'adminDisableReturnMaintenance': return res(adminDisableReturnMaintenance());
       case 'adminCheckPendingReturns':      return res(adminCheckPendingReturns());
+      case 'getGroupProductSettings':  return res(getGroupProductSettings());
+      case 'saveGroupProductSetting':  return res(saveGroupProductSetting(p));
+
       case 'loginAdmin':             return res(loginAdmin(p));
       case 'loginEventAdmin':        return res(loginEventAdmin(p));
       default:
@@ -2796,6 +2800,90 @@ function adminSetupGroupBuy() {
 
   Logger.log(log.join('\n'));
   return { ok: true, log };
+}
+
+// ================================================================
+// 團購模組 — 商品設定 CRUD（v2.2 零欄位異動版）
+// ================================================================
+function getGroupProductSettings() {
+  const rows = getRows(SHEET.GROUP_PRODUCT_SETTINGS);
+  const c    = COL.GROUP_PRODUCT_SETTINGS;
+  const list = rows.map(r => ({
+    id:                       String(r[c.ID]),
+    product_id:               String(r[c.PID]),
+    supplier:                 r[c.SUPPLIER],
+    base_price:               r[c.BASE_PRICE],
+    min_group_price:          r[c.MIN_GROUP_PRICE],
+    counts_toward_threshold:  r[c.COUNTS_THRESHOLD],
+    supports_group_gathering: r[c.SUPPORTS_GATHERING],
+    status:                   r[c.STATUS],
+    note:                     r[c.NOTE],
+    updated_at:               r[c.UPDATED_AT]
+  })).filter(x => x.id);
+  return { ok: true, data: list };
+}
+
+function saveGroupProductSetting(p) {
+  if (!p.product_id) return { ok: false, error: '缺少 product_id' };
+
+  const basePrice = Number(p.base_price);
+  if (p.base_price === undefined || p.base_price === '' || isNaN(basePrice) || basePrice < 0)
+    return { ok: false, error: 'base_price 必須是 >= 0 的數字' };
+
+  if (p.min_group_price !== undefined && p.min_group_price !== '') {
+    const mgp = Number(p.min_group_price);
+    if (isNaN(mgp) || mgp < basePrice)
+      return { ok: false, error: 'min_group_price 必須 >= base_price（' + basePrice + '）' };
+  }
+
+  const validYN     = ['是', '否'];
+  const validStatus = ['啟用', '停用'];
+  if (p.counts_toward_threshold  && !validYN.includes(p.counts_toward_threshold))
+    return { ok: false, error: 'counts_toward_threshold 只允許：是 / 否' };
+  if (p.supports_group_gathering && !validYN.includes(p.supports_group_gathering))
+    return { ok: false, error: 'supports_group_gathering 只允許：是 / 否' };
+  if (p.status && !validStatus.includes(p.status))
+    return { ok: false, error: 'status 只允許：啟用 / 停用' };
+
+  const minGP = (p.min_group_price !== undefined && p.min_group_price !== '')
+                ? Number(p.min_group_price)
+                : basePrice;
+
+  const lock = _acquireLock_();
+  try {
+    const c        = COL.GROUP_PRODUCT_SETTINGS;
+    const existing = findRow(SHEET.GROUP_PRODUCT_SETTINGS, c.PID, p.product_id);
+    const ts       = now();
+
+    if (existing) {
+      const sheet = getSheet(SHEET.GROUP_PRODUCT_SETTINGS);
+      const rn    = existing.rowNum;
+      sheet.getRange(rn, c.SUPPLIER          + 1).setValue(p.supplier || '自營');
+      sheet.getRange(rn, c.BASE_PRICE        + 1).setValue(basePrice);
+      sheet.getRange(rn, c.MIN_GROUP_PRICE   + 1).setValue(minGP);
+      sheet.getRange(rn, c.COUNTS_THRESHOLD  + 1).setValue(p.counts_toward_threshold  || '否');
+      sheet.getRange(rn, c.SUPPORTS_GATHERING+ 1).setValue(p.supports_group_gathering || '否');
+      sheet.getRange(rn, c.STATUS            + 1).setValue(p.status || '啟用');
+      sheet.getRange(rn, c.NOTE              + 1).setValue(p.note   || '');
+      sheet.getRange(rn, c.UPDATED_AT        + 1).setValue(ts);
+      return { ok: true, action: 'updated', id: String(existing.row[c.ID]) };
+    } else {
+      const id = genId('GPS');
+      getSheet(SHEET.GROUP_PRODUCT_SETTINGS).appendRow([
+        id, p.product_id,
+        p.supplier || '自營',
+        basePrice, minGP,
+        p.counts_toward_threshold  || '否',
+        p.supports_group_gathering || '否',
+        p.status || '啟用',
+        p.note   || '',
+        ts
+      ]);
+      return { ok: true, action: 'created', id };
+    }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ================================================================
