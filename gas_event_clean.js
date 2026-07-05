@@ -3433,6 +3433,17 @@ function adminMigrateGroupPledgesV5A() {
 }
 
 // ================================================================
+// 電話正規化（Google Sheets appendRow 會把 '0900000001' 轉成數字 900000001）
+// 統一處理：去空白、去前導單引號、9 位數補 0 → 回傳 09xxxxxxxx 格式
+// ================================================================
+function normalizePhone_(v) {
+  var s = String(v || '').trim();
+  if (s.charAt(0) === "'") s = s.slice(1);  // Sheets 可能附加前導單引號
+  if (/^\d{9}$/.test(s)) s = '0' + s;       // Sheets 吃掉前導 0 → 補回
+  return s;
+}
+
+// ================================================================
 // 團購模組 — 客人登記（public API，token 防誤打，非安全驗證）
 // ================================================================
 function createGroupPledge(p) {
@@ -3443,7 +3454,7 @@ function createGroupPledge(p) {
   // ── 必填欄位 ──────────────────────────────────────────
   var campaignId = String(p.campaign_id || '').trim();
   var cname      = String(p.cname       || '').trim();
-  var phone      = String(p.phone       || '').trim();
+  var phone      = normalizePhone_(p.phone);
   if (!campaignId) return { ok: false, error: '缺少 campaign_id' };
   if (!cname)      return { ok: false, error: '請填寫姓名' };
   if (!phone)      return { ok: false, error: '請填寫電話' };
@@ -3497,9 +3508,9 @@ function createGroupPledge(p) {
     // ── 防重複：同 campaign_id + phone + status=有效 只保留一筆 ──
     var existingIdx = -1;
     for (var i = 0; i < pledgeRows.length; i++) {
-      if (String(pledgeRows[i][pc.CID])    === campaignId &&
-          String(pledgeRows[i][pc.PHONE])  === phone      &&
-          String(pledgeRows[i][pc.STATUS]) === '有效') {
+      if (String(pledgeRows[i][pc.CID])          === campaignId &&
+          normalizePhone_(pledgeRows[i][pc.PHONE]) === phone      &&
+          String(pledgeRows[i][pc.STATUS])          === '有效') {
         existingIdx = i;
         break;
       }
@@ -3522,7 +3533,7 @@ function createGroupPledge(p) {
         pledgeId,          // 0  id
         campaignId,        // 1  campaign_id
         cname,             // 2  cname
-        phone,             // 3  phone
+        "'" + phone,       // 3  phone（前導 ' 強制 Sheets 存為文字，避免吃掉前導 0）
         p.line_uid || '',  // 4  line_uid
         qty,               // 5  qty
         '',                // 6  order_id（本輪空白，5-B 後填）
@@ -3531,6 +3542,7 @@ function createGroupPledge(p) {
         p.note || '',      // 9  note
         '客人登記 ' + ts   // 10 system_note
       ]);
+      SpreadsheetApp.flush(); // 確保 appendRow 立即寫入，下次請求讀到最新資料
       action = 'created';
     }
 
