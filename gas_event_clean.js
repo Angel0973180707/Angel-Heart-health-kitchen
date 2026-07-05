@@ -49,6 +49,13 @@ const SHEET = {
   EVENT_ACCOUNTS:  '活動帳本'
 };
 
+// ── 團購模組工作表（v2.2 零欄位異動版）──────────────────────────
+SHEET.GROUP_PRODUCT_SETTINGS = '團購商品設定表';
+SHEET.GROUP_CAMPAIGNS        = '團購活動表';
+SHEET.GROUP_PLEDGES          = '團購明細表';
+SHEET.GROUP_LEADERS          = '團主來源表';
+SHEET.GROUP_LEDGER           = '團購帳務表';
+
 // 欄位索引（0起算）
 const COL = {
   PRODUCTS: {
@@ -91,6 +98,33 @@ const COL = {
     BEFORE_VALUE:5, EXPECTED_AFTER:6, UPDATED_AT:7, ERROR:8, CREATED:9
   },
   SETTINGS: { KEY:0, VALUE:1, DESC:2, UPDATED:3 }
+};
+
+// ── 團購模組欄位索引（v2.2 零欄位異動版）─────────────────────────
+COL.GROUP_PRODUCT_SETTINGS = {
+  ID:0, PID:1, SUPPLIER:2, BASE_PRICE:3, MIN_GROUP_PRICE:4,
+  COUNTS_THRESHOLD:5, SUPPORTS_GATHERING:6, STATUS:7, NOTE:8, UPDATED_AT:9
+};
+COL.GROUP_CAMPAIGNS = {
+  ID:0, LEADER:1, PID:2, THRESHOLD_TYPE:3, MARKUP:4,
+  DEADLINE:5, STATUS:6, GROUP_PRICE:7, BASE_SNAPSHOT:8,
+  PICKUP_NOTE:9, CREATED:10
+};
+COL.GROUP_PLEDGES = {
+  ID:0, CID:1, CNAME:2, PHONE:3, LINE_UID:4,
+  QTY:5, ORDER_ID:6, CREATED:7, STATUS:8, NOTE:9
+};
+COL.GROUP_LEADERS = {
+  ID:0, PHONE:1, NAME:2, LEVEL:3,
+  APPROVE_METHOD:4, APPROVE_DATE:5,
+  NO_SHOW_COUNT:6, BUY_STATUS:7,
+  SOURCE_LEADER:8, FIRST_LED_AT:9,
+  LINE_UID:10, NOTE:11
+};
+COL.GROUP_LEDGER = {
+  ID:0, ORDER_ID:1, CID:2, DATE:3, ROLE:4, TARGET:5,
+  PID:6, PNAME:7, QTY:8, UNIT_PRICE:9, SUBTOTAL:10,
+  STATUS:11, NOTE:12, CREATED:13
 };
 
 const DATA_ROW = 3;
@@ -2701,6 +2735,64 @@ function adminSetupSchema() {
   } else {
     log.push('系統設定預設值已存在，略過');
   }
+
+  Logger.log(log.join('\n'));
+  return { ok: true, log };
+}
+
+// ================================================================
+// 團購模組初始化：建立 5 張全新工作表（v2.2 零欄位異動版）
+// 在 GAS 編輯器選此函式點「執行」，只需執行一次
+// 不修改任何既有 9 張表，不 append 既有表欄位
+// ================================================================
+function adminSetupGroupBuy() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const log = [];
+
+  function ensureGroupBuySheet_(sheetName, zhHeaders, enHeaders) {
+    let s = ss.getSheetByName(sheetName);
+    if (!s) {
+      s = ss.insertSheet(sheetName);
+      log.push('建立工作表：' + sheetName);
+    } else {
+      log.push('工作表已存在，略過建立：' + sheetName);
+    }
+    // row 1：中文欄名（供人工查閱）
+    s.getRange(1, 1, 1, zhHeaders.length).setValues([zhHeaders]);
+    // row 2：英文欄名（供程式碼對照，HEADER_ROW = 2）
+    s.getRange(2, 1, 1, enHeaders.length).setValues([enHeaders]);
+    log.push(sheetName + ' 表頭寫入完成');
+  }
+
+  ensureGroupBuySheet_(
+    SHEET.GROUP_PRODUCT_SETTINGS,
+    ['記錄ID','商品ID','供應方','底價','最低開團售價','計入團長門檻','適用集單模式','狀態','備註','更新時間'],
+    ['id','product_id','supplier','base_price','min_group_price','counts_toward_threshold','supports_group_gathering','status','note','updated_at']
+  );
+
+  ensureGroupBuySheet_(
+    SHEET.GROUP_CAMPAIGNS,
+    ['活動ID','團長','商品ID','門檻類型','固定加價','截止時間','狀態','最終開團售價','底價快照','取貨備註','建立時間'],
+    ['id','leader','product_id','threshold_type','markup','deadline','status','group_price','base_price_snapshot','pickup_note','created_at']
+  );
+
+  ensureGroupBuySheet_(
+    SHEET.GROUP_PLEDGES,
+    ['登記ID','活動ID','客人姓名','電話','LINE User ID','數量','訂單ID','登記時間','狀態','備註'],
+    ['id','campaign_id','cname','phone','line_uid','qty','order_id','created_at','status','note']
+  );
+
+  ensureGroupBuySheet_(
+    SHEET.GROUP_LEADERS,
+    ['記錄ID','會員電話','姓名','會員等級','核准方式','核准日期','未取貨次數','團購資格狀態','來源團長','首次帶入時間','LINE User ID','備註'],
+    ['id','phone','name','member_level','approve_method','approve_date','no_show_count','group_buy_status','source_leader','first_led_at','line_uid','note']
+  );
+
+  ensureGroupBuySheet_(
+    SHEET.GROUP_LEDGER,
+    ['記錄ID','訂單ID','活動ID','日期','角色','對象','商品ID','商品名稱','數量','單價','小計金額','狀態','備註','建立時間'],
+    ['id','order_id','campaign_id','date','role','target','product_id','product_name','qty','unit_price','subtotal','status','note','created_at']
+  );
 
   Logger.log(log.join('\n'));
   return { ok: true, log };
