@@ -337,6 +337,7 @@ function handleRequest(e) {
       case 'updateGroupCustomerStatus':   return res(updateGroupCustomerStatus(p));
       case 'manualOverrideGroupCustomer': return res(manualOverrideGroupCustomer(p));
       case 'resetGroupCustomerNoShow':    return res(resetGroupCustomerNoShow(p));
+      case 'getGroupCampaignPublic':      return res(getGroupCampaignPublic(p));
 
       case 'loginAdmin':             return res(loginAdmin(p));
       case 'loginEventAdmin':        return res(loginEventAdmin(p));
@@ -4548,5 +4549,138 @@ function adminMigrateGroupLeadersV5C() {
     row2_headers: h2,
     filled:  filled,
     skipped: skipped
+  };
+}
+
+// ================================================================
+// 團購模組 — 公開集單頁 API（顧客前台用，不需 session_token）
+// 白名單回傳：公開欄位，不含底價/成本/tiers_snapshot/分潤
+// ================================================================
+function getGroupCampaignPublic(p) {
+  var campaignId = String(p.campaign_id || '').trim();
+  if (!campaignId) return { ok: false, error: '缺少 campaign_id' };
+
+  var rows = getRows(SHEET.GROUP_CAMPAIGNS);
+  var c    = COL.GROUP_CAMPAIGNS;
+
+  var campaignRow = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i][c.ID] || '') === campaignId) { campaignRow = rows[i]; break; }
+  }
+  if (!campaignRow) return { ok: false, error: '找不到此集單活動' };
+
+  var status = String(campaignRow[c.STATUS] || '');
+  if (['集單中', '已成團'].indexOf(status) < 0) {
+    return { ok: false, error: '此集單活動目前不開放查詢' };
+  }
+
+  // ── current_qty（有效登記加總）
+  var pledgeRows = getRows(SHEET.GROUP_PLEDGES);
+  var pc         = COL.GROUP_PLEDGES;
+  var currentQty = 0;
+  pledgeRows.forEach(function(r) {
+    if (String(r[pc.CID] || '') === campaignId &&
+        String(r[pc.STATUS] || '') === '有效') {
+      currentQty += (Number(r[pc.QTY]) || 0);
+    }
+  });
+
+  // ── 計算進度三欄位
+  var thresholdQty = Number(campaignRow[c.THRESHOLD_QTY]) || 0;
+  var progressPct  = thresholdQty > 0
+    ? Math.min(100, Math.round(currentQty / thresholdQty * 100))
+    : 0;
+  var remainingQty = Math.max(0, thresholdQty - currentQty);
+  var reached      = thresholdQty > 0 && currentQty >= thresholdQty;
+
+  // ── deadline 正規化（Sheets 可能回傳 Date 物件）
+  var deadlineRaw = campaignRow[c.DEADLINE] || '';
+  var deadlineStr = '';
+  if (deadlineRaw) {
+    deadlineStr = (deadlineRaw instanceof Date)
+      ? Utilities.formatDate(deadlineRaw, 'Asia/Taipei', 'yyyy-MM-dd')
+      : String(deadlineRaw).trim();
+  }
+
+  // ── can_pledge / is_closed / close_reason 判斷
+  var isClosed    = false;
+  var closeReason = '';
+  var canPledge   = false;
+
+  if (status === '已成團') {
+    isClosed    = true;
+    closeReason = '此團已成團';
+    canPledge   = false;
+  } else {
+    // status === '集單中'
+    if (!deadlineStr || !isValidDateString_(deadlineStr)) {
+      isClosed    = true;
+      closeReason = '截止日期設定異常，請聯繫客服';
+      canPledge   = false;
+    } else {
+      var deadlineDt = parseYmdDateLocal_(deadlineStr);
+      deadlineDt.setHours(23, 59, 59, 0);
+      if (new Date() > deadlineDt) {
+        isClosed    = true;
+        closeReason = '此團已截止';
+        canPledge   = false;
+      } else {
+        isClosed    = false;
+        closeReason = '';
+        canPledge   = true;
+      }
+    }
+  }
+
+  // ── 商品資料 join（只取公開欄位，不含成本/底價/供應商）
+  var productId   = String(campaignRow[c.PID] || '');
+  var productName = '';
+  var imageUrl    = '';
+  var description = '';
+  var category    = '';
+  if (productId) {
+    var productRows = getRows(SHEET.PRODUCTS);
+    var cp          = COL.PRODUCTS;
+    for (var j = 0; j < productRows.length; j++) {
+      if (String(productRows[j][cp.ID] || '') === productId) {
+        productName = String(productRows[j][cp.NAME]     || '');
+        imageUrl    = String(productRows[j][cp.IMAGE]    || '');
+        description = String(productRows[j][cp.DESC]     || '');
+        category    = String(productRows[j][cp.CATEGORY] || '');
+        break;
+      }
+    }
+  }
+
+  // ── 公開欄位白名單回傳
+  // ❌ 不回傳：tiers_snapshot_json, base_price_snapshot, note,
+  //            system_note, created_at, markup, leader, threshold_type,
+  //            start_date, 成本(COST), 底價(PRICE), SUPPLIER,
+  //            PLATFORM_MIN_RATE, LEADER_COMMISSION_RATE
+  return {
+    ok: true,
+    data: {
+      id:            campaignId,
+      campaign_name: String(campaignRow[c.CAMPAIGN_NAME] || ''),
+      product_id:    productId,
+      product_name:  productName,
+      image_url:     imageUrl,
+      description:   description,
+      category:      category,
+      unit:          '',
+      spec:          '',
+      deadline:      deadlineStr,
+      threshold_qty: thresholdQty,
+      current_qty:   currentQty,
+      group_price:   String(campaignRow[c.GROUP_PRICE]  || ''),
+      pickup_note:   String(campaignRow[c.PICKUP_NOTE]  || ''),
+      status:        status,
+      progress_pct:  progressPct,
+      remaining_qty: remainingQty,
+      reached:       reached,
+      is_closed:     isClosed,
+      close_reason:  closeReason,
+      can_pledge:    canPledge
+    }
   };
 }

@@ -187,6 +187,32 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-hei
   .products,.cart-items,.checkout-body{max-width:560px;margin:0 auto}
   .header,.search-bar,.cat-tabs{max-width:100%}
 }
+
+/* ── CAMPAIGN MODE ── */
+.campaign-section{display:none}
+.campaign-img img{width:100%;max-height:240px;object-fit:cover}
+.campaign-img-placeholder{
+  width:100%;height:160px;
+  background:var(--green-pale);
+  display:flex;align-items:center;justify-content:center;font-size:52px;
+}
+.progress-track{
+  background:var(--border);border-radius:99px;
+  height:12px;overflow:hidden;margin-bottom:10px;
+}
+.progress-fill{
+  height:100%;background:var(--green-soft);
+  border-radius:99px;width:0%;
+  transition:width 0.8s ease;
+}
+.stage-emoji{font-size:40px;text-align:center;margin-bottom:6px}
+.stage-text{text-align:center;font-size:14px;font-weight:700;color:var(--green-dark);margin-bottom:14px}
+.campaign-closed-notice{
+  background:#fff8ec;border:1.5px solid #e8d5a0;
+  border-radius:var(--rs);padding:14px;margin-bottom:14px;
+  font-size:13px;color:#8B6914;
+}
+.pledge-error{margin-top:10px;font-size:13px;color:#C94A3A;text-align:center;display:none}
 </style>
 </head>
 <body>
@@ -399,6 +425,66 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-hei
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- ── 集單頁面（無 campaign_id 時 display:none）── -->
+<div id="campaign-section" class="campaign-section">
+
+  <div id="campaign-loading" style="text-align:center;padding:60px 20px;color:var(--text-mid)">載入中...</div>
+
+  <div id="campaign-error" style="display:none;text-align:center;padding:60px 20px">
+    <div style="font-size:48px;margin-bottom:16px">😔</div>
+    <div id="campaign-error-msg" style="font-size:15px;color:var(--text-mid)"></div>
+  </div>
+
+  <div id="campaign-content" style="display:none;padding-bottom:48px">
+
+    <div id="campaign-img" class="campaign-img"></div>
+
+    <div style="padding:0 18px">
+
+      <div class="section-card" style="margin-top:16px">
+        <div id="campaign-meta"></div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-label">🌱 集單進度</div>
+        <div class="stage-emoji" id="stage-emoji"></div>
+        <div class="stage-text" id="stage-text"></div>
+        <div class="progress-track">
+          <div class="progress-fill" id="progress-fill"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-mid)">
+          <span>目前 <strong id="c-current" style="color:var(--green-dark)">0</strong> 件</span>
+          <span>目標 <strong id="c-threshold" style="color:var(--text)">0</strong> 件</span>
+        </div>
+        <div id="c-remaining" style="text-align:center;margin-top:8px;font-size:13px;color:var(--text-mid)"></div>
+      </div>
+
+      <div class="section-card" id="pledge-form-card">
+        <div class="section-label">✍️ 填寫登記資料</div>
+        <div id="pledge-closed-notice" class="campaign-closed-notice" style="display:none"></div>
+        <div id="pledge-fields">
+          <div class="field"><label>姓名 *</label><input type="text" id="g-cname" placeholder="請輸入姓名"></div>
+          <div class="field"><label>手機 *</label><input type="text" inputmode="numeric" id="g-phone" placeholder="例：0912345678"></div>
+          <div class="field"><label>數量 *</label><input type="number" id="g-qty" value="1" min="1" max="99" style="width:100px;text-align:center"></div>
+          <div class="field"><label>備註</label><textarea id="g-note" placeholder="特殊需求或說明（可空白）"></textarea></div>
+        </div>
+        <button id="pledge-btn" class="checkout-btn" style="margin-top:4px" onclick="submitPledge()">確認登記</button>
+        <div id="pledge-error" class="pledge-error"></div>
+      </div>
+
+      <div class="section-card" id="pledge-success-card" style="display:none">
+        <div style="text-align:center;padding:20px 0">
+          <div style="font-size:48px;margin-bottom:12px">🎉</div>
+          <div style="font-size:18px;font-weight:800;color:var(--green-dark);margin-bottom:8px">登記成功！</div>
+          <div id="pledge-success-detail" style="font-size:13px;color:var(--text-mid);line-height:1.8"></div>
+          <button class="checkout-btn" style="margin-top:20px;max-width:240px" onclick="resetPledgeForm()">再次登記 / 修改數量</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
 
 <script>
 const GAS_URL='https://script.google.com/macros/s/AKfycbz4-pJ5jWtu9nevKDl98LxRqfwyVdGApEqEzcKKR9LDxanUM5BCneCZttkH3rkxLlUtYA/exec';
@@ -791,8 +877,202 @@ ATM 匯款末5碼：${code}
   return false;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// CAMPAIGN MODE（集單前台）
+// ═══════════════════════════════════════════════════════════════
+
+function escapeHtml(s){
+  if(s==null)return'';
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#x27;');
+}
+
+function isSafeImageUrl(u){
+  var s=String(u||'').trim();
+  return /^https?:\/\//i.test(s)||s.indexOf('data:image/')===0;
+}
+
+const CAMPAIGN_ID=new URLSearchParams(window.location.search).get('campaign_id')||'';
+
+function initCampaignMode(){
+  if(!CAMPAIGN_ID)return;
+  document.querySelector('.search-bar').style.display='none';
+  document.getElementById('cat-tabs').style.display='none';
+  document.querySelector('.products').style.display='none';
+  document.querySelectorAll('.cart-btn').forEach(function(b){b.style.display='none';});
+  document.getElementById('campaign-section').style.display='block';
+  loadCampaign();
+}
+
+async function loadCampaign(){
+  try{
+    const r=await fetch(GAS_URL+'?action=getGroupCampaignPublic&campaign_id='+encodeURIComponent(CAMPAIGN_ID));
+    const data=await r.json();
+    document.getElementById('campaign-loading').style.display='none';
+    if(!data.ok){
+      document.getElementById('campaign-error-msg').textContent=data.error||'此集單活動無法查詢';
+      document.getElementById('campaign-error').style.display='block';
+      return;
+    }
+    renderCampaign(data.data);
+  }catch(e){
+    document.getElementById('campaign-loading').style.display='none';
+    document.getElementById('campaign-error-msg').textContent='載入失敗，請重新整理';
+    document.getElementById('campaign-error').style.display='block';
+  }
+}
+
+let campaignCache=null;
+
+function renderCampaign(d){
+  campaignCache=d;
+
+  // 商品圖片：isSafeImageUrl 檢查，DOM setAttribute，不走 innerHTML
+  var imgWrap=document.getElementById('campaign-img');
+  imgWrap.innerHTML='';
+  if(d.image_url&&isSafeImageUrl(d.image_url)){
+    var img=document.createElement('img');
+    img.setAttribute('src',d.image_url);
+    img.setAttribute('alt',d.campaign_name||'');
+    img.style.cssText='width:100%;max-height:240px;object-fit:cover';
+    imgWrap.appendChild(img);
+  }else{
+    imgWrap.innerHTML='<div class="campaign-img-placeholder">🛒</div>';
+  }
+
+  // 活動資訊（所有文字欄位過 escapeHtml）
+  var deadlineDisp=d.deadline?String(d.deadline).slice(0,10):'—';
+  var priceDisp=(d.group_price&&Number(d.group_price)>0)
+    ?'NT$ '+Number(d.group_price).toLocaleString()
+    :'洽詢';
+  document.getElementById('campaign-meta').innerHTML=
+    '<div style="font-size:20px;font-weight:800;color:var(--green-dark);margin-bottom:6px">'+escapeHtml(d.campaign_name)+'</div>'+
+    (d.product_name?'<div style="font-size:14px;color:var(--text-mid);margin-bottom:4px">🛍️ '+escapeHtml(d.product_name)+'</div>':'')+
+    (d.description?'<div style="font-size:13px;color:var(--text-dim);margin-bottom:10px;line-height:1.6">'+escapeHtml(d.description)+'</div>':'')+
+    '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:baseline;margin-top:8px">'+
+      '<div style="font-size:22px;font-weight:800;color:var(--green-dark)">'+escapeHtml(priceDisp)+'</div>'+
+      '<div style="font-size:12px;color:var(--text-mid)">截止：'+escapeHtml(deadlineDisp)+'</div>'+
+    '</div>'+
+    (d.pickup_note?'<div style="margin-top:10px;font-size:12px;color:var(--text-mid)">📦 '+escapeHtml(d.pickup_note)+'</div>':'');
+
+  updateProgress(d);
+
+  // 表單狀態：改看 can_pledge
+  if(!d.can_pledge){
+    var notice=document.getElementById('pledge-closed-notice');
+    notice.textContent='⏰ '+(d.close_reason||'此活動不開放登記');
+    notice.style.display='block';
+    var btnText='報名已截止';
+    if(d.close_reason==='此團已成團')btnText='已成團';
+    else if(d.close_reason==='截止日期設定異常，請聯繫客服')btnText='暫停登記';
+    setFormDisabled(true,btnText);
+  }
+
+  document.getElementById('campaign-content').style.display='block';
+}
+
+function updateProgress(d){
+  var pct=d.progress_pct||0;
+  document.getElementById('progress-fill').style.width=pct+'%';
+  document.getElementById('c-current').textContent=d.current_qty||0;
+  document.getElementById('c-threshold').textContent=d.threshold_qty||0;
+  var emoji,text;
+  if(pct===0){emoji='🌱';text='種子剛播下';}
+  else if(pct<=30){emoji='🌿';text='小芽冒出來了！';}
+  else if(pct<=60){emoji='🌸';text='越來越茁壯！';}
+  else if(pct<=90){emoji='🌺';text='花苞緊閉，快開了！';}
+  else if(pct<100){emoji='💐';text='只差臨門一腳！';}
+  else{emoji='🌻';text='成功開花！恭喜成團！';}
+  document.getElementById('stage-emoji').textContent=emoji;
+  document.getElementById('stage-text').textContent=text;
+  document.getElementById('c-remaining').textContent=d.reached
+    ?'🎉 已達成目標！'
+    :'還差 '+(d.remaining_qty||0)+' 件就成團！';
+}
+
+function setFormDisabled(disabled,btnText){
+  document.getElementById('pledge-fields').querySelectorAll('input,textarea').forEach(function(f){f.disabled=disabled;});
+  var btn=document.getElementById('pledge-btn');
+  btn.disabled=disabled;
+  if(btnText)btn.textContent=btnText;
+}
+
+async function submitPledge(){
+  if(!campaignCache||!campaignCache.can_pledge)return;
+  var cname=document.getElementById('g-cname').value.trim();
+  var phone=document.getElementById('g-phone').value.trim();
+  var qty=parseInt(document.getElementById('g-qty').value)||0;
+  var note=document.getElementById('g-note').value.trim();
+  document.getElementById('pledge-error').style.display='none';
+  if(!cname){showPledgeError('請填寫姓名');return;}
+  if(!phone){showPledgeError('請填寫手機號碼');return;}
+  if(qty<1){showPledgeError('數量至少 1 件');return;}
+  setFormDisabled(true,'送出中...');
+  try{
+    var r=await fetch(GAS_URL,{
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({
+        action:'createGroupPledge',
+        token:'YC_GROUP_PLEDGE_SUBMIT_2026',
+        campaign_id:CAMPAIGN_ID,
+        cname:cname,phone:phone,qty:qty,note:note
+      })
+    });
+    var data=await r.json();
+    if(data.ok){
+      document.getElementById('pledge-form-card').style.display='none';
+      document.getElementById('pledge-success-detail').innerHTML=
+        '姓名：'+escapeHtml(cname)+'<br>'+
+        '數量：'+parseInt(qty)+' 件<br>'+
+        '手機：'+escapeHtml(phone)+
+        (data.action==='updated'?'<br><small>（已更新您的登記數量）</small>':'');
+      document.getElementById('pledge-success-card').style.display='block';
+      refreshProgress();
+    }else if(data.suspended){
+      showPledgeError('您的集單資格暫停中，請聯繫幸福緣客服 💬');
+      setFormDisabled(false,'確認登記');
+    }else{
+      showPledgeError(data.error||'送出失敗，請重試');
+      setFormDisabled(false,'確認登記');
+    }
+  }catch(e){
+    showPledgeError('網路錯誤，請重試');
+    setFormDisabled(false,'確認登記');
+  }
+}
+
+function showPledgeError(msg){
+  var el=document.getElementById('pledge-error');
+  el.textContent=msg;
+  el.style.display='block';
+}
+
+function resetPledgeForm(){
+  document.getElementById('pledge-success-card').style.display='none';
+  document.getElementById('pledge-form-card').style.display='block';
+  document.getElementById('g-cname').value='';
+  document.getElementById('g-phone').value='';
+  document.getElementById('g-qty').value='1';
+  document.getElementById('g-note').value='';
+  document.getElementById('pledge-error').style.display='none';
+  setFormDisabled(false,'確認登記');
+}
+
+async function refreshProgress(){
+  try{
+    var r=await fetch(GAS_URL+'?action=getGroupCampaignPublic&campaign_id='+encodeURIComponent(CAMPAIGN_ID));
+    var data=await r.json();
+    if(data.ok){campaignCache=data.data;updateProgress(data.data);}
+  }catch(e){}
+}
+
 // init
-loadProducts();
+if(CAMPAIGN_ID){initCampaignMode();}else{loadProducts();}
 </script>
 </body>
 </html>
