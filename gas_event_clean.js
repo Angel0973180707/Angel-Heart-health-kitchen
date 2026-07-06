@@ -249,7 +249,8 @@ function handleRequest(e) {
       'getGroupPickupList','markGroupPledgePickedUp','markGroupPledgeNoShow',
       'markGroupPledgeNotified','updateGroupPledgePickupInfo',
       'getGroupCustomerRiskList','updateGroupCustomerStatus',
-      'manualOverrideGroupCustomer','resetGroupCustomerNoShow'
+      'manualOverrideGroupCustomer','resetGroupCustomerNoShow',
+      'adminSetLeaderToken'
     ];
 
     if (adminActions.includes(action) && !validateSession_(p.session_token)) {
@@ -338,6 +339,11 @@ function handleRequest(e) {
       case 'manualOverrideGroupCustomer': return res(manualOverrideGroupCustomer(p));
       case 'resetGroupCustomerNoShow':    return res(resetGroupCustomerNoShow(p));
       case 'getGroupCampaignPublic':      return res(getGroupCampaignPublic(p));
+
+      case 'leaderLogin':              return res(leaderLogin(p));
+      case 'getLeaderCampaigns':       return res(getLeaderCampaigns(p));
+      case 'getLeaderCampaignPledges': return res(getLeaderCampaignPledges(p));
+      case 'adminSetLeaderToken':      return res(adminSetLeaderToken(p));
 
       case 'loginAdmin':             return res(loginAdmin(p));
       case 'loginEventAdmin':        return res(loginEventAdmin(p));
@@ -4683,4 +4689,295 @@ function getGroupCampaignPublic(p) {
       can_pledge:    canPledge
     }
   };
+}
+
+// ================================================================
+// Module 7 — 團長中心（Leader Portal）
+// ================================================================
+
+var LEADER_LOGIN_MAX_FAILS    = 5;
+var LEADER_LOGIN_THROTTLE_TTL = 600;
+
+// ── private helpers ───────────────────────────────────────────────
+
+function hashLeaderToken_(normalizedPhone, token) {
+  var secret = PropertiesService.getScriptProperties()
+                 .getProperty('LEADER_HMAC_SECRET');
+  if (!secret) return null;
+  var rawBytes = Utilities.computeHmacSha256Signature(
+    normalizedPhone + ':' + token,
+    secret
+  );
+  return Utilities.base64Encode(rawBytes);
+}
+
+function maskPhone_(phone) {
+  var s = String(phone || '').replace(/\D/g, '');
+  if (s.length < 6) return '****';
+  return s.slice(0, 4) + '****' + s.slice(-2);
+}
+
+function checkLoginThrottle_(phone) {
+  var val = CacheService.getScriptCache().get('LEADER_LOGIN_FAIL_' + phone);
+  return (val ? parseInt(val, 10) : 0) >= LEADER_LOGIN_MAX_FAILS;
+}
+
+function recordLoginFail_(phone) {
+  var cache = CacheService.getScriptCache();
+  var key   = 'LEADER_LOGIN_FAIL_' + phone;
+  var cur   = parseInt(cache.get(key) || '0', 10);
+  cache.put(key, String(cur + 1), LEADER_LOGIN_THROTTLE_TTL);
+}
+
+function clearLoginFail_(phone) {
+  CacheService.getScriptCache().remove('LEADER_LOGIN_FAIL_' + phone);
+}
+
+function validateLeaderToken_(phone, token) {
+  // ① normalize
+  var normalizedPhone = normalizePhone_(String(phone || '').trim());
+  if (!normalizedPhone || !token) return { ok: false, reason: 'invalid' };
+
+  // ② throttle
+  if (checkLoginThrottle_(normalizedPhone)) return { ok: false, reason: 'throttled' };
+
+  // ③ 查 GROUP_LEADERS
+  var lc   = COL.GROUP_LEADERS;
+  var rows = getRows(SHEET.GROUP_LEADERS);
+  var leaderRow = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (normalizePhone_(String(rows[i][lc.PHONE] || '')) === normalizedPhone) {
+      leaderRow = rows[i]; break;
+    }
+  }
+
+  // ④ 找不到或等級不是「團長」→ 記失敗，回 invalid（不洩露是否存在）
+  if (!leaderRow || String(leaderRow[lc.LEVEL] || '') !== '團長') {
+    recordLoginFail_(normalizedPhone);
+    return { ok: false, reason: 'invalid' };
+  }
+
+  // ⑤⑥⑦ hash 比對（BUY_STATUS 檢查在 hash 正確之後）
+  var expectedHash = hashLeaderToken_(normalizedPhone, token);
+  if (!expectedHash) return { ok: false, reason: 'config_error' };
+
+  var storedHash = PropertiesService.getScriptProperties()
+                     .getProperty('LEADER_TOKEN_HASH_' + normalizedPhone);
+  if (!storedHash || storedHash !== expectedHash) {
+    recordLoginFail_(normalizedPhone);
+    return { ok: false, reason: 'invalid' };
+  }
+
+  // ⑧ hash 正確後才檢查暫停狀態（避免狀態枚舉攻擊）
+  if (String(leaderRow[lc.BUY_STATUS] || '') === '暫停') {
+    return { ok: false, reason: 'suspended' };
+  }
+
+  // ⑩ 成功
+  clearLoginFail_(normalizedPhone);
+  return { ok: true, row: leaderRow, normalizedPhone: normalizedPhone };
+}
+
+// ── public APIs ───────────────────────────────────────────────────
+
+function leaderLogin(p) {
+  var phone = String(p.phone || '').trim();
+  var token = String(p.leader_token || '').trim();
+  if (!phone || !token) return { ok: false, error: '請輸入手機和通行碼' };
+
+  var result = validateLeaderToken_(phone, token);
+  if (!result.ok) {
+    switch (result.reason) {
+      case 'throttled':    return { ok: false, error: '嘗試次數過多，請稍後再試' };
+      case 'suspended':    return { ok: false, error: '您的開團資格已暫停，請聯繫幸福緣' };
+      case 'config_error': return { ok: false, error: '系統設定異常，請聯繫管理員' };
+      default:             return { ok: false, error: '手機或通行碼錯誤' };
+    }
+  }
+
+  var row = result.row;
+  var lc  = COL.GROUP_LEADERS;
+  return {
+    ok:   true,
+    name: String(row[lc.NAME] || '')
+  };
+}
+
+function getLeaderCampaigns(p) {
+  var result = validateLeaderToken_(p.phone, p.leader_token);
+  if (!result.ok) {
+    switch (result.reason) {
+      case 'throttled':    return { ok: false, error: '嘗試次數過多，請稍後再試' };
+      case 'suspended':    return { ok: false, error: '您的開團資格已暫停，請聯繫幸福緣' };
+      case 'config_error': return { ok: false, error: '系統設定異常，請聯繫管理員' };
+      default:             return { ok: false, error: '手機或通行碼錯誤' };
+    }
+  }
+
+  var phone = result.normalizedPhone;
+  var c     = COL.GROUP_CAMPAIGNS;
+  var rows  = getRows(SHEET.GROUP_CAMPAIGNS);
+
+  var pledges = getRows(SHEET.GROUP_PLEDGES);
+  var pc      = COL.GROUP_PLEDGES;
+  var qtyMap  = {};
+  pledges.forEach(function(r) {
+    var cid = String(r[pc.CID] || '');
+    if (cid && String(r[pc.STATUS] || '') === '有效') {
+      qtyMap[cid] = (qtyMap[cid] || 0) + (Number(r[pc.QTY]) || 0);
+    }
+  });
+
+  var products   = getRows(SHEET.PRODUCTS);
+  var cp         = COL.PRODUCTS;
+  var productMap = {};
+  products.forEach(function(r) {
+    var pid = String(r[cp.ID] || '');
+    if (pid) productMap[pid] = String(r[cp.NAME] || '');
+  });
+
+  var list = [];
+  rows.forEach(function(r) {
+    var id = String(r[c.ID] || '');
+    if (!id) return;
+    if (normalizePhone_(String(r[c.LEADER] || '')) !== phone) return;
+
+    var thresholdQty = Number(r[c.THRESHOLD_QTY]) || 0;
+    var currentQty   = qtyMap[id] || 0;
+    var pct = thresholdQty > 0
+              ? Math.min(100, Math.round(currentQty / thresholdQty * 100))
+              : 0;
+
+    var dlRaw = r[c.DEADLINE] || '';
+    var dlStr = dlRaw instanceof Date
+      ? Utilities.formatDate(dlRaw, 'Asia/Taipei', 'yyyy-MM-dd')
+      : String(dlRaw).trim().slice(0, 10);
+
+    var pid = String(r[c.PID] || '');
+    // ❌ 不回傳：leader, base_snapshot, tiers_snapshot, markup,
+    //            note, system_note, threshold_type, start_date
+    list.push({
+      id:            id,
+      campaign_name: String(r[c.CAMPAIGN_NAME] || ''),
+      product_id:    pid,
+      product_name:  productMap[pid] || '',
+      deadline:      dlStr,
+      status:        String(r[c.STATUS]        || ''),
+      group_price:   String(r[c.GROUP_PRICE]   || ''),
+      threshold_qty: thresholdQty,
+      current_qty:   currentQty,
+      progress_pct:  pct,
+      pickup_note:   String(r[c.PICKUP_NOTE]   || '')
+    });
+  });
+
+  return { ok: true, data: list };
+}
+
+function getLeaderCampaignPledges(p) {
+  var result = validateLeaderToken_(p.phone, p.leader_token);
+  if (!result.ok) {
+    switch (result.reason) {
+      case 'throttled':    return { ok: false, error: '嘗試次數過多，請稍後再試' };
+      case 'suspended':    return { ok: false, error: '您的開團資格已暫停，請聯繫幸福緣' };
+      case 'config_error': return { ok: false, error: '系統設定異常，請聯繫管理員' };
+      default:             return { ok: false, error: '手機或通行碼錯誤' };
+    }
+  }
+
+  var phone      = result.normalizedPhone;
+  var campaignId = String(p.campaign_id || '').trim();
+  if (!campaignId) return { ok: false, error: '缺少 campaign_id' };
+
+  var c        = COL.GROUP_CAMPAIGNS;
+  var campRows = getRows(SHEET.GROUP_CAMPAIGNS);
+  var campRow  = null;
+  for (var i = 0; i < campRows.length; i++) {
+    if (String(campRows[i][c.ID] || '') === campaignId) {
+      campRow = campRows[i]; break;
+    }
+  }
+  if (!campRow) return { ok: false, error: '找不到此活動' };
+  if (normalizePhone_(String(campRow[c.LEADER] || '')) !== phone) {
+    return { ok: false, error: '無權限查詢此活動' };
+  }
+
+  var pc      = COL.GROUP_PLEDGES;
+  var pledges = getRows(SHEET.GROUP_PLEDGES);
+  var list    = [];
+  pledges.forEach(function(r) {
+    if (String(r[pc.CID] || '') !== campaignId) return;
+
+    var pdRaw = r[pc.PICKUP_DATE] || '';
+    var pdStr = pdRaw instanceof Date
+      ? Utilities.formatDate(pdRaw, 'Asia/Taipei', 'yyyy-MM-dd')
+      : String(pdRaw).trim().slice(0, 10);
+
+    var crRaw = r[pc.CREATED] || '';
+    var crStr = crRaw instanceof Date
+      ? Utilities.formatDate(crRaw, 'Asia/Taipei', 'yyyy-MM-dd HH:mm')
+      : String(crRaw).trim().slice(0, 16);
+
+    // ❌ 不回傳：phone(原值), line_uid, order_id, system_note
+    list.push({
+      id:            String(r[pc.ID]            || ''),
+      cname:         String(r[pc.CNAME]         || ''),
+      masked_phone:  maskPhone_(r[pc.PHONE]),
+      qty:           Number(r[pc.QTY])          || 0,
+      status:        String(r[pc.STATUS]        || ''),
+      note:          String(r[pc.NOTE]          || ''),
+      pickup_code:   String(r[pc.PICKUP_CODE]   || ''),
+      pickup_date:   pdStr,
+      pickup_status: String(r[pc.PICKUP_STATUS] || ''),
+      picked_up_at:  String(r[pc.PICKED_UP_AT]  || ''),
+      pickup_note:   String(r[pc.PICKUP_NOTE]   || ''),
+      created:       crStr
+    });
+  });
+
+  return {
+    ok:            true,
+    campaign_name: String(campRow[c.CAMPAIGN_NAME] || ''),
+    data:          list
+  };
+}
+
+// ── Admin API ─────────────────────────────────────────────────────
+
+function adminSetLeaderToken(p) {
+  if (!validateSession_(p.session_token)) return { ok: false, error: '未授權' };
+
+  var phone = normalizePhone_(String(p.phone || '').trim());
+  if (!phone) return { ok: false, error: '電話格式錯誤' };
+
+  var lc   = COL.GROUP_LEADERS;
+  var rows = getRows(SHEET.GROUP_LEADERS);
+  var found = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (normalizePhone_(String(rows[i][lc.PHONE] || '')) === phone) {
+      found = rows[i]; break;
+    }
+  }
+  if (!found) return { ok: false, error: '此電話不在團主來源表' };
+  if (String(found[lc.LEVEL] || '') !== '團長') {
+    return { ok: false, error: '此會員等級不是團長，請先在後台更新等級' };
+  }
+
+  var token = String(p.leader_token || '').trim();
+  if (!/^[A-Za-z0-9!@#$%^&*]{8,32}$/.test(token)) {
+    return { ok: false, error: 'token 格式錯誤（8–32 位英數或符號）' };
+  }
+
+  var hash = hashLeaderToken_(phone, token);
+  if (!hash) {
+    return { ok: false, error: 'LEADER_HMAC_SECRET 未設定，請在 GAS Script Properties 新增' };
+  }
+
+  PropertiesService.getScriptProperties().setProperty(
+    'LEADER_TOKEN_HASH_' + phone,
+    hash
+  );
+
+  // ❌ 嚴禁：Logger.log(token), return hash, 寫 sheet, 寫 system_note
+  return { ok: true };
 }

@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#FFFFFF">
+<title>幸福緣好物市集 — 團長中心</title>
+<style>
+:root {
+  --green-dark: #1B3A2A;
+  --green-mid:  #2D5C42;
+  --green-soft: #4A7C59;
+  --green-pale: #EAF3EC;
+  --gold:       #C8962A;
+  --text:       #1A2A1E;
+  --text-mid:   #4A5C4E;
+  --text-dim:   #8A9E8E;
+  --border:     #D8E8DA;
+  --bg:         #FAFCFA;
+  --white:      #FFFFFF;
+  --red:        #C94A3A;
+  --font-body:  'PingFang TC','Microsoft JhengHei','Noto Sans TC',sans-serif;
+  --r: 12px; --rs: 8px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-height:100dvh}
+
+/* ── HEADER ── */
+.header{background:var(--green-dark);padding:16px 18px 14px;position:sticky;top:0;z-index:100}
+.header-top{display:flex;align-items:center;justify-content:space-between}
+.brand{color:var(--white)}
+.brand-name{font-size:18px;font-weight:800;letter-spacing:.5px}
+.brand-sub{font-size:11px;color:rgba(255,255,255,.6);margin-top:2px}
+.logout-btn{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);border-radius:99px;color:var(--white);padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font-body);transition:background .2s;display:none}
+.logout-btn:active{background:rgba(255,255,255,.22)}
+
+/* ── TOAST ── */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:rgba(27,58,42,.92);color:#fff;padding:10px 20px;border-radius:99px;font-size:13px;font-weight:600;z-index:999;opacity:0;transition:all .25s;white-space:nowrap;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.error{background:rgba(201,74,58,.92)}
+
+/* ── CARD ── */
+.card{background:var(--white);border:1.5px solid var(--border);border-radius:var(--r);padding:20px;margin:16px 16px 0}
+
+/* ── LOGIN ── */
+#login-section{padding:24px 16px 40px}
+.login-title{font-size:20px;font-weight:800;color:var(--green-dark);margin-bottom:6px;text-align:center}
+.login-sub{font-size:13px;color:var(--text-dim);margin-bottom:24px;text-align:center}
+.field-label{font-size:13px;font-weight:600;color:var(--text-mid);margin-bottom:6px;display:block}
+.field-input{width:100%;border:1.5px solid var(--border);border-radius:var(--rs);padding:12px 14px;font-size:15px;font-family:var(--font-body);color:var(--text);outline:none;transition:border-color .2s;background:var(--white)}
+.field-input:focus{border-color:var(--green-soft)}
+.field-wrap{margin-bottom:16px}
+.btn-primary{width:100%;background:var(--green-dark);color:var(--white);border:none;border-radius:var(--rs);padding:14px;font-size:16px;font-weight:700;cursor:pointer;font-family:var(--font-body);transition:background .2s;margin-top:8px}
+.btn-primary:active{background:var(--green-mid)}
+.btn-primary:disabled{background:var(--text-dim);cursor:not-allowed}
+.login-err{color:var(--red);font-size:13px;margin-top:8px;text-align:center;min-height:18px}
+
+/* ── PORTAL ── */
+#portal-section{display:none;padding:0 0 40px}
+.welcome-bar{background:var(--green-pale);border-bottom:1px solid var(--border);padding:14px 18px;display:flex;align-items:center;justify-content:space-between}
+.welcome-name{font-size:15px;font-weight:700;color:var(--green-dark)}
+.welcome-sub{font-size:12px;color:var(--text-dim);margin-top:2px}
+.section-title{font-size:16px;font-weight:800;color:var(--green-dark);padding:20px 18px 12px}
+
+/* ── CAMPAIGN CARDS ── */
+.campaign-list{padding:0 16px}
+.campaign-card{background:var(--white);border:1.5px solid var(--border);border-radius:var(--r);margin-bottom:12px;overflow:hidden}
+.campaign-head{padding:14px 16px 10px;border-bottom:1px solid var(--border)}
+.campaign-name-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.campaign-name{font-size:15px;font-weight:700;color:var(--text);flex:1}
+.status-chip{font-size:11px;font-weight:700;padding:3px 8px;border-radius:99px;white-space:nowrap;flex-shrink:0}
+.status-chip.active{background:var(--green-pale);color:var(--green-soft)}
+.status-chip.closed{background:#f5e8e8;color:var(--red)}
+.status-chip.other{background:#f0f0f0;color:var(--text-dim)}
+.campaign-meta{font-size:12px;color:var(--text-dim);margin-top:4px}
+.campaign-body{padding:12px 16px 14px}
+.progress-label{display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px}
+.progress-count{font-weight:700;color:var(--green-dark)}
+.progress-target{color:var(--text-dim)}
+.progress-bar{background:var(--border);border-radius:99px;height:8px;overflow:hidden;margin-bottom:10px}
+.progress-fill{background:var(--green-soft);height:100%;border-radius:99px;transition:width .4s ease}
+.campaign-info{font-size:12px;color:var(--text-mid);margin-bottom:12px;line-height:1.6}
+.campaign-actions{display:flex;gap:8px;flex-wrap:wrap}
+.btn-outline{background:var(--white);border:1.5px solid var(--green-soft);color:var(--green-soft);border-radius:var(--rs);padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font-body);transition:all .15s;white-space:nowrap}
+.btn-outline:active{background:var(--green-pale)}
+.btn-sm{padding:7px 12px;font-size:12px}
+
+/* ── PLEDGE MODAL ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:none;align-items:flex-end}
+.modal-overlay.open{display:flex}
+.modal-sheet{background:var(--white);border-radius:20px 20px 0 0;width:100%;max-height:88dvh;display:flex;flex-direction:column;animation:slideup .25s ease}
+@keyframes slideup{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.modal-header{padding:16px 18px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.modal-title{font-size:16px;font-weight:800;color:var(--green-dark)}
+.modal-close{width:32px;height:32px;border:none;background:var(--border);border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-mid)}
+.modal-body{overflow-y:auto;flex:1;padding:0 0 20px}
+.modal-summary{padding:12px 18px;background:var(--green-pale);font-size:13px;color:var(--text-mid)}
+.modal-summary span{font-weight:700;color:var(--green-dark)}
+
+/* ── PLEDGE ROWS ── */
+.pledge-row{padding:12px 18px;border-bottom:1px solid var(--border);display:flex;gap:12px;align-items:flex-start}
+.pledge-seq{font-size:13px;color:var(--text-dim);width:20px;flex-shrink:0;padding-top:2px}
+.pledge-main{flex:1}
+.pledge-name{font-size:14px;font-weight:700;color:var(--text)}
+.pledge-phone{font-size:12px;color:var(--text-dim);margin-top:2px}
+.pledge-info{font-size:12px;color:var(--text-mid);margin-top:4px;line-height:1.5}
+.pledge-status{font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px;white-space:nowrap;flex-shrink:0}
+.pledge-status.valid{background:var(--green-pale);color:var(--green-soft)}
+.pledge-status.cancel{background:#f5e8e8;color:var(--red)}
+.pledge-pickup-badge{font-size:11px;font-weight:600;padding:2px 7px;border-radius:99px;background:#fff3d4;color:#7a5a00;margin-top:4px;display:inline-block}
+.pledge-empty{text-align:center;padding:40px 20px;color:var(--text-dim);font-size:14px}
+
+/* ── EMPTY / LOADING ── */
+.empty-state{text-align:center;padding:50px 20px;color:var(--text-dim)}
+.empty-icon{font-size:36px;margin-bottom:12px}
+.empty-text{font-size:14px}
+.loading-text{text-align:center;padding:40px;color:var(--text-dim);font-size:14px}
+
+/* ── SHARE STRIP ── */
+.share-strip{display:flex;gap:8px;padding:10px 16px 14px;flex-wrap:wrap}
+.share-btn{background:var(--green-pale);border:none;color:var(--green-soft);border-radius:var(--rs);padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font-body);display:flex;align-items:center;gap:4px;transition:background .15s}
+.share-btn:active{background:var(--border)}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-top">
+    <div class="brand">
+      <div class="brand-name">幸福緣好物市集</div>
+      <div class="brand-sub">團長中心</div>
+    </div>
+    <button class="logout-btn" id="logout-btn" onclick="doLogout()">登出</button>
+  </div>
+</div>
+
+<!-- LOGIN SECTION -->
+<div id="login-section">
+  <div class="card" style="margin-top:32px">
+    <div class="login-title">團長中心登入</div>
+    <div class="login-sub">請輸入您的手機號碼與通行碼</div>
+    <div class="field-wrap">
+      <label class="field-label">手機號碼</label>
+      <input id="inp-phone" class="field-input" type="tel" inputmode="numeric"
+             placeholder="例：0912345678" autocomplete="off" maxlength="20">
+    </div>
+    <div class="field-wrap">
+      <label class="field-label">通行碼</label>
+      <input id="inp-token" class="field-input" type="password"
+             placeholder="請輸入通行碼" autocomplete="off" maxlength="32">
+    </div>
+    <div class="login-err" id="login-err"></div>
+    <button class="btn-primary" id="login-btn" onclick="doLogin()">登入</button>
+  </div>
+  <div style="text-align:center;padding:20px 0;font-size:12px;color:var(--text-dim)">
+    若不知道通行碼，請聯繫幸福緣客服
+  </div>
+</div>
+
+<!-- PORTAL SECTION -->
+<div id="portal-section">
+  <div class="welcome-bar">
+    <div>
+      <div class="welcome-name" id="welcome-name"></div>
+      <div class="welcome-sub">歡迎回來，以下是您的集單活動</div>
+    </div>
+  </div>
+  <div class="section-title">我的集單活動</div>
+  <div class="campaign-list" id="campaign-list">
+    <div class="loading-text">載入中…</div>
+  </div>
+</div>
+
+<!-- PLEDGE MODAL -->
+<div class="modal-overlay" id="pledge-modal" onclick="closePledgeModal(event)">
+  <div class="modal-sheet" id="pledge-sheet">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">登記名單</div>
+      <button class="modal-close" onclick="closePledgeModal()">✕</button>
+    </div>
+    <div class="modal-summary" id="modal-summary"></div>
+    <div class="modal-body" id="pledge-list-body"></div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbz4-pJ5jWtu9nevKDl98LxRqfwyVdGApEqEzcKKR9LDxanUM5BCneCZttkH3rkxLlUtYA/exec';
+const SHOP_BASE = 'https://angel0973180707.github.io/Angel-Heart-health-kitchen/shop.html';
+
+// ── Auth state — sessionStorage only, NOT localStorage ───────────
+// Keys: 'ldr_phone', 'ldr_name'
+// leader_token stored as module-level var, never written to DOM/storage
+var _token = null;
+
+function getSession() {
+  return {
+    phone: sessionStorage.getItem('ldr_phone') || '',
+    name:  sessionStorage.getItem('ldr_name')  || ''
+  };
+}
+
+function saveSession(phone, name) {
+  sessionStorage.setItem('ldr_phone', phone);
+  sessionStorage.setItem('ldr_name',  name);
+  // _token already set by caller, not stored here
+}
+
+function clearSession() {
+  sessionStorage.removeItem('ldr_phone');
+  sessionStorage.removeItem('ldr_name');
+  _token = null;
+}
+
+// ── Toast ─────────────────────────────────────────────────────────
+var _toastTimer = null;
+function showToast(msg, type) {
+  var el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className   = 'toast' + (type === 'error' ? ' error' : '');
+  requestAnimationFrame(function() {
+    el.classList.add('show');
+  });
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(function() { el.classList.remove('show'); }, 2800);
+}
+
+// ── GAS call ──────────────────────────────────────────────────────
+function callGas(action, params) {
+  var body = Object.assign({ action: action }, params || {});
+  return fetch(GAS_URL, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(body)
+  }).then(function(r) { return r.json(); });
+}
+
+// ── Login ─────────────────────────────────────────────────────────
+function doLogin() {
+  var phone = (document.getElementById('inp-phone').value || '').trim();
+  var token = (document.getElementById('inp-token').value || '').trim();
+  var errEl = document.getElementById('login-err');
+  var btn   = document.getElementById('login-btn');
+  errEl.textContent = '';
+
+  if (!phone || !token) { errEl.textContent = '請輸入手機和通行碼'; return; }
+
+  btn.disabled   = true;
+  btn.textContent = '登入中…';
+
+  callGas('leaderLogin', { phone: phone, leader_token: token })
+    .then(function(d) {
+      btn.disabled   = false;
+      btn.textContent = '登入';
+      if (!d.ok) {
+        errEl.textContent = d.error || '登入失敗';
+        return;
+      }
+      // 成功：token 留在 _token，不寫任何持久化儲存
+      _token = token;
+      saveSession(phone, d.name || '');
+      document.getElementById('inp-token').value = '';
+      showPortal(phone, d.name || '');
+    })
+    .catch(function() {
+      btn.disabled   = false;
+      btn.textContent = '登入';
+      errEl.textContent = '連線失敗，請稍後再試';
+    });
+}
+
+// ── Portal ────────────────────────────────────────────────────────
+function showPortal(phone, name) {
+  document.getElementById('login-section').style.display  = 'none';
+  document.getElementById('portal-section').style.display = 'block';
+  document.getElementById('logout-btn').style.display     = 'inline-flex';
+  document.getElementById('welcome-name').textContent     = name + ' 團長';
+  loadCampaigns(phone);
+}
+
+function doLogout() {
+  clearSession();
+  document.getElementById('portal-section').style.display = 'none';
+  document.getElementById('login-section').style.display  = 'block';
+  document.getElementById('logout-btn').style.display     = 'none';
+  document.getElementById('login-err').textContent        = '';
+  document.getElementById('campaign-list').innerHTML      = '<div class="loading-text">載入中…</div>';
+  showToast('已登出');
+}
+
+// ── Campaigns ─────────────────────────────────────────────────────
+function loadCampaigns(phone) {
+  if (!_token) return;
+  callGas('getLeaderCampaigns', { phone: phone, leader_token: _token })
+    .then(function(d) {
+      if (!d.ok) { renderCampaignError(d.error); return; }
+      renderCampaigns(d.data || [], phone);
+    })
+    .catch(function() { renderCampaignError('連線失敗'); });
+}
+
+function renderCampaignError(msg) {
+  document.getElementById('campaign-list').innerHTML =
+    '<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">' +
+    escHtml(msg) + '</div></div>';
+}
+
+function renderCampaigns(list, phone) {
+  var el = document.getElementById('campaign-list');
+  if (!list.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div>' +
+                   '<div class="empty-text">目前沒有集單活動</div></div>';
+    return;
+  }
+  el.innerHTML = list.map(function(c, i) {
+    var statusClass = c.status === '集單中' ? 'active'
+                    : (c.status === '流團' || c.status === '已結束') ? 'closed' : 'other';
+    var pct = Math.min(100, c.progress_pct || 0);
+    var price = (c.group_price && Number(c.group_price) > 0)
+                ? 'NT$ ' + Number(c.group_price).toLocaleString()
+                : '—';
+    return '<div class="campaign-card">' +
+      '<div class="campaign-head">' +
+        '<div class="campaign-name-row">' +
+          '<div class="campaign-name">' + escHtml(c.campaign_name || '（無名稱）') + '</div>' +
+          '<span class="status-chip ' + statusClass + '">' + escHtml(c.status || '—') + '</span>' +
+        '</div>' +
+        '<div class="campaign-meta">' + escHtml(c.product_name || '') +
+          (c.deadline ? '　截止：' + c.deadline : '') + '</div>' +
+      '</div>' +
+      '<div class="campaign-body">' +
+        '<div class="progress-label">' +
+          '<span class="progress-count">' + c.current_qty + ' 件</span>' +
+          '<span class="progress-target">目標 ' + c.threshold_qty + ' 件</span>' +
+        '</div>' +
+        '<div class="progress-bar"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
+        '<div class="campaign-info">' +
+          (c.group_price && Number(c.group_price) > 0 ? '團購價：' + price + '　' : '') +
+          (c.pickup_note ? '取貨：' + escHtml(c.pickup_note) : '') +
+        '</div>' +
+        '<div class="campaign-actions">' +
+          '<button class="btn-outline btn-sm" onclick="openPledgeModal(\'' + escHtml(c.id) + '\',\'' + escHtml(c.campaign_name || '') + '\')">👥 查看登記名單</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="share-strip">' +
+        '<button class="share-btn" onclick="copyCampaignLink(\'' + escHtml(c.id) + '\')">🔗 複製集單連結</button>' +
+        '<button class="share-btn" onclick="openCampaignPage(\'' + escHtml(c.id) + '\')">🌐 開啟集單頁</button>' +
+        '<button class="share-btn" onclick="copyShareText(\'' + escHtml(c.id) + '\')">💬 複製 LINE 分享文</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  // 把活動資料暫存給分享文用（不含 token/phone）
+  window._campaignCache = list;
+}
+
+// ── Pledge modal ──────────────────────────────────────────────────
+function openPledgeModal(campaignId, campaignName) {
+  var sess = getSession();
+  if (!sess.phone || !_token) { showToast('請重新登入', 'error'); return; }
+
+  document.getElementById('modal-title').textContent   = campaignName || '登記名單';
+  document.getElementById('modal-summary').innerHTML   = '載入中…';
+  document.getElementById('pledge-list-body').innerHTML = '<div class="loading-text">載入中…</div>';
+  document.getElementById('pledge-modal').classList.add('open');
+
+  callGas('getLeaderCampaignPledges', {
+    phone:       sess.phone,
+    leader_token: _token,
+    campaign_id: campaignId
+  }).then(function(d) {
+    if (!d.ok) {
+      document.getElementById('modal-summary').textContent   = '';
+      document.getElementById('pledge-list-body').innerHTML  =
+        '<div class="pledge-empty">⚠️ ' + escHtml(d.error || '載入失敗') + '</div>';
+      return;
+    }
+    renderPledges(d.campaign_name || campaignName, d.data || []);
+  }).catch(function() {
+    document.getElementById('modal-summary').textContent  = '';
+    document.getElementById('pledge-list-body').innerHTML = '<div class="pledge-empty">⚠️ 連線失敗</div>';
+  });
+}
+
+function renderPledges(campaignName, list) {
+  var validCount  = list.filter(function(p) { return p.status === '有效'; }).length;
+  var totalQty    = list.filter(function(p) { return p.status === '有效'; })
+                        .reduce(function(s, p) { return s + (p.qty || 0); }, 0);
+
+  document.getElementById('modal-summary').innerHTML =
+    '活動：<span>' + escHtml(campaignName) + '</span>　' +
+    '有效登記 <span>' + validCount + ' 人</span>　' +
+    '合計 <span>' + totalQty + ' 件</span>';
+
+  if (!list.length) {
+    document.getElementById('pledge-list-body').innerHTML =
+      '<div class="pledge-empty">📭 還沒有人登記</div>';
+    return;
+  }
+
+  document.getElementById('pledge-list-body').innerHTML = list.map(function(p, i) {
+    var statusCls = p.status === '有效' ? 'valid' : 'cancel';
+    var pickupBadge = '';
+    if (p.pickup_status && p.pickup_status !== '待安排') {
+      pickupBadge = '<span class="pledge-pickup-badge">' + escHtml(p.pickup_status) + '</span>';
+    }
+    var infoArr = [];
+    if (p.qty)         infoArr.push('數量：' + p.qty);
+    if (p.pickup_date) infoArr.push('取貨日：' + p.pickup_date);
+    if (p.pickup_code) infoArr.push('取貨碼：' + p.pickup_code);
+    if (p.note)        infoArr.push('備註：' + escHtml(p.note));
+    if (p.created)     infoArr.push('登記：' + p.created);
+    return '<div class="pledge-row">' +
+      '<div class="pledge-seq">' + (i + 1) + '</div>' +
+      '<div class="pledge-main">' +
+        '<div class="pledge-name">' + escHtml(p.cname || '—') + '</div>' +
+        '<div class="pledge-phone">' + escHtml(p.masked_phone || '****') + '</div>' +
+        (infoArr.length ? '<div class="pledge-info">' + infoArr.join('　') + '</div>' : '') +
+        pickupBadge +
+      '</div>' +
+      '<span class="pledge-status ' + statusCls + '">' + escHtml(p.status || '—') + '</span>' +
+    '</div>';
+  }).join('');
+}
+
+function closePledgeModal(e) {
+  if (e && e.target !== document.getElementById('pledge-modal')) return;
+  document.getElementById('pledge-modal').classList.remove('open');
+}
+
+// ── Share helpers ─────────────────────────────────────────────────
+function getCampaignShareUrl(cid) {
+  return SHOP_BASE + '?campaign_id=' + encodeURIComponent(cid);
+}
+
+function openCampaignPage(cid) {
+  window.open(getCampaignShareUrl(cid), '_blank');
+}
+
+function copyCampaignLink(cid) {
+  copyText(getCampaignShareUrl(cid), '集單連結已複製！');
+}
+
+function copyShareText(cid) {
+  var c   = (window._campaignCache || []).find(function(x) { return x.id === cid; });
+  if (!c) { showToast('找不到活動資料', 'error'); return; }
+  var price    = (c.group_price && Number(c.group_price) > 0)
+                 ? 'NT$ ' + Number(c.group_price).toLocaleString() : '洽詢';
+  var deadline = c.deadline ? c.deadline : '—';
+  var text = [
+    '🌸 幸福緣好物市集｜開團中', '',
+    '【商品】' + (c.product_name || c.campaign_name || ''),
+    '【團購價】' + price,
+    '【目標】' + (c.threshold_qty || 0) + ' 件成團',
+    '【目前】已登記 ' + (c.current_qty || 0) + ' 件',
+    '【截止】' + deadline,
+    (c.pickup_note ? '【取貨】' + c.pickup_note : ''), '',
+    '點這裡登記：',
+    getCampaignShareUrl(cid)
+  ].filter(function(l) { return l !== false; }).join('\n');
+  copyText(text, '分享文已複製！');
+}
+
+function copyText(text, successMsg) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text)
+      .then(function() { showToast(successMsg || '已複製！'); })
+      .catch(function() { fallbackCopy(text, successMsg); });
+  } else {
+    fallbackCopy(text, successMsg);
+  }
+}
+
+function fallbackCopy(text, successMsg) {
+  try {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    showToast(successMsg || '已複製！');
+  } catch (e) {
+    showToast('複製失敗，請手動複製', 'error');
+  }
+}
+
+// ── Util ──────────────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// ── Init ──────────────────────────────────────────────────────────
+(function init() {
+  var sess = getSession();
+  if (sess.phone && sess.name) {
+    // sessionStorage 有資料但 _token 重刷會消失，需重新登入
+    // sessionStorage 不跨頁籤，也不持久到關閉分頁
+    document.getElementById('login-section').style.display = 'block';
+    document.getElementById('portal-section').style.display = 'none';
+    // 自動填入電話，省去重新輸入
+    document.getElementById('inp-phone').value = sess.phone;
+  }
+
+  // Enter 鍵觸發登入
+  ['inp-phone','inp-token'].forEach(function(id) {
+    document.getElementById(id).addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') doLogin();
+    });
+  });
+})();
+</script>
+</body>
+</html>
