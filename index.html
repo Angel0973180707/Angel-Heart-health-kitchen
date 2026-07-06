@@ -715,6 +715,18 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
             onclick="openCampaignModal()">＋ 建立活動</button>
   </div>
   <div id="campaign-list"><div class="loading">載入中...</div></div>
+
+  <!-- 團長通行碼設定 -->
+  <div style="margin-top:24px">
+    <div class="section-title" style="margin-bottom:10px">🔑 團長通行碼設定</div>
+    <div style="background:var(--white);border:1px solid var(--border);border-radius:var(--r);padding:16px">
+      <p style="font-size:12px;color:var(--text-dim);margin-bottom:14px">通行碼只會儲存加密後結果，請自行告知團長，系統不會顯示原文。</p>
+      <div class="field"><label>團長手機 *</label><input type="tel" id="lt-phone" placeholder="0912345678" maxlength="15" autocomplete="off"></div>
+      <div class="field"><label>通行碼 *（8–32 位英數字）</label><input type="password" id="lt-token1" placeholder="••••••••" maxlength="32" autocomplete="new-password"></div>
+      <div class="field"><label>確認通行碼 *</label><input type="password" id="lt-token2" placeholder="••••••••" maxlength="32" autocomplete="new-password"></div>
+      <button class="btn btn-gold" id="lt-submit-btn" onclick="setLeaderTokenFromAdmin()" style="margin-top:4px">🔑 設定通行碼</button>
+    </div>
+  </div>
 </div>
 
 <!-- 退貨 Modal -->
@@ -1023,6 +1035,32 @@ async function apiPost(params){
   const url=GAS_URL+'?'+new URLSearchParams(params).toString();
   const r=await fetch(url);
   const data=await r.json();if(data.auth_required)handleAuthError();return data;
+}
+async function apiJsonPost(params){
+  const r=await fetch(GAS_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(params)});
+  const data=await r.json();if(data.auth_required)handleAuthError();return data;
+}
+async function setLeaderTokenFromAdmin(){
+  const phone =(document.getElementById('lt-phone').value ||'').trim();
+  const token1=(document.getElementById('lt-token1').value||'').trim();
+  const token2=(document.getElementById('lt-token2').value||'').trim();
+  const btn   =document.getElementById('lt-submit-btn');
+  if(!phone)                                  return showToast('請輸入團長手機','error');
+  if(token1.length<8)                         return showToast('通行碼至少 8 位','error');
+  if(token1.length>32)                        return showToast('通行碼最多 32 位','error');
+  if(!/^[A-Za-z0-9!@#$%^&*]+$/.test(token1)) return showToast('通行碼只能含英數字或 !@#$%^&*','error');
+  if(token1!==token2)                         return showToast('兩次通行碼不一致','error');
+  btn.disabled=true;btn.textContent='設定中…';
+  try{
+    const d=await apiJsonPost({action:'adminSetLeaderToken',session_token:SESSION_TOKEN,phone,leader_token:token1});
+    if(!d.ok){showToast('設定失敗：'+(d.error||''),'error');}
+    else{
+      showToast('✅ 團長通行碼已設定','success');
+      document.getElementById('lt-token1').value='';
+      document.getElementById('lt-token2').value='';
+    }
+  }catch(e){showToast('連線失敗，請稍後再試','error');}
+  finally{btn.disabled=false;btn.textContent='🔑 設定通行碼';}
 }
 
 async function syncAll(){
