@@ -250,7 +250,10 @@ function handleRequest(e) {
       'markGroupPledgeNotified','updateGroupPledgePickupInfo',
       'getGroupCustomerRiskList','updateGroupCustomerStatus',
       'manualOverrideGroupCustomer','resetGroupCustomerNoShow',
-      'adminSetLeaderToken'
+      'adminSetLeaderToken',
+      'adminCreateLeaderSetupLink',
+      'adminSuspendGroupLeader',
+      'adminRestoreGroupLeader'
     ];
 
     if (adminActions.includes(action) && !validateSession_(p.session_token)) {
@@ -343,7 +346,13 @@ function handleRequest(e) {
       case 'leaderLogin':              return res(leaderLogin(p));
       case 'getLeaderCampaigns':       return res(getLeaderCampaigns(p));
       case 'getLeaderCampaignPledges': return res(getLeaderCampaignPledges(p));
-      case 'adminSetLeaderToken':      return res(adminSetLeaderToken(p));
+      case 'adminSetLeaderToken':           return res(adminSetLeaderToken(p));
+
+      case 'validateLeaderSetupToken':      return res(validateLeaderSetupToken(p));
+      case 'completeLeaderSetup':           return res(completeLeaderSetup(p));
+      case 'adminCreateLeaderSetupLink':    return res(adminCreateLeaderSetupLink(p));
+      case 'adminSuspendGroupLeader':       return res(adminSuspendGroupLeader(p));
+      case 'adminRestoreGroupLeader':       return res(adminRestoreGroupLeader(p));
 
       case 'loginAdmin':             return res(loginAdmin(p));
       case 'loginEventAdmin':        return res(loginEventAdmin(p));
@@ -4980,4 +4989,402 @@ function adminSetLeaderToken(p) {
 
   // ❌ 嚴禁：Logger.log(token), return hash, 寫 sheet, 寫 system_note
   return { ok: true };
+}
+
+// ================================================================
+// Module 7-D — 團長自設密碼啟用連結 + 停權管理
+// ================================================================
+
+var SETUP_TOKEN_TTL_MS    = 7 * 24 * 60 * 60 * 1000;
+var SETUP_TOKEN_MAX_FAILS = 5;
+var SETUP_TOKEN_FAIL_TTL  = 600;
+
+function toSafeKey_(b64) {
+  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+function hashSetupToken_(rawToken) {
+  var secret = PropertiesService.getScriptProperties()
+                 .getProperty('LEADER_HMAC_SECRET');
+  if (!secret) return null;
+  return toSafeKey_(Utilities.base64Encode(
+    Utilities.computeHmacSha256Signature(rawToken, secret)
+  ));
+}
+
+function generateSetupToken_() {
+  return Utilities.getUuid().replace(/-/g, '');
+}
+
+function storeSetupToken_(normalizedPhone, rawToken) {
+  var hash = hashSetupToken_(rawToken);
+  if (!hash) return false;
+  var props  = PropertiesService.getScriptProperties();
+  var expiry = String(Date.now() + SETUP_TOKEN_TTL_MS);
+  var old = props.getProperty('LEADER_SETUP_' + normalizedPhone);
+  if (old) {
+    props.deleteProperty('LEADER_SETUP_REV_' + old.split('|')[0]);
+  }
+  props.setProperty('LEADER_SETUP_' + normalizedPhone, hash + '|' + expiry);
+  props.setProperty('LEADER_SETUP_REV_' + hash, normalizedPhone);
+  return true;
+}
+
+function invalidateSetupToken_(normalizedPhone) {
+  var props  = PropertiesService.getScriptProperties();
+  var stored = props.getProperty('LEADER_SETUP_' + normalizedPhone);
+  if (stored) {
+    props.deleteProperty('LEADER_SETUP_REV_' + stored.split('|')[0]);
+    props.deleteProperty('LEADER_SETUP_' + normalizedPhone);
+  }
+}
+
+function lookupSetupByToken_(rawToken) {
+  var hash = hashSetupToken_(rawToken);
+  if (!hash) return { ok: false, reason: 'config_error' };
+
+  var failKey = 'LEADER_SETUP_FAIL_' + hash.slice(0, 12);
+  var cache   = CacheService.getScriptCache();
+  var fails   = parseInt(cache.get(failKey) || '0', 10);
+  if (fails >= SETUP_TOKEN_MAX_FAILS) return { ok: false, reason: 'throttled' };
+
+  var props = PropertiesService.getScriptProperties();
+  var phone = props.getProperty('LEADER_SETUP_REV_' + hash);
+  if (!phone) {
+    cache.put(failKey, String(fails + 1), SETUP_TOKEN_FAIL_TTL);
+    return { ok: false, reason: 'invalid' };
+  }
+
+  var stored = props.getProperty('LEADER_SETUP_' + phone);
+  if (!stored) {
+    cache.put(failKey, String(fails + 1), SETUP_TOKEN_FAIL_TTL);
+    return { ok: false, reason: 'invalid' };
+  }
+
+  var parts      = stored.split('|');
+  var storedHash = parts[0];
+  var expiryMs   = parseInt(parts[1], 10);
+
+  if (storedHash !== hash) {
+    cache.put(failKey, String(fails + 1), SETUP_TOKEN_FAIL_TTL);
+    return { ok: false, reason: 'invalid' };
+  }
+  if (Date.now() > expiryMs) return { ok: false, reason: 'expired' };
+
+  cache.remove(failKey);
+  return { ok: true, normalizedPhone: phone };
+}
+
+// ── 7-D Public APIs ───────────────────────────────────────────────
+
+function validateLeaderSetupToken(p) {
+  var rawToken = String(p.setup_token || '').trim();
+  if (!rawToken) return { ok: false, error: '連結無效或已過期' };
+
+  var result = lookupSetupByToken_(rawToken);
+  if (!result.ok) return { ok: false, error: '連結無效或已過期' };
+
+  var phone = result.normalizedPhone;
+  var lc    = COL.GROUP_LEADERS;
+  var rows  = getRows(SHEET.GROUP_LEADERS);
+  var leaderRow = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (normalizePhone_(String(rows[i][lc.PHONE] || '')) === phone) {
+      leaderRow = rows[i]; break;
+    }
+  }
+  if (!leaderRow)
+    return { ok: false, error: '連結無效或已過期' };
+  if (String(leaderRow[lc.LEVEL] || '') !== '團長')
+    return { ok: false, error: '連結無效或已過期' };
+  var buyStatus = String(leaderRow[lc.BUY_STATUS] || '');
+  if (buyStatus === '暫停' || buyStatus === '取消')
+    return { ok: false, error: '連結無效或已過期' };
+
+  return {
+    ok:           true,
+    masked_phone: maskPhone_(phone),
+    name:         String(leaderRow[lc.NAME] || '')
+  };
+}
+
+function completeLeaderSetup(p) {
+  var rawToken        = String(p.setup_token          || '').trim();
+  var password        = String(p.leader_token         || '').trim();
+  var passwordConfirm = String(p.leader_token_confirm || '').trim();
+
+  if (!rawToken || !password || !passwordConfirm)
+    return { ok: false, error: '參數缺失' };
+  if (password.length < 6)
+    return { ok: false, error: '密碼至少 6 碼' };
+  if (password.length > 64)
+    return { ok: false, error: '密碼最多 64 碼' };
+  if (password !== passwordConfirm)
+    return { ok: false, error: '兩次密碼不一致' };
+
+  var preCheck = lookupSetupByToken_(rawToken);
+  if (!preCheck.ok) return { ok: false, error: '連結無效或已過期' };
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(5000); }
+  catch(e) { return { ok: false, error: '系統忙碌，請稍後再試' }; }
+
+  try {
+    var recheck = lookupSetupByToken_(rawToken);
+    if (!recheck.ok) return { ok: false, error: '連結無效或已過期' };
+    var phone = recheck.normalizedPhone;
+
+    var lc    = COL.GROUP_LEADERS;
+    var rows  = getRows(SHEET.GROUP_LEADERS);
+    var leaderRow = null, leaderRowIdx = -1;
+    for (var i = 0; i < rows.length; i++) {
+      if (normalizePhone_(String(rows[i][lc.PHONE] || '')) === phone) {
+        leaderRow = rows[i]; leaderRowIdx = i; break;
+      }
+    }
+    if (!leaderRow)
+      return { ok: false, error: '帳號狀態異常，請聯繫幸福緣' };
+    if (String(leaderRow[lc.LEVEL] || '') !== '團長')
+      return { ok: false, error: '帳號狀態異常，請聯繫幸福緣' };
+    var buyStatus = String(leaderRow[lc.BUY_STATUS] || '');
+    if (buyStatus === '暫停' || buyStatus === '取消')
+      return { ok: false, error: '帳號已暫停，請聯繫幸福緣' };
+
+    var hash = hashLeaderToken_(phone, password);
+    if (!hash) return { ok: false, error: 'LEADER_HMAC_SECRET 未設定' };
+    PropertiesService.getScriptProperties()
+      .setProperty('LEADER_TOKEN_HASH_' + phone, hash);
+
+    invalidateSetupToken_(phone);
+
+    var nowStr  = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd HH:mm:ss');
+    var oldNote = String(leaderRow[lc.SYSTEM_NOTE] || '');
+    var evtNote = '[' + nowStr + '] leader_password_setup_completed';
+    var newNote = oldNote ? oldNote + '\n' + evtNote : evtNote;
+    var sheet   = SpreadsheetApp.openById(SPREADSHEET_ID)
+                    .getSheetByName(SHEET.GROUP_LEADERS);
+    sheet.getRange(leaderRowIdx + DATA_ROW, lc.SYSTEM_NOTE + 1).setValue(newNote);
+    SpreadsheetApp.flush();
+
+    // ❌ 不 Logger.log(password), 不 Logger.log(hash)
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ── 7-D Admin APIs ────────────────────────────────────────────────
+
+function adminCreateLeaderSetupLink(p) {
+  if (!validateSession_(p.session_token)) return { ok: false, error: '未授權' };
+
+  var phone = normalizePhone_(String(p.phone || '').trim());
+  if (!phone) return { ok: false, error: '電話格式錯誤' };
+
+  var lc   = COL.GROUP_LEADERS;
+  var rows = getRows(SHEET.GROUP_LEADERS);
+  var found = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (normalizePhone_(String(rows[i][lc.PHONE] || '')) === phone) {
+      found = rows[i]; break;
+    }
+  }
+  if (!found)
+    return { ok: false, error: '此電話不在團主來源表' };
+  if (String(found[lc.LEVEL] || '') !== '團長')
+    return { ok: false, error: '等級不是團長' };
+  var status = String(found[lc.BUY_STATUS] || '');
+  if (status === '暫停' || status === '取消')
+    return { ok: false, error: '此團長已暫停/取消，不可產生連結' };
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(5000); }
+  catch(e) { return { ok: false, error: '系統忙碌，請稍後再試' }; }
+
+  try {
+    var rows2 = getRows(SHEET.GROUP_LEADERS);
+    var found2 = null, rowIdx2 = -1;
+    for (var j = 0; j < rows2.length; j++) {
+      if (normalizePhone_(String(rows2[j][lc.PHONE] || '')) === phone) {
+        found2 = rows2[j]; rowIdx2 = j; break;
+      }
+    }
+    if (!found2)
+      return { ok: false, error: '帳號不存在' };
+    if (String(found2[lc.LEVEL] || '') !== '團長')
+      return { ok: false, error: '等級已變更，不是團長' };
+    var status2 = String(found2[lc.BUY_STATUS] || '');
+    if (status2 === '暫停' || status2 === '取消')
+      return { ok: false, error: '此團長已暫停/取消' };
+
+    var rawToken = generateSetupToken_();
+    if (!storeSetupToken_(phone, rawToken))
+      return { ok: false, error: 'LEADER_HMAC_SECRET 未設定' };
+
+    var expiryDate = Utilities.formatDate(
+      new Date(Date.now() + SETUP_TOKEN_TTL_MS), 'Asia/Taipei', 'yyyy-MM-dd'
+    );
+    var baseUrl  = 'https://angel0973180707.github.io/Angel-Heart-health-kitchen/leader.html';
+    var setupUrl = baseUrl + '#setup=' + rawToken;
+    var copyText = '這是你的幸福緣團長中心啟用連結：\n' + setupUrl +
+                   '\n\n請點開後自行設定登入密碼。\n連結有效期限：7 天，只能使用一次。';
+
+    var nowStr  = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd HH:mm:ss');
+    var oldNote = String(found2[lc.SYSTEM_NOTE] || '');
+    var evtNote = '[' + nowStr + '] create_setup_link expires=' + expiryDate;
+    var newNote = oldNote ? oldNote + '\n' + evtNote : evtNote;
+    var sheet   = SpreadsheetApp.openById(SPREADSHEET_ID)
+                    .getSheetByName(SHEET.GROUP_LEADERS);
+    sheet.getRange(rowIdx2 + DATA_ROW, lc.SYSTEM_NOTE + 1).setValue(newNote);
+    SpreadsheetApp.flush();
+
+    // ❌ 不 Logger.log(rawToken), 不 Logger.log(setupUrl)
+    return {
+      ok:           true,
+      setup_url:    setupUrl,
+      copy_text:    copyText,
+      masked_phone: maskPhone_(phone),
+      expires_at:   expiryDate
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function adminSuspendGroupLeader(p) {
+  if (!validateSession_(p.session_token)) return { ok: false, error: '未授權' };
+
+  var phone  = normalizePhone_(String(p.phone  || '').trim());
+  var reason = String(p.reason || '').trim();
+  if (!phone)  return { ok: false, error: '電話格式錯誤' };
+  if (!reason) return { ok: false, error: '停權原因必填' };
+
+  var lc   = COL.GROUP_LEADERS;
+  var rows = getRows(SHEET.GROUP_LEADERS);
+  var found = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (normalizePhone_(String(rows[i][lc.PHONE] || '')) === phone) {
+      found = rows[i]; break;
+    }
+  }
+  if (!found)
+    return { ok: false, error: '此電話不在團主來源表' };
+  if (String(found[lc.LEVEL] || '') !== '團長')
+    return { ok: false, error: '等級不是團長' };
+  var currentStatus = String(found[lc.BUY_STATUS] || '');
+  if (currentStatus === '暫停')
+    return { ok: false, error: '此團長已在暫停狀態' };
+  if (currentStatus === '取消')
+    return { ok: false, error: '此團長已取消資格，不可變更為暫停' };
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(8000); }
+  catch(e) { return { ok: false, error: '系統忙碌，請稍後再試' }; }
+
+  try {
+    var rows2 = getRows(SHEET.GROUP_LEADERS);
+    var found2 = null, rowIdx2 = -1;
+    for (var j = 0; j < rows2.length; j++) {
+      if (normalizePhone_(String(rows2[j][lc.PHONE] || '')) === phone) {
+        found2 = rows2[j]; rowIdx2 = j; break;
+      }
+    }
+    if (!found2)
+      return { ok: false, error: '帳號不存在' };
+    if (String(found2[lc.LEVEL] || '') !== '團長')
+      return { ok: false, error: '等級已變更' };
+    var currentStatus2 = String(found2[lc.BUY_STATUS] || '');
+    if (currentStatus2 === '暫停')
+      return { ok: false, error: '已在暫停狀態' };
+    if (currentStatus2 === '取消')
+      return { ok: false, error: '已取消資格，不可變更為暫停' };
+
+    var nowStr  = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd HH:mm:ss');
+    var oldNote = String(found2[lc.SYSTEM_NOTE] || '');
+    var append  = '[' + nowStr + '] suspend reason=' + reason;
+    var newNote = oldNote ? oldNote + '\n' + append : append;
+
+    var sheet   = SpreadsheetApp.openById(SPREADSHEET_ID)
+                    .getSheetByName(SHEET.GROUP_LEADERS);
+    var dataRow = rowIdx2 + DATA_ROW;
+    sheet.getRange(dataRow, lc.BUY_STATUS       + 1).setValue('暫停');
+    sheet.getRange(dataRow, lc.SUSPENDED_AT     + 1)
+         .setNumberFormat('@').setValue(nowStr);
+    sheet.getRange(dataRow, lc.SUSPENDED_REASON + 1).setValue(reason);
+    sheet.getRange(dataRow, lc.SYSTEM_NOTE      + 1).setValue(newNote);
+    SpreadsheetApp.flush();
+
+    invalidateSetupToken_(phone);
+    // ✅ LEADER_TOKEN_HASH_{phone} 保留不刪
+    // ❌ 不碰 GROUP_CAMPAIGNS / GROUP_PLEDGES / GROUP_LEDGER
+
+    return { ok: true, name: String(found2[lc.NAME] || '') };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function adminRestoreGroupLeader(p) {
+  if (!validateSession_(p.session_token)) return { ok: false, error: '未授權' };
+
+  var phone = normalizePhone_(String(p.phone || '').trim());
+  var note  = String(p.note  || '').trim();
+  if (!phone) return { ok: false, error: '電話格式錯誤' };
+  if (!note)  return { ok: false, error: '備註必填' };
+
+  var lc   = COL.GROUP_LEADERS;
+  var rows = getRows(SHEET.GROUP_LEADERS);
+  var found = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (normalizePhone_(String(rows[i][lc.PHONE] || '')) === phone) {
+      found = rows[i]; break;
+    }
+  }
+  if (!found)
+    return { ok: false, error: '此電話不在團主來源表' };
+  if (String(found[lc.LEVEL] || '') !== '團長')
+    return { ok: false, error: '等級不是團長' };
+  if (String(found[lc.BUY_STATUS] || '') !== '暫停')
+    return { ok: false, error: '此團長目前不在暫停狀態' };
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(8000); }
+  catch(e) { return { ok: false, error: '系統忙碌，請稍後再試' }; }
+
+  try {
+    var rows2 = getRows(SHEET.GROUP_LEADERS);
+    var found2 = null, rowIdx2 = -1;
+    for (var j = 0; j < rows2.length; j++) {
+      if (normalizePhone_(String(rows2[j][lc.PHONE] || '')) === phone) {
+        found2 = rows2[j]; rowIdx2 = j; break;
+      }
+    }
+    if (!found2)
+      return { ok: false, error: '帳號不存在' };
+    if (String(found2[lc.LEVEL] || '') !== '團長')
+      return { ok: false, error: '等級已變更' };
+    if (String(found2[lc.BUY_STATUS] || '') !== '暫停')
+      return { ok: false, error: '狀態已變更，不在暫停中' };
+
+    var nowStr  = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd HH:mm:ss');
+    var oldNote = String(found2[lc.SYSTEM_NOTE] || '');
+    var append  = '[' + nowStr + '] restore note=' + note;
+    var newNote = oldNote ? oldNote + '\n' + append : append;
+
+    var sheet   = SpreadsheetApp.openById(SPREADSHEET_ID)
+                    .getSheetByName(SHEET.GROUP_LEADERS);
+    var dataRow = rowIdx2 + DATA_ROW;
+    sheet.getRange(dataRow, lc.BUY_STATUS    + 1).setValue('正常');
+    sheet.getRange(dataRow, lc.OVERRIDE_NOTE + 1).setValue(note);
+    sheet.getRange(dataRow, lc.SYSTEM_NOTE   + 1).setValue(newNote);
+    SpreadsheetApp.flush();
+
+    // ✅ 不自動產生 setup link
+    // ✅ LEADER_TOKEN_HASH_{phone} 保留不動
+    // ❌ 不碰 GROUP_CAMPAIGNS / GROUP_PLEDGES / GROUP_LEDGER
+
+    return { ok: true, name: String(found2[lc.NAME] || '') };
+  } finally {
+    lock.releaseLock();
+  }
 }

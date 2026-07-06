@@ -716,16 +716,74 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   </div>
   <div id="campaign-list"><div class="loading">載入中...</div></div>
 
-  <!-- 團長通行碼設定 -->
+  <!-- 團長管理工具 -->
   <div style="margin-top:24px">
-    <div class="section-title" style="margin-bottom:10px">🔑 團長通行碼設定</div>
-    <div style="background:var(--white);border:1px solid var(--border);border-radius:var(--r);padding:16px">
-      <p style="font-size:12px;color:var(--text-dim);margin-bottom:14px">通行碼只會儲存加密後結果，請自行告知團長，系統不會顯示原文。</p>
-      <div class="field"><label>團長手機 *</label><input type="tel" id="lt-phone" placeholder="0912345678" maxlength="15" autocomplete="off"></div>
-      <div class="field"><label>通行碼 *（8–32 位英數字）</label><input type="password" id="lt-token1" placeholder="••••••••" maxlength="32" autocomplete="new-password"></div>
-      <div class="field"><label>確認通行碼 *</label><input type="password" id="lt-token2" placeholder="••••••••" maxlength="32" autocomplete="new-password"></div>
-      <button class="btn btn-gold" id="lt-submit-btn" onclick="setLeaderTokenFromAdmin()" style="margin-top:4px">🔑 設定通行碼</button>
+    <div class="section-title" style="margin-bottom:10px">👥 團長管理工具</div>
+
+    <!-- ① 主要：產生啟用連結 -->
+    <div style="background:var(--white);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:12px">
+      <div style="font-weight:700;font-size:14px;margin-bottom:6px">產生啟用連結（讓團長自行設定密碼）</div>
+      <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px">輸入團長手機，產生一次性啟用連結（7 天有效、只能用一次）。重新產生會使舊連結立即失效。</p>
+      <div class="field"><label>團長手機 *</label>
+        <input type="tel" id="ls-phone" placeholder="0912345678" maxlength="15" autocomplete="off">
+      </div>
+      <button class="btn btn-gold" id="ls-gen-btn" onclick="genLeaderSetupLink()">產生啟用連結</button>
+      <div id="ls-result" style="display:none;margin-top:14px">
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px">複製以下文案發給團長：</div>
+        <textarea id="ls-copy-text" readonly rows="6"
+          style="width:100%;font-size:12px;border:1px solid var(--border);border-radius:var(--rs);padding:10px;resize:none;background:var(--bg);line-height:1.6"></textarea>
+        <button class="btn btn-outline" style="margin-top:8px;width:100%" onclick="copyLeaderSetupText()">複製文案</button>
+      </div>
     </div>
+
+    <!-- ② 停權管理（折疊） -->
+    <details style="border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:12px">
+      <summary style="background:var(--white);padding:14px 16px;cursor:pointer;font-size:14px;font-weight:600;list-style:none">⚠️ 停權 / 恢復資格</summary>
+      <div style="padding:16px;border-top:1px solid var(--border)">
+        <div style="margin-bottom:20px">
+          <div style="font-weight:600;font-size:13px;color:#C94A3A;margin-bottom:8px">暫停團長資格</div>
+          <div class="field"><label>團長手機 *</label>
+            <input type="tel" id="sus-phone" placeholder="0912345678" maxlength="15">
+          </div>
+          <div class="field"><label>停權原因 *（將記錄於系統日誌）</label>
+            <textarea id="sus-reason" rows="3"
+              style="width:100%;border:1.5px solid var(--border);border-radius:var(--rs);padding:10px;font-size:14px;resize:none;font-family:inherit"
+              placeholder="必填，例如：多次未到場、違規操作等"></textarea>
+          </div>
+          <button class="btn" style="background:#C94A3A;color:#fff;width:100%" onclick="suspendLeader()">暫停資格</button>
+        </div>
+        <div>
+          <div style="font-weight:600;font-size:13px;color:var(--green-dark);margin-bottom:8px">恢復團長資格</div>
+          <div class="field"><label>團長手機 *</label>
+            <input type="tel" id="rst-phone" placeholder="0912345678" maxlength="15">
+          </div>
+          <div class="field"><label>備註 *（必填）</label>
+            <textarea id="rst-note" rows="2"
+              style="width:100%;border:1.5px solid var(--border);border-radius:var(--rs);padding:10px;font-size:14px;resize:none;font-family:inherit"
+              placeholder="例如：已確認問題解決，恢復資格"></textarea>
+          </div>
+          <button class="btn btn-outline" style="width:100%" onclick="restoreLeader()">恢復資格</button>
+        </div>
+      </div>
+    </details>
+
+    <!-- ③ 備用：管理員直接設定密碼（折疊收起） -->
+    <details style="border:1px solid var(--border);border-radius:var(--r);overflow:hidden">
+      <summary style="background:var(--bg);padding:12px 16px;cursor:pointer;font-size:12px;color:var(--text-dim);list-style:none">🔧 備用功能：管理員直接設定密碼（只有團長無法完成啟用時才用）</summary>
+      <div style="padding:16px;border-top:1px solid var(--border)">
+        <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px">通行碼只會儲存加密後結果，系統不顯示原文。</p>
+        <div class="field"><label>團長手機 *</label>
+          <input type="tel" id="lt-phone" placeholder="0912345678" maxlength="15" autocomplete="off">
+        </div>
+        <div class="field"><label>通行碼 *（8–32 位英數字）</label>
+          <input type="password" id="lt-token1" placeholder="••••••••" maxlength="32" autocomplete="new-password">
+        </div>
+        <div class="field"><label>確認通行碼 *</label>
+          <input type="password" id="lt-token2" placeholder="••••••••" maxlength="32" autocomplete="new-password">
+        </div>
+        <button class="btn btn-gold" id="lt-submit-btn" onclick="setLeaderTokenFromAdmin()" style="margin-top:4px">設定通行碼</button>
+      </div>
+    </details>
   </div>
 </div>
 
@@ -1060,7 +1118,67 @@ async function setLeaderTokenFromAdmin(){
       document.getElementById('lt-token2').value='';
     }
   }catch(e){showToast('連線失敗，請稍後再試','error');}
-  finally{btn.disabled=false;btn.textContent='🔑 設定通行碼';}
+  finally{btn.disabled=false;btn.textContent='設定通行碼';}
+}
+
+async function genLeaderSetupLink(){
+  const phone=(document.getElementById('ls-phone').value||'').trim();
+  const btn  =document.getElementById('ls-gen-btn');
+  document.getElementById('ls-result').style.display='none';
+  if(!phone) return showToast('請輸入團長手機','error');
+  btn.disabled=true;btn.textContent='產生中…';
+  try{
+    const d=await apiJsonPost({action:'adminCreateLeaderSetupLink',session_token:SESSION_TOKEN,phone});
+    if(!d.ok){showToast('失敗：'+(d.error||''),'error');return;}
+    document.getElementById('ls-copy-text').value=d.copy_text;
+    document.getElementById('ls-result').style.display='block';
+    showToast('啟用連結已產生（有效 7 天）','success');
+  }catch(e){showToast('連線失敗，請稍後再試','error');}
+  finally{btn.disabled=false;btn.textContent='產生啟用連結';}
+}
+
+async function copyLeaderSetupText(){
+  const t=(document.getElementById('ls-copy-text').value||'').trim();
+  if(!t) return;
+  if(navigator.clipboard){
+    try{await navigator.clipboard.writeText(t);showToast('已複製','success');return;}catch(e){}
+  }
+  const ta=document.createElement('textarea');
+  ta.value=t;ta.style.cssText='position:fixed;top:-9999px';
+  document.body.appendChild(ta);ta.select();
+  try{document.execCommand('copy');showToast('已複製','success');}
+  catch(e){showToast('請手動複製','error');}
+  document.body.removeChild(ta);
+}
+
+async function suspendLeader(){
+  const phone =(document.getElementById('sus-phone').value ||'').trim();
+  const reason=(document.getElementById('sus-reason').value||'').trim();
+  if(!phone)  return showToast('請輸入手機','error');
+  if(!reason) return showToast('停權原因必填','error');
+  if(!confirm('確定暫停「'+phone+'」的團長資格？\n\n原因：'+reason+'\n\n此動作無法自動復原。')) return;
+  try{
+    const d=await apiJsonPost({action:'adminSuspendGroupLeader',session_token:SESSION_TOKEN,phone,reason});
+    if(!d.ok){showToast('失敗：'+(d.error||''),'error');return;}
+    showToast('已暫停：'+(d.name||phone),'success');
+    document.getElementById('sus-phone').value='';
+    document.getElementById('sus-reason').value='';
+  }catch(e){showToast('連線失敗，請稍後再試','error');}
+}
+
+async function restoreLeader(){
+  const phone=(document.getElementById('rst-phone').value||'').trim();
+  const note =(document.getElementById('rst-note').value ||'').trim();
+  if(!phone) return showToast('請輸入手機','error');
+  if(!note)  return showToast('備註必填','error');
+  if(!confirm('確定恢復「'+phone+'」的團長資格？')) return;
+  try{
+    const d=await apiJsonPost({action:'adminRestoreGroupLeader',session_token:SESSION_TOKEN,phone,note});
+    if(!d.ok){showToast('失敗：'+(d.error||''),'error');return;}
+    showToast('已恢復：'+(d.name||phone),'success');
+    document.getElementById('rst-phone').value='';
+    document.getElementById('rst-note').value='';
+  }catch(e){showToast('連線失敗，請稍後再試','error');}
 }
 
 async function syncAll(){

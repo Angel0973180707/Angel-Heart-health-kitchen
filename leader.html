@@ -158,6 +158,36 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-hei
   </div>
 </div>
 
+<!-- SETUP SECTION -->
+<div id="setup-section" style="display:none">
+  <div id="setup-form-area" style="padding:24px 16px 40px">
+    <div class="card" style="margin-top:32px">
+      <div class="login-title">設定登入密碼</div>
+      <div class="login-sub" id="setup-phone-display" style="margin-bottom:20px">驗證中…</div>
+      <div class="field-wrap">
+        <label class="field-label">登入密碼</label>
+        <input id="setup-pwd1" class="field-input" type="password"
+               maxlength="64" autocomplete="new-password" placeholder="請設定至少 6 碼">
+      </div>
+      <div class="field-wrap">
+        <label class="field-label">確認密碼</label>
+        <input id="setup-pwd2" class="field-input" type="password"
+               maxlength="64" autocomplete="new-password" placeholder="再輸入一次">
+      </div>
+      <div style="font-size:12px;color:var(--text-dim);margin-bottom:14px">
+        請設定至少 6 碼，自己記得住但不要太簡單
+      </div>
+      <div class="login-err" id="setup-err"></div>
+      <button class="btn-primary" id="setup-btn" onclick="doCompleteSetup()">完成設定</button>
+    </div>
+  </div>
+  <div id="setup-invalid-area" style="display:none;padding:40px 16px;text-align:center">
+    <div style="font-size:40px;margin-bottom:16px">⚠️</div>
+    <div style="font-size:17px;font-weight:700;margin-bottom:8px">連結無效或已過期</div>
+    <div style="font-size:13px;color:var(--text-dim)">請聯繫幸福緣重新取得啟用連結</div>
+  </div>
+</div>
+
 <!-- PORTAL SECTION -->
 <div id="portal-section">
   <div class="welcome-bar">
@@ -196,7 +226,8 @@ const SHOP_BASE = 'https://angel0973180707.github.io/Angel-Heart-health-kitchen/
 // ── Auth state — sessionStorage only, NOT localStorage ───────────
 // Keys: 'ldr_phone', 'ldr_name'
 // leader_token stored as module-level var, never written to DOM/storage
-var _token = null;
+var _token     = null;
+var _setupToken = null; // setup mode 一次性 token，僅 JS 記憶體
 
 function getSession() {
   return {
@@ -497,19 +528,80 @@ function escHtml(s) {
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
+// ── Setup Mode ────────────────────────────────────────────────────
+function showInvalidSetup() {
+  _setupToken = null;
+  document.getElementById('setup-form-area').style.display    = 'none';
+  document.getElementById('setup-invalid-area').style.display = 'block';
+  document.getElementById('portal-section').style.display     = 'none';
+}
+
+function doCompleteSetup() {
+  if (!_setupToken) { showInvalidSetup(); return; }
+  var pwd1  = document.getElementById('setup-pwd1').value;
+  var pwd2  = document.getElementById('setup-pwd2').value;
+  var errEl = document.getElementById('setup-err');
+  var btn   = document.getElementById('setup-btn');
+  errEl.textContent = '';
+  if (pwd1.length < 6)  { errEl.textContent = '密碼至少 6 碼'; return; }
+  if (pwd1.length > 64) { errEl.textContent = '密碼最多 64 碼'; return; }
+  if (pwd1 !== pwd2)    { errEl.textContent = '兩次密碼不一致'; return; }
+  btn.disabled = true; btn.textContent = '設定中…';
+  callGas('completeLeaderSetup', {
+    setup_token:          _setupToken,
+    leader_token:         pwd1,
+    leader_token_confirm: pwd2
+  })
+  .then(function(d) {
+    btn.disabled = false; btn.textContent = '完成設定';
+    if (!d.ok) { errEl.textContent = d.error || '設定失敗，請重新取得啟用連結'; return; }
+    document.getElementById('setup-pwd1').value = '';
+    document.getElementById('setup-pwd2').value = '';
+    _setupToken = null;
+    document.getElementById('setup-section').style.display  = 'none';
+    document.getElementById('login-section').style.display   = 'block';
+    document.getElementById('portal-section').style.display  = 'none';
+    showToast('密碼設定完成，請登入');
+  })
+  .catch(function() {
+    btn.disabled = false; btn.textContent = '完成設定';
+    errEl.textContent = '連線失敗，請稍後再試';
+  });
+}
+
 // ── Init ──────────────────────────────────────────────────────────
 (function init() {
-  var sess = getSession();
-  if (sess.phone && sess.name) {
-    // sessionStorage 有資料但 _token 重刷會消失，需重新登入
-    // sessionStorage 不跨頁籤，也不持久到關閉分頁
-    document.getElementById('login-section').style.display = 'block';
-    document.getElementById('portal-section').style.display = 'none';
-    // 自動填入電話，省去重新輸入
-    document.getElementById('inp-phone').value = sess.phone;
+  // 步驟 1：讀 URL fragment（不讀 query string）
+  var hashStr    = location.hash.slice(1);
+  var hashParams = new URLSearchParams(hashStr);
+  var setupToken = hashParams.get('setup') || '';
+
+  if (setupToken) {
+    // 步驟 2：存入模組變數
+    _setupToken = setupToken;
+    // 步驟 3：立即清 URL（token 不留瀏覽歷史）
+    history.replaceState(null, '', location.pathname);
+    // 步驟 4：顯示 setup section
+    document.getElementById('setup-section').style.display  = 'block';
+    document.getElementById('login-section').style.display   = 'none';
+    document.getElementById('portal-section').style.display  = 'none';
+    // 步驟 5：驗證 token（使用 _setupToken，URL 已清）
+    callGas('validateLeaderSetupToken', { setup_token: _setupToken })
+      .then(function(d) {
+        if (!d.ok) { showInvalidSetup(); return; }
+        document.getElementById('setup-phone-display').textContent =
+          '帳號：' + (d.masked_phone || '') + (d.name ? '　' + d.name : '');
+      })
+      .catch(showInvalidSetup);
+    return;
   }
 
-  // Enter 鍵觸發登入
+  // 一般登入模式（原有邏輯）
+  var sess = getSession();
+  if (sess.phone && sess.name) {
+    document.getElementById('portal-section').style.display = 'none';
+    document.getElementById('inp-phone').value = sess.phone;
+  }
   ['inp-phone','inp-token'].forEach(function(id) {
     document.getElementById(id).addEventListener('keydown', function(e) {
       if (e.key === 'Enter') doLogin();
