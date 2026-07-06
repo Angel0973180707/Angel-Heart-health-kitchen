@@ -1,4 +1,4 @@
-// ================================================================
+﻿// ================================================================
 // 養清倉管系統 GAS 後台 v2.4
 // Spreadsheet ID: 1geF1x3u9T_S6gmJlnLiV6-x77t66WtI4bON_Nr3FH6w
 // 更新日期：2026-06-15
@@ -139,6 +139,11 @@ COL.GROUP_LEADERS = {
   SOURCE_LEADER:8, FIRST_LED_AT:9,
   LINE_UID:10, NOTE:11
 };
+COL.GROUP_LEADERS.SUSPENDED_AT     = 12;
+COL.GROUP_LEADERS.SUSPENDED_REASON = 13;
+COL.GROUP_LEADERS.OVERRIDE_UNTIL   = 14;
+COL.GROUP_LEADERS.OVERRIDE_NOTE    = 15;
+COL.GROUP_LEADERS.SYSTEM_NOTE      = 16;
 COL.GROUP_LEDGER = {
   ID:0, ORDER_ID:1, CID:2, DATE:3, ROLE:4, TARGET:5,
   PID:6, PNAME:7, QTY:8, UNIT_PRICE:9, SUBTOTAL:10,
@@ -242,7 +247,9 @@ function handleRequest(e) {
       'getGroupCampaigns',
       'createGroupCampaign','updateGroupCampaign','adminCloseGroupCampaign',
       'getGroupPickupList','markGroupPledgePickedUp','markGroupPledgeNoShow',
-      'markGroupPledgeNotified','updateGroupPledgePickupInfo'
+      'markGroupPledgeNotified','updateGroupPledgePickupInfo',
+      'getGroupCustomerRiskList','updateGroupCustomerStatus',
+      'manualOverrideGroupCustomer','resetGroupCustomerNoShow'
     ];
 
     if (adminActions.includes(action) && !validateSession_(p.session_token)) {
@@ -326,6 +333,10 @@ function handleRequest(e) {
       case 'markGroupPledgeNoShow':       return res(markGroupPledgeNoShow(p));
       case 'markGroupPledgeNotified':     return res(markGroupPledgeNotified(p));
       case 'updateGroupPledgePickupInfo': return res(updateGroupPledgePickupInfo(p));
+      case 'getGroupCustomerRiskList':    return res(getGroupCustomerRiskList(p));
+      case 'updateGroupCustomerStatus':   return res(updateGroupCustomerStatus(p));
+      case 'manualOverrideGroupCustomer': return res(manualOverrideGroupCustomer(p));
+      case 'resetGroupCustomerNoShow':    return res(resetGroupCustomerNoShow(p));
 
       case 'loginAdmin':             return res(loginAdmin(p));
       case 'loginEventAdmin':        return res(loginEventAdmin(p));
@@ -3469,6 +3480,78 @@ function isValidDateString_(s) {
 }
 
 // ================================================================
+// 5-C：防 UTC 解析 — 將 YYYY-MM-DD 字串轉為本地午夜 Date
+// ================================================================
+function parseYmdDateLocal_(s) {
+  if (!isValidDateString_(s)) return null;
+  var parts = s.split('-');
+  var y  = parseInt(parts[0], 10);
+  var m  = parseInt(parts[1], 10);
+  var d  = parseInt(parts[2], 10);
+  var dt = new Date(y, m - 1, d);
+  dt.setHours(0, 0, 0, 0);
+  return dt;
+}
+
+// ================================================================
+// 5-C：覆蓋期是否有效（override_until >= 今日）
+// ================================================================
+function isOverrideActive_(override_until) {
+  if (!override_until) return false;
+  var s = String(override_until).trim();
+  var exp = parseYmdDateLocal_(s);
+  if (!exp) return false;
+  var today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today <= exp;
+}
+
+// ================================================================
+// 5-C：查詢或新建 GROUP_LEADERS 記錄（必須在 LockService 保護下呼叫）
+// ================================================================
+function findOrCreateLeader_(phone, cname) {
+  var lc    = COL.GROUP_LEADERS;
+  var sheet = getSheet(SHEET.GROUP_LEADERS);
+  var rows  = getRows(SHEET.GROUP_LEADERS);
+  var ts    = now();
+
+  for (var i = 0; i < rows.length; i++) {
+    if (normalizePhone_(rows[i][lc.PHONE]) === phone) {
+      return { rowIdx: i, row: rows[i], created: false };
+    }
+  }
+
+  sheet.appendRow([
+    genId('GL'),     //  0  id
+    "'" + phone,     //  1  phone（前導 ' 強制 Sheets 存文字）
+    cname,           //  2  name
+    '',              //  3  member_level
+    '',              //  4  approve_method
+    '',              //  5  approve_date
+    0,               //  6  no_show_count
+    '正常',          //  7  group_buy_status
+    '',              //  8  source_leader
+    '',              //  9  first_led_at
+    '',              // 10  line_uid
+    '',              // 11  note
+    '',              // 12  suspended_at
+    '',              // 13  suspended_reason
+    '',              // 14  override_until
+    '',              // 15  override_note
+    '自動建立 ' + ts // 16  system_note
+  ]);
+  SpreadsheetApp.flush();
+
+  var freshRows = getRows(SHEET.GROUP_LEADERS);
+  var newIdx = -1;
+  for (var j = 0; j < freshRows.length; j++) {
+    if (normalizePhone_(freshRows[j][lc.PHONE]) === phone) { newIdx = j; break; }
+  }
+  if (newIdx < 0) throw new Error('GROUP_LEADERS 建立後找不到資料列');
+  return { rowIdx: newIdx, row: freshRows[newIdx], created: true };
+}
+
+// ================================================================
 // 取貨號碼產生（格式 PUyyyymmdd-NNNNN；同 phone+date 共用同一碼）
 // 由呼叫端在 LockService 保護下呼叫，本函式不再加鎖
 // ================================================================
@@ -3644,16 +3727,48 @@ function markGroupPledgeNoShow(p) {
     if (oldPS === '未取貨')
       return { ok: false, error: '此筆已標記未取貨，請勿重複操作' };
 
-    var ts      = now();
-    var sysLine = '後台標記未取貨 ' + ts + '；pickup_status「' + (oldPS || '空白') + '」→「未取貨」；備註：' + note;
-    var oldSys  = String(sheet.getRange(rn, pc.SYSTEM_NOTE + 1).getValue() || '');
+    var ts     = now();
+    var phone  = normalizePhone_(row[pc.PHONE]);
+    var cname  = String(row[pc.CNAME] || '');
+
+    // ── 第一步：GROUP_PLEDGES 取貨狀態寫入 ─────────────────────────
+    var sysLine1 = '後台標記未取貨 ' + ts + '；pickup_status「' + (oldPS || '空白') + '」→「未取貨」；備註：' + note;
+    var oldSys   = String(sheet.getRange(rn, pc.SYSTEM_NOTE + 1).getValue() || '');
 
     sheet.getRange(rn, pc.PICKUP_STATUS + 1).setValue('未取貨');
     sheet.getRange(rn, pc.PICKUP_NOTE   + 1).setValue(note);
-    sheet.getRange(rn, pc.SYSTEM_NOTE   + 1).setValue(oldSys ? oldSys + '\n' + sysLine : sysLine);
-    // 不改 status，不碰 GROUP_LEADERS（no_show_count 累計是 5-C）
+    sheet.getRange(rn, pc.SYSTEM_NOTE   + 1).setValue(oldSys ? oldSys + '\n' + sysLine1 : sysLine1);
 
-    return { ok: true, pledge_id: pledgeId };
+    // ── 第二步：GROUP_LEADERS no_show_count 更新（5-C）──────────────
+    var leaderResult = findOrCreateLeader_(phone, cname);
+    var leaderIdx    = leaderResult.rowIdx;
+    var lc           = COL.GROUP_LEADERS;
+    var lSheet       = getSheet(SHEET.GROUP_LEADERS);
+    var lrn          = DATA_ROW + leaderIdx;
+    var oldCount     = Number(leaderResult.row[lc.NO_SHOW_COUNT]) || 0;
+    var newCount     = oldCount + 1;
+    var autoSuspend  = newCount >= 3;
+
+    lSheet.getRange(lrn, lc.NO_SHOW_COUNT + 1).setValue(newCount);
+    if (autoSuspend) {
+      lSheet.getRange(lrn, lc.BUY_STATUS       + 1).setValue('暫停');
+      lSheet.getRange(lrn, lc.SUSPENDED_AT     + 1).setValue(ts);
+      lSheet.getRange(lrn, lc.SUSPENDED_REASON + 1).setValue('三次未取貨自動暫停');
+    }
+
+    var lSysLine = '未取貨登記 ' + ts + '；pledge_id=' + pledgeId +
+                   '；no_show_count ' + oldCount + ' → ' + newCount +
+                   (autoSuspend ? '；自動暫停' : '');
+    var oldLSys  = String(lSheet.getRange(lrn, lc.SYSTEM_NOTE + 1).getValue() || '');
+    lSheet.getRange(lrn, lc.SYSTEM_NOTE + 1).setValue(oldLSys ? oldLSys + '\n' + lSysLine : lSysLine);
+
+    // ── 第三步：GROUP_PLEDGES system_note 補寫 no_show_count 結果（修正五）
+    var sysLine2 = 'no_show_count ' + oldCount + ' → ' + newCount +
+                   (autoSuspend ? '；已自動暫停集單資格' : '');
+    var curSys   = String(sheet.getRange(rn, pc.SYSTEM_NOTE + 1).getValue() || '');
+    sheet.getRange(rn, pc.SYSTEM_NOTE + 1).setValue(curSys + '\n' + sysLine2);
+
+    return { ok: true, pledge_id: pledgeId, no_show_count: newCount, auto_suspended: autoSuspend };
   } finally { lock.releaseLock(); }
 }
 
@@ -3896,6 +4011,24 @@ function createGroupPledge(p) {
     var ts         = now();
     var pledgeId, action;
 
+    // ── 5-C：GROUP_LEADERS 暫停檢查（鎖內執行，防競態）──────────
+    var overrideNoteLine = '';
+    var lc2        = COL.GROUP_LEADERS;
+    var leaderRows = getRows(SHEET.GROUP_LEADERS);
+    var leaderRow  = null;
+    for (var li = 0; li < leaderRows.length; li++) {
+      if (normalizePhone_(leaderRows[li][lc2.PHONE]) === phone) {
+        leaderRow = leaderRows[li];
+        break;
+      }
+    }
+    if (leaderRow && String(leaderRow[lc2.BUY_STATUS]) === '暫停') {
+      if (!isOverrideActive_(leaderRow[lc2.OVERRIDE_UNTIL])) {
+        return { ok: false, error: '您的集單資格已暫停，請聯繫幸福緣客服', suspended: true };
+      }
+      overrideNoteLine = '；覆蓋期允許登記至 ' + String(leaderRow[lc2.OVERRIDE_UNTIL]).trim();
+    }
+
     // ── 防重複：同 campaign_id + phone + status=有效 只保留一筆 ──
     var existingIdx = -1;
     for (var i = 0; i < pledgeRows.length; i++) {
@@ -3912,7 +4045,7 @@ function createGroupPledge(p) {
       var rn     = DATA_ROW + existingIdx;
       pledgeId   = String(pledgeRows[existingIdx][pc.ID]);
       var oldSys = String(sheet.getRange(rn, pc.SYSTEM_NOTE + 1).getValue() || '');
-      var newLine = '客人更新登記 ' + ts + '（新 qty=' + qty + '）';
+      var newLine = '客人更新登記 ' + ts + '（新 qty=' + qty + ')' + overrideNoteLine;
       sheet.getRange(rn, pc.QTY         + 1).setValue(qty);
       sheet.getRange(rn, pc.NOTE        + 1).setValue(p.note || '');
       sheet.getRange(rn, pc.SYSTEM_NOTE + 1).setValue(oldSys ? (oldSys + '\n' + newLine) : newLine);
@@ -3925,13 +4058,13 @@ function createGroupPledge(p) {
         campaignId,        // 1  campaign_id
         cname,             // 2  cname
         "'" + phone,       // 3  phone（前導 ' 強制 Sheets 存為文字，避免吃掉前導 0）
-        p.line_uid || '',  // 4  line_uid
-        qty,               // 5  qty
-        '',                // 6  order_id（本輪空白，5-B 後填）
-        ts,                // 7  created_at
-        '有效',             // 8  status
-        p.note || '',      // 9  note
-        '客人登記 ' + ts,  // 10 system_note
+        p.line_uid || '',                    // 4  line_uid
+        qty,                                // 5  qty
+        '',                                 // 6  order_id（本輪空白，5-B 後填）
+        ts,                                 // 7  created_at
+        '有效',                              // 8  status
+        p.note || '',                       // 9  note
+        '客人登記 ' + ts + overrideNoteLine, // 10 system_note
         '',               // 11 pickup_code（取貨日確認後由後台填入）
         '',               // 12 pickup_date
         '待安排',          // 13 pickup_status
@@ -4145,4 +4278,275 @@ function adminRunPaymentTest() {
   log.unshift('=== 付款流程驗收測試 ' + summary + ' ===');
   Logger.log(log.join('\n'));
   return { ok: errors.length === 0, summary, log };
+}
+
+// ================================================================
+// 5-C：查詢高風險顧客清單（admin，無鎖）
+// ================================================================
+function getGroupCustomerRiskList(p) {
+  var limit    = Math.min(parseInt(p.limit    || '100', 10), 500);
+  if (isNaN(limit)    || limit    < 1) limit    = 100;
+  var minCount = parseInt(p.min_no_show || '1', 10);
+  if (isNaN(minCount) || minCount < 1) minCount = 1;
+  var fStatus  = p.group_buy_status ? String(p.group_buy_status).trim() : null;
+  var fPhone   = p.phone            ? normalizePhone_(p.phone)          : null;
+
+  var lc      = COL.GROUP_LEADERS;
+  var rows    = getRows(SHEET.GROUP_LEADERS);
+  var results = [];
+
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (!String(r[lc.ID] || '').trim()) continue;
+    var count = Number(r[lc.NO_SHOW_COUNT]) || 0;
+    if (count < minCount) continue;
+    if (fStatus && String(r[lc.BUY_STATUS] || '') !== fStatus) continue;
+    if (fPhone  && normalizePhone_(r[lc.PHONE])    !== fPhone)  continue;
+
+    results.push({
+      id:               String(r[lc.ID]),
+      phone:            normalizePhone_(r[lc.PHONE]),
+      name:             String(r[lc.NAME]             || ''),
+      no_show_count:    count,
+      group_buy_status: String(r[lc.BUY_STATUS]       || ''),
+      suspended_at:     String(r[lc.SUSPENDED_AT]     || ''),
+      suspended_reason: String(r[lc.SUSPENDED_REASON] || ''),
+      override_until:   String(r[lc.OVERRIDE_UNTIL]   || ''),
+      override_note:    String(r[lc.OVERRIDE_NOTE]    || ''),
+      is_override_active: isOverrideActive_(r[lc.OVERRIDE_UNTIL])
+    });
+    if (results.length >= limit) break;
+  }
+
+  results.sort(function(a, b) { return b.no_show_count - a.no_show_count; });
+  return { ok: true, count: results.length, items: results };
+}
+
+// ================================================================
+// 5-C：手動更新顧客集單資格（admin，LockService）
+// ================================================================
+function updateGroupCustomerStatus(p) {
+  var phone     = p.phone             ? normalizePhone_(p.phone)              : '';
+  var newStatus = String(p.group_buy_status || '').trim();
+  var note      = String(p.note             || '').trim();
+
+  if (!phone)    return { ok: false, error: '缺少 phone' };
+  if (!note)     return { ok: false, error: '請填寫原因（note 必填）' };
+  if (['正常','暫停'].indexOf(newStatus) < 0)
+    return { ok: false, error: 'group_buy_status 必須為「正常」或「暫停」' };
+
+  var lock = _acquireLock_();
+  if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
+  try {
+    var lc    = COL.GROUP_LEADERS;
+    var sheet = getSheet(SHEET.GROUP_LEADERS);
+    var rows  = getRows(SHEET.GROUP_LEADERS);
+    var idx   = -1;
+    for (var i = 0; i < rows.length; i++) {
+      if (normalizePhone_(rows[i][lc.PHONE]) === phone) { idx = i; break; }
+    }
+    if (idx < 0) return { ok: false, error: '找不到顧客資料：' + phone };
+
+    var row   = rows[idx];
+    var rn    = DATA_ROW + idx;
+    var oldSt = String(row[lc.BUY_STATUS] || '');
+    var ts    = now();
+
+    sheet.getRange(rn, lc.BUY_STATUS + 1).setValue(newStatus);
+    sheet.getRange(rn, lc.NOTE       + 1).setValue(note);
+    if (newStatus === '暫停') {
+      sheet.getRange(rn, lc.SUSPENDED_AT     + 1).setValue(ts);
+      sheet.getRange(rn, lc.SUSPENDED_REASON + 1).setValue(note);
+    } else {
+      sheet.getRange(rn, lc.SUSPENDED_AT     + 1).setValue('');
+      sheet.getRange(rn, lc.SUSPENDED_REASON + 1).setValue('');
+    }
+
+    var sysLine = '後台手動更新資格 ' + ts + '；group_buy_status「' + (oldSt || '空白') + '」→「' + newStatus + '」；備註：' + note;
+    var oldSys  = String(sheet.getRange(rn, lc.SYSTEM_NOTE + 1).getValue() || '');
+    sheet.getRange(rn, lc.SYSTEM_NOTE + 1).setValue(oldSys ? oldSys + '\n' + sysLine : sysLine);
+
+    return { ok: true, phone: phone, group_buy_status: newStatus };
+  } finally { lock.releaseLock(); }
+}
+
+// ================================================================
+// 5-C：手動設覆蓋期（admin，LockService）
+// ================================================================
+function manualOverrideGroupCustomer(p) {
+  var phone    = p.phone          ? normalizePhone_(p.phone)      : '';
+  var untilRaw = String(p.override_until || '').trim();
+  var note     = String(p.note           || '').trim();
+
+  if (!phone)    return { ok: false, error: '缺少 phone' };
+  if (!note)     return { ok: false, error: '請填寫覆蓋原因（note 必填）' };
+  if (!isValidDateString_(untilRaw))
+    return { ok: false, error: 'override_until 格式或日期錯誤，請用 YYYY-MM-DD' };
+
+  var untilDate = parseYmdDateLocal_(untilRaw);
+  var today     = new Date(); today.setHours(0, 0, 0, 0);
+  if (untilDate < today)
+    return { ok: false, error: 'override_until 不可設為過去日期' };
+
+  var lock = _acquireLock_();
+  if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
+  try {
+    var lc    = COL.GROUP_LEADERS;
+    var sheet = getSheet(SHEET.GROUP_LEADERS);
+    var rows  = getRows(SHEET.GROUP_LEADERS);
+    var idx   = -1;
+    for (var i = 0; i < rows.length; i++) {
+      if (normalizePhone_(rows[i][lc.PHONE]) === phone) { idx = i; break; }
+    }
+    if (idx < 0) return { ok: false, error: '找不到顧客資料：' + phone };
+
+    var row      = rows[idx];
+    var rn       = DATA_ROW + idx;
+    var oldUntil = String(row[lc.OVERRIDE_UNTIL] || '');
+    var ts       = now();
+
+    var ouCell = sheet.getRange(rn, lc.OVERRIDE_UNTIL + 1);
+    ouCell.setNumberFormat('@');
+    ouCell.setValue(untilRaw);
+    sheet.getRange(rn, lc.OVERRIDE_NOTE + 1).setValue(note);
+
+    var sysLine = '後台設覆蓋期 ' + ts + '；override_until「' + (oldUntil || '空白') + '」→「' + untilRaw + '」；備註：' + note;
+    var oldSys  = String(sheet.getRange(rn, lc.SYSTEM_NOTE + 1).getValue() || '');
+    sheet.getRange(rn, lc.SYSTEM_NOTE + 1).setValue(oldSys ? oldSys + '\n' + sysLine : sysLine);
+
+    return { ok: true, phone: phone, override_until: untilRaw };
+  } finally { lock.releaseLock(); }
+}
+
+// ================================================================
+// 5-C：重置未取貨計數（admin，LockService）
+// ================================================================
+function resetGroupCustomerNoShow(p) {
+  var phone = p.phone ? normalizePhone_(p.phone) : '';
+  var note  = String(p.note || '').trim();
+  if (!phone) return { ok: false, error: '缺少 phone' };
+  if (!note)  return { ok: false, error: '請填寫重置原因（note 必填）' };
+
+  var lock = _acquireLock_();
+  if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
+  try {
+    var lc    = COL.GROUP_LEADERS;
+    var sheet = getSheet(SHEET.GROUP_LEADERS);
+    var rows  = getRows(SHEET.GROUP_LEADERS);
+    var idx   = -1;
+    for (var i = 0; i < rows.length; i++) {
+      if (normalizePhone_(rows[i][lc.PHONE]) === phone) { idx = i; break; }
+    }
+    if (idx < 0) return { ok: false, error: '找不到顧客資料：' + phone };
+
+    var row      = rows[idx];
+    var rn       = DATA_ROW + idx;
+    var oldCount = Number(row[lc.NO_SHOW_COUNT]) || 0;
+    var oldSt    = String(row[lc.BUY_STATUS]    || '');
+    var ts       = now();
+
+    sheet.getRange(rn, lc.NO_SHOW_COUNT    + 1).setValue(0);
+    sheet.getRange(rn, lc.BUY_STATUS       + 1).setValue('正常');
+    sheet.getRange(rn, lc.SUSPENDED_AT     + 1).setValue('');
+    sheet.getRange(rn, lc.SUSPENDED_REASON + 1).setValue('');
+    sheet.getRange(rn, lc.OVERRIDE_UNTIL   + 1).setValue('');
+    sheet.getRange(rn, lc.OVERRIDE_NOTE    + 1).setValue('');
+    sheet.getRange(rn, lc.NOTE             + 1).setValue(note);
+
+    var sysLine = '後台重置未取紀錄 ' + ts +
+                  '；no_show_count ' + oldCount + ' → 0' +
+                  '；group_buy_status「' + (oldSt || '空白') + '」→「正常」' +
+                  '；備註：' + note;
+    var oldSys  = String(sheet.getRange(rn, lc.SYSTEM_NOTE + 1).getValue() || '');
+    sheet.getRange(rn, lc.SYSTEM_NOTE + 1).setValue(oldSys ? oldSys + '\n' + sysLine : sysLine);
+
+    return { ok: true, phone: phone };
+  } finally { lock.releaseLock(); }
+}
+
+// ================================================================
+// 5-C：Migration — 補 GROUP_LEADERS col 12–16 表頭與預設值
+// 不進 router，不進 adminActions，GAS 編輯器手動執行
+// ================================================================
+function adminMigrateGroupLeadersV5C() {
+  var lc    = COL.GROUP_LEADERS;
+  var sheet = getSheet(SHEET.GROUP_LEADERS);
+
+  // ── row1：英文表頭 ──────────────────────────────────────────────
+  sheet.getRange(1, lc.SUSPENDED_AT     + 1).setValue('suspended_at');
+  sheet.getRange(1, lc.SUSPENDED_REASON + 1).setValue('suspended_reason');
+  sheet.getRange(1, lc.OVERRIDE_UNTIL   + 1).setValue('override_until');
+  sheet.getRange(1, lc.OVERRIDE_NOTE    + 1).setValue('override_note');
+  sheet.getRange(1, lc.SYSTEM_NOTE      + 1).setValue('system_note');
+
+  // ── row2：中文表頭 ──────────────────────────────────────────────
+  sheet.getRange(2, lc.SUSPENDED_AT     + 1).setValue('暫停時間');
+  sheet.getRange(2, lc.SUSPENDED_REASON + 1).setValue('暫停原因');
+  sheet.getRange(2, lc.OVERRIDE_UNTIL   + 1).setValue('覆蓋到期日');
+  sheet.getRange(2, lc.OVERRIDE_NOTE    + 1).setValue('覆蓋備註');
+  sheet.getRange(2, lc.SYSTEM_NOTE      + 1).setValue('系統記錄');
+
+  // ── override_until 欄設為文字格式（整欄，防 Sheets 自動轉日期）──
+  var lastRow = sheet.getLastRow();
+  if (lastRow >= 1) {
+    sheet.getRange(1, lc.OVERRIDE_UNTIL + 1, lastRow, 1).setNumberFormat('@');
+  }
+
+  // ── row3+：回填 group_buy_status / no_show_count（不覆蓋已有值）──
+  var rows    = getRows(SHEET.GROUP_LEADERS);
+  var filled  = 0;
+  var skipped = 0;
+
+  for (var i = 0; i < rows.length; i++) {
+    var r  = rows[i];
+    var rn = DATA_ROW + i;
+    if (!String(r[lc.ID] || '').trim()) continue;
+
+    var bsVal    = String(r[lc.BUY_STATUS]    || '').trim();
+    var nsVal    = String(r[lc.NO_SHOW_COUNT] || '').trim();
+
+    var changed = false;
+    if (!bsVal) {
+      sheet.getRange(rn, lc.BUY_STATUS    + 1).setValue('正常');
+      changed = true;
+    }
+    if (!nsVal) {
+      sheet.getRange(rn, lc.NO_SHOW_COUNT + 1).setValue(0);
+      changed = true;
+    }
+    if (changed) filled++;
+    else         skipped++;
+  }
+
+  SpreadsheetApp.flush();
+
+  // ── 讀回 row1/row2 確認 ──────────────────────────────────────────
+  var h1 = [
+    sheet.getRange(1, lc.SUSPENDED_AT     + 1).getValue(),
+    sheet.getRange(1, lc.SUSPENDED_REASON + 1).getValue(),
+    sheet.getRange(1, lc.OVERRIDE_UNTIL   + 1).getValue(),
+    sheet.getRange(1, lc.OVERRIDE_NOTE    + 1).getValue(),
+    sheet.getRange(1, lc.SYSTEM_NOTE      + 1).getValue()
+  ];
+  var h2 = [
+    sheet.getRange(2, lc.SUSPENDED_AT     + 1).getValue(),
+    sheet.getRange(2, lc.SUSPENDED_REASON + 1).getValue(),
+    sheet.getRange(2, lc.OVERRIDE_UNTIL   + 1).getValue(),
+    sheet.getRange(2, lc.OVERRIDE_NOTE    + 1).getValue(),
+    sheet.getRange(2, lc.SYSTEM_NOTE      + 1).getValue()
+  ];
+
+  Logger.log('adminMigrateGroupLeadersV5C 完成');
+  Logger.log('row1（英文）：' + h1.join(' | '));
+  Logger.log('row2（中文）：' + h2.join(' | '));
+  Logger.log('回填 ' + filled + ' 筆，已有資料略過 ' + skipped + ' 筆');
+  Logger.log('既有 14 張表未異動，GROUP_LEDGER 未寫入');
+
+  return {
+    ok: true,
+    row1_headers: h1,
+    row2_headers: h2,
+    filled:  filled,
+    skipped: skipped
+  };
 }
