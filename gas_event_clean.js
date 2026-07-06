@@ -126,7 +126,12 @@ COL.GROUP_PLEDGES = {
   ID:0, CID:1, CNAME:2, PHONE:3, LINE_UID:4,
   QTY:5, ORDER_ID:6, CREATED:7, STATUS:8, NOTE:9
 };
-COL.GROUP_PLEDGES.SYSTEM_NOTE = 10;
+COL.GROUP_PLEDGES.SYSTEM_NOTE   = 10;
+COL.GROUP_PLEDGES.PICKUP_CODE   = 11;
+COL.GROUP_PLEDGES.PICKUP_DATE   = 12;
+COL.GROUP_PLEDGES.PICKUP_STATUS = 13;
+COL.GROUP_PLEDGES.PICKED_UP_AT  = 14;
+COL.GROUP_PLEDGES.PICKUP_NOTE   = 15;
 COL.GROUP_LEADERS = {
   ID:0, PHONE:1, NAME:2, LEVEL:3,
   APPROVE_METHOD:4, APPROVE_DATE:5,
@@ -235,7 +240,9 @@ function handleRequest(e) {
       'adminEnableReturnMaintenance','adminDisableReturnMaintenance','adminCheckPendingReturns',
       'getGroupProductSettings','saveGroupProductSetting',
       'getGroupCampaigns',
-      'createGroupCampaign','updateGroupCampaign','adminCloseGroupCampaign'
+      'createGroupCampaign','updateGroupCampaign','adminCloseGroupCampaign',
+      'getGroupPickupList','markGroupPledgePickedUp','markGroupPledgeNoShow',
+      'markGroupPledgeNotified','updateGroupPledgePickupInfo'
     ];
 
     if (adminActions.includes(action) && !validateSession_(p.session_token)) {
@@ -313,7 +320,12 @@ function handleRequest(e) {
       case 'createGroupCampaign':      return res(createGroupCampaign(p));
       case 'updateGroupCampaign':      return res(updateGroupCampaign(p));
       case 'adminCloseGroupCampaign':  return res(adminCloseGroupCampaign(p));
-      case 'createGroupPledge':        return res(createGroupPledge(p));
+      case 'createGroupPledge':           return res(createGroupPledge(p));
+      case 'getGroupPickupList':          return res(getGroupPickupList(p));
+      case 'markGroupPledgePickedUp':     return res(markGroupPledgePickedUp(p));
+      case 'markGroupPledgeNoShow':       return res(markGroupPledgeNoShow(p));
+      case 'markGroupPledgeNotified':     return res(markGroupPledgeNotified(p));
+      case 'updateGroupPledgePickupInfo': return res(updateGroupPledgePickupInfo(p));
 
       case 'loginAdmin':             return res(loginAdmin(p));
       case 'loginEventAdmin':        return res(loginEventAdmin(p));
@@ -3444,6 +3456,383 @@ function normalizePhone_(v) {
 }
 
 // ================================================================
+// 取貨日期驗證（格式 YYYY-MM-DD + 真實日期，防 2026-02-30）
+// ================================================================
+function isValidDateString_(s) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  var parts = s.split('-');
+  var y  = parseInt(parts[0], 10);
+  var m  = parseInt(parts[1], 10);
+  var d  = parseInt(parts[2], 10);
+  var dt = new Date(y, m - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+}
+
+// ================================================================
+// 取貨號碼產生（格式 PUyyyymmdd-NNNNN；同 phone+date 共用同一碼）
+// 由呼叫端在 LockService 保護下呼叫，本函式不再加鎖
+// ================================================================
+function genPickupCode_(date, phone) {
+  if (!isValidDateString_(date)) return null;
+
+  var normPhone = normalizePhone_(phone);
+  var pc        = COL.GROUP_PLEDGES;
+  var rows      = getRows(SHEET.GROUP_PLEDGES);
+  var dateKey   = date.replace(/-/g, '');
+  var prefix    = 'PU' + dateKey + '-';
+
+  // 1. 同 phone + 同 pickup_date 已有 pickup_code → 共用
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (normalizePhone_(r[pc.PHONE]) === normPhone &&
+        String(r[pc.PICKUP_DATE])    === date      &&
+        String(r[pc.PICKUP_CODE])    !== '') {
+      return String(r[pc.PICKUP_CODE]);
+    }
+  }
+
+  // 2. 掃 sheet 找同日已存在的最大流水號（防 ScriptProperties 遺失後重複）
+  var sheetMax = 0;
+  for (var j = 0; j < rows.length; j++) {
+    var code = String(rows[j][pc.PICKUP_CODE] || '');
+    if (code.indexOf(prefix) === 0) {
+      var seq = parseInt(code.slice(prefix.length), 10);
+      if (!isNaN(seq) && seq > sheetMax) sheetMax = seq;
+    }
+  }
+
+  // 3. ScriptProperties 只當快取；實際取 max(sheetMax, propSeq) + 1
+  var propKey = 'PICKUP_SEQ_' + dateKey;
+  var props   = PropertiesService.getScriptProperties();
+  var propSeq = parseInt(props.getProperty(propKey) || '0', 10);
+  var newSeq  = Math.max(sheetMax, propSeq) + 1;
+  props.setProperty(propKey, String(newSeq));
+
+  return prefix + String(newSeq).padStart(5, '0');
+}
+
+// ================================================================
+// 取貨管理 — 查詢清單（admin）
+// ================================================================
+function getGroupPickupList(p) {
+  var limit = Math.min(parseInt(p.limit || '200', 10), 500);
+  if (isNaN(limit) || limit < 1) limit = 200;
+
+  var pc   = COL.GROUP_PLEDGES;
+  var rows = getRows(SHEET.GROUP_PLEDGES);
+
+  var fCampaign = p.campaign_id   ? String(p.campaign_id).trim()   : null;
+  var fDate     = p.pickup_date   ? String(p.pickup_date).trim()   : null;
+  var fCode     = p.pickup_code   ? String(p.pickup_code).trim()   : null;
+  var fPhone    = p.phone         ? normalizePhone_(p.phone)        : null;
+  var fPStatus  = p.pickup_status ? String(p.pickup_status).trim() : null;
+  var noFilter  = !fCampaign && !fDate && !fCode && !fPhone && !fPStatus;
+
+  // 無條件查詢時只回傳進行中的清單（已取貨/未取貨/取消 必須明確指定才查）
+  var ACTIVE_PS = ['', '待安排', '待取貨', '已通知'];
+
+  var results = [];
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (!String(r[pc.ID] || '').trim()) continue;
+
+    if (fCampaign && String(r[pc.CID])               !== fCampaign) continue;
+    if (fDate     && String(r[pc.PICKUP_DATE]  || '') !== fDate)    continue;
+    if (fCode     && String(r[pc.PICKUP_CODE]  || '') !== fCode)    continue;
+    if (fPhone    && normalizePhone_(r[pc.PHONE])     !== fPhone)   continue;
+    if (fPStatus  && String(r[pc.PICKUP_STATUS]|| '') !== fPStatus) continue;
+
+    if (noFilter) {
+      if (String(r[pc.STATUS]) !== '有效') continue;
+      if (ACTIVE_PS.indexOf(String(r[pc.PICKUP_STATUS] || '')) < 0) continue;
+    }
+
+    results.push({
+      pledge_id:     String(r[pc.ID]),
+      campaign_id:   String(r[pc.CID]),
+      cname:         String(r[pc.CNAME]),
+      phone:         normalizePhone_(r[pc.PHONE]),
+      qty:           Number(r[pc.QTY]) || 0,
+      status:        String(r[pc.STATUS]),
+      pickup_code:   String(r[pc.PICKUP_CODE]    || ''),
+      pickup_date:   String(r[pc.PICKUP_DATE]    || ''),
+      pickup_status: String(r[pc.PICKUP_STATUS]  || ''),
+      picked_up_at:  String(r[pc.PICKED_UP_AT]   || ''),
+      pickup_note:   String(r[pc.PICKUP_NOTE]    || ''),
+      created_at:    String(r[pc.CREATED])
+    });
+    if (results.length >= limit) break;
+  }
+  return { ok: true, count: results.length, items: results };
+}
+
+// ================================================================
+// 取貨管理 — 標記已取貨（admin）
+// ================================================================
+function markGroupPledgePickedUp(p) {
+  var pledgeId = String(p.pledge_id || '').trim();
+  if (!pledgeId) return { ok: false, error: '缺少 pledge_id' };
+
+  var lock = _acquireLock_();
+  if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
+  try {
+    var pc    = COL.GROUP_PLEDGES;
+    var sheet = getSheet(SHEET.GROUP_PLEDGES);
+    var rows  = getRows(SHEET.GROUP_PLEDGES);
+    var idx   = -1;
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i][pc.ID]) === pledgeId) { idx = i; break; }
+    }
+    if (idx < 0) return { ok: false, error: '找不到登記記錄 ' + pledgeId };
+
+    var row   = rows[idx];
+    var rn    = DATA_ROW + idx;
+    var oldPS = String(row[pc.PICKUP_STATUS] || '');
+
+    if (String(row[pc.STATUS]) !== '有效')
+      return { ok: false, error: '登記狀態不是有效，無法操作取貨' };
+    if (oldPS === '已取貨')
+      return { ok: false, error: '此筆已標記取貨，請勿重複操作' };
+    if (oldPS === '未取貨')
+      return { ok: false, error: '取貨狀態為「未取貨」（終態），無法直接改為已取貨，請另開 reversal 作業' };
+    if (oldPS === '取消')
+      return { ok: false, error: '取貨狀態為「取消」（終態），無法直接改為已取貨，請另開 reversal 作業' };
+
+    var ts      = now();
+    var sysLine = '後台標記已取貨 ' + ts + '；pickup_status「' + (oldPS || '空白') + '」→「已取貨」'
+                  + (p.note ? '；備註：' + p.note : '');
+    var oldSys  = String(sheet.getRange(rn, pc.SYSTEM_NOTE + 1).getValue() || '');
+
+    sheet.getRange(rn, pc.PICKUP_STATUS + 1).setValue('已取貨');
+    sheet.getRange(rn, pc.PICKED_UP_AT  + 1).setValue(ts);
+    if (p.note) sheet.getRange(rn, pc.PICKUP_NOTE + 1).setValue(p.note);
+    sheet.getRange(rn, pc.SYSTEM_NOTE   + 1).setValue(oldSys ? oldSys + '\n' + sysLine : sysLine);
+
+    return { ok: true, pledge_id: pledgeId, picked_up_at: ts };
+  } finally { lock.releaseLock(); }
+}
+
+// ================================================================
+// 取貨管理 — 標記未取貨（admin）
+// ================================================================
+function markGroupPledgeNoShow(p) {
+  var pledgeId = String(p.pledge_id || '').trim();
+  var note     = String(p.note      || '').trim();
+  if (!pledgeId) return { ok: false, error: '缺少 pledge_id' };
+  if (!note)     return { ok: false, error: '請填寫未取貨原因（note 必填）' };
+
+  var lock = _acquireLock_();
+  if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
+  try {
+    var pc    = COL.GROUP_PLEDGES;
+    var sheet = getSheet(SHEET.GROUP_PLEDGES);
+    var rows  = getRows(SHEET.GROUP_PLEDGES);
+    var idx   = -1;
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i][pc.ID]) === pledgeId) { idx = i; break; }
+    }
+    if (idx < 0) return { ok: false, error: '找不到登記記錄 ' + pledgeId };
+
+    var row   = rows[idx];
+    var rn    = DATA_ROW + idx;
+    var oldPS = String(row[pc.PICKUP_STATUS] || '');
+
+    if (String(row[pc.STATUS]) !== '有效')
+      return { ok: false, error: '登記狀態不是有效，無法操作取貨' };
+    if (oldPS === '已取貨')
+      return { ok: false, error: '此筆已完成取貨，無法標記未取貨' };
+    if (oldPS === '未取貨')
+      return { ok: false, error: '此筆已標記未取貨，請勿重複操作' };
+
+    var ts      = now();
+    var sysLine = '後台標記未取貨 ' + ts + '；pickup_status「' + (oldPS || '空白') + '」→「未取貨」；備註：' + note;
+    var oldSys  = String(sheet.getRange(rn, pc.SYSTEM_NOTE + 1).getValue() || '');
+
+    sheet.getRange(rn, pc.PICKUP_STATUS + 1).setValue('未取貨');
+    sheet.getRange(rn, pc.PICKUP_NOTE   + 1).setValue(note);
+    sheet.getRange(rn, pc.SYSTEM_NOTE   + 1).setValue(oldSys ? oldSys + '\n' + sysLine : sysLine);
+    // 不改 status，不碰 GROUP_LEADERS（no_show_count 累計是 5-C）
+
+    return { ok: true, pledge_id: pledgeId };
+  } finally { lock.releaseLock(); }
+}
+
+// ================================================================
+// 取貨管理 — 標記已通知（admin）
+// ================================================================
+function markGroupPledgeNotified(p) {
+  var pledgeId = String(p.pledge_id || '').trim();
+  if (!pledgeId) return { ok: false, error: '缺少 pledge_id' };
+
+  var lock = _acquireLock_();
+  if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
+  try {
+    var pc    = COL.GROUP_PLEDGES;
+    var sheet = getSheet(SHEET.GROUP_PLEDGES);
+    var rows  = getRows(SHEET.GROUP_PLEDGES);
+    var idx   = -1;
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i][pc.ID]) === pledgeId) { idx = i; break; }
+    }
+    if (idx < 0) return { ok: false, error: '找不到登記記錄 ' + pledgeId };
+
+    var row   = rows[idx];
+    var rn    = DATA_ROW + idx;
+    var oldPS = String(row[pc.PICKUP_STATUS] || '');
+
+    if (String(row[pc.STATUS]) !== '有效')
+      return { ok: false, error: '登記狀態不是有效，無法操作取貨' };
+    // 白名單：只允許空白 / 待安排 / 待取貨
+    var allowed = ['', '待安排', '待取貨'];
+    if (allowed.indexOf(oldPS) < 0)
+      return { ok: false, error: '取貨狀態「' + oldPS + '」無法標記已通知（須為空白/待安排/待取貨）' };
+
+    var ts      = now();
+    var sysLine = '後台標記已通知 ' + ts + '；pickup_status「' + (oldPS || '空白') + '」→「已通知」'
+                  + (p.note ? '；備註：' + p.note : '');
+    var oldSys  = String(sheet.getRange(rn, pc.SYSTEM_NOTE + 1).getValue() || '');
+
+    sheet.getRange(rn, pc.PICKUP_STATUS + 1).setValue('已通知');
+    if (p.note) sheet.getRange(rn, pc.PICKUP_NOTE + 1).setValue(p.note);
+    sheet.getRange(rn, pc.SYSTEM_NOTE   + 1).setValue(oldSys ? oldSys + '\n' + sysLine : sysLine);
+
+    return { ok: true, pledge_id: pledgeId };
+  } finally { lock.releaseLock(); }
+}
+
+// ================================================================
+// 取貨管理 — 更新取貨資訊（admin；終態封鎖）
+// ================================================================
+function updateGroupPledgePickupInfo(p) {
+  var pledgeId = String(p.pledge_id || '').trim();
+  if (!pledgeId) return { ok: false, error: '缺少 pledge_id' };
+
+  var hasDate = Object.prototype.hasOwnProperty.call(p, 'pickup_date');
+  var hasNote = Object.prototype.hasOwnProperty.call(p, 'pickup_note');
+  if (!hasDate && !hasNote)
+    return { ok: false, error: '請至少提供 pickup_date 或 pickup_note 其中一個' };
+
+  var newDate = hasDate ? String(p.pickup_date || '').trim() : null;
+  if (newDate && !isValidDateString_(newDate))
+    return { ok: false, error: 'pickup_date 格式或日期錯誤，請用 YYYY-MM-DD（例：2026-07-10）' };
+
+  var lock = _acquireLock_();
+  if (!lock) return { ok: false, error: '系統忙碌，請稍後再試' };
+  try {
+    var pc    = COL.GROUP_PLEDGES;
+    var sheet = getSheet(SHEET.GROUP_PLEDGES);
+    var rows  = getRows(SHEET.GROUP_PLEDGES);
+    var idx   = -1;
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i][pc.ID]) === pledgeId) { idx = i; break; }
+    }
+    if (idx < 0) return { ok: false, error: '找不到登記記錄 ' + pledgeId };
+
+    var row   = rows[idx];
+    var rn    = DATA_ROW + idx;
+    var oldPS = String(row[pc.PICKUP_STATUS] || '');
+
+    if (String(row[pc.STATUS]) !== '有效')
+      return { ok: false, error: '登記狀態不是有效，無法操作取貨' };
+    var blocked = ['已取貨', '未取貨', '取消'];
+    if (blocked.indexOf(oldPS) >= 0)
+      return { ok: false, error: '取貨狀態「' + oldPS + '」為終態，無法修改取貨資訊' };
+
+    var ts      = now();
+    var changes = [];
+    var newCode = null;
+
+    if (hasDate) {
+      var oldDate = String(row[pc.PICKUP_DATE]  || '');
+      var oldCode = String(row[pc.PICKUP_CODE]  || '');
+
+      if (newDate === '') {
+        sheet.getRange(rn, pc.PICKUP_DATE + 1).setValue('');
+        sheet.getRange(rn, pc.PICKUP_CODE + 1).setValue('');
+        changes.push('pickup_date「' + (oldDate || '空白') + '」→ 空白；pickup_code「' + (oldCode || '空白') + '」→ 空白');
+        if (oldPS !== '待安排') {
+          sheet.getRange(rn, pc.PICKUP_STATUS + 1).setValue('待安排');
+          changes.push('pickup_status「' + oldPS + '」→「待安排」（清空取貨日自動退回）');
+        }
+      } else {
+        var phone = normalizePhone_(row[pc.PHONE]);
+        newCode   = genPickupCode_(newDate, phone);
+        if (!newCode) return { ok: false, error: '取貨號碼產生失敗，請確認 pickup_date 格式正確' };
+        sheet.getRange(rn, pc.PICKUP_DATE + 1).setValue(newDate);
+        sheet.getRange(rn, pc.PICKUP_CODE + 1).setValue(newCode);
+        changes.push('pickup_date「' + (oldDate || '空白') + '」→「' + newDate + '」；pickup_code「' + (oldCode || '空白') + '」→「' + newCode + '」');
+        if (oldPS === '待安排' || oldPS === '') {
+          sheet.getRange(rn, pc.PICKUP_STATUS + 1).setValue('待取貨');
+          changes.push('pickup_status「' + (oldPS || '空白') + '」→「待取貨」（補填取貨日自動進階）');
+        }
+      }
+    }
+
+    if (hasNote) {
+      var oldNote = String(row[pc.PICKUP_NOTE] || '');
+      var newNote = String(p.pickup_note || '');
+      sheet.getRange(rn, pc.PICKUP_NOTE + 1).setValue(newNote);
+      changes.push('pickup_note「' + (oldNote || '空白') + '」→「' + (newNote || '空白') + '」');
+    }
+
+    var sysLine = '後台更新取貨資訊 ' + ts + '；' + changes.join('；');
+    var oldSys  = String(sheet.getRange(rn, pc.SYSTEM_NOTE + 1).getValue() || '');
+    sheet.getRange(rn, pc.SYSTEM_NOTE + 1).setValue(oldSys ? oldSys + '\n' + sysLine : sysLine);
+
+    return { ok: true, pledge_id: pledgeId, pickup_code: newCode };
+  } finally { lock.releaseLock(); }
+}
+
+// ================================================================
+// Migration — GROUP_PLEDGES 補 col 12–16 表頭與預設 pickup_status
+// GAS 編輯器手動執行，不進 router，不進 adminActions
+// ================================================================
+function adminMigrateGroupPledgesV5B() {
+  var ss    = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(SHEET.GROUP_PLEDGES);
+  if (!sheet) return { ok: false, error: '找不到 GROUP_PLEDGES 表' };
+
+  // row1 英文表頭 col 12–16
+  sheet.getRange(1, 12, 1, 5).setValues([[
+    'pickup_code','pickup_date','pickup_status','picked_up_at','pickup_note'
+  ]]);
+  // row2 中文表頭 col 12–16
+  sheet.getRange(2, 12, 1, 5).setValues([[
+    '取貨號碼','預計取貨日','取貨狀態','實際取貨時間','取貨備註'
+  ]]);
+
+  // row3+ 回填 pickup_status（不覆蓋已有值）
+  var pc      = COL.GROUP_PLEDGES;
+  var lastRow = sheet.getLastRow();
+  var filled  = 0;
+  var skipped = 0;
+
+  if (lastRow >= DATA_ROW) {
+    var data = sheet.getRange(DATA_ROW, 1, lastRow - DATA_ROW + 1, 16).getValues();
+    for (var i = 0; i < data.length; i++) {
+      var r  = data[i];
+      var id = String(r[pc.ID] || '').trim();
+      if (!id) continue;
+
+      var existingPS = String(r[pc.PICKUP_STATUS] || '').trim();
+      if (existingPS !== '') { skipped++; continue; }
+
+      var defaultPS = (String(r[pc.STATUS]) === '有效') ? '待安排' : '取消';
+      sheet.getRange(DATA_ROW + i, pc.PICKUP_STATUS + 1).setValue(defaultPS);
+      filled++;
+    }
+  }
+
+  var log = [
+    'GROUP_PLEDGES col 12–16 表頭補充完成（row1=英文, row2=中文）',
+    'pickup_status 回填：' + filled + ' 列；已有值略過：' + skipped + ' 列',
+    '既有 14 張表未異動'
+  ];
+  Logger.log(log.join('\n'));
+  return { ok: true, filled: filled, skipped: skipped, log: log };
+}
+
+// ================================================================
 // 團購模組 — 客人登記（public API，token 防誤打，非安全驗證）
 // ================================================================
 function createGroupPledge(p) {
@@ -3540,7 +3929,12 @@ function createGroupPledge(p) {
         ts,                // 7  created_at
         '有效',             // 8  status
         p.note || '',      // 9  note
-        '客人登記 ' + ts   // 10 system_note
+        '客人登記 ' + ts,  // 10 system_note
+        '',               // 11 pickup_code（取貨日確認後由後台填入）
+        '',               // 12 pickup_date
+        '待安排',          // 13 pickup_status
+        '',               // 14 picked_up_at
+        ''                // 15 pickup_note
       ]);
       SpreadsheetApp.flush(); // 確保 appendRow 立即寫入，下次請求讀到最新資料
       action = 'created';
