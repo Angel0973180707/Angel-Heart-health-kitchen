@@ -3504,9 +3504,77 @@ function renderCampaigns() {
         ${canClose ? `<button class="btn btn-ghost" style="width:auto;padding:8px 14px;font-size:13px" onclick="closeCampaignAction('${c.id}','close')">✅ 結團</button>`:'' }
         ${canClose ? `<button class="btn btn-ghost" style="width:auto;padding:8px 14px;font-size:13px;color:var(--red)" onclick="closeCampaignAction('${c.id}','cancel')">❌ 流團</button>`:'' }
       </div>
+      <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-ghost" style="width:auto;padding:6px 10px;font-size:12px" onclick="copyCampaignShareUrl('${c.id}')">🔗 複製連結</button>
+        <button class="btn btn-ghost" style="width:auto;padding:6px 10px;font-size:12px" onclick="openCampaignShareUrl('${c.id}')">🌐 開啟集單頁</button>
+        <button class="btn btn-ghost" style="width:auto;padding:6px 10px;font-size:12px" onclick="copyCampaignShareText('${c.id}')">💬 複製 LINE 分享文</button>
+      </div>
       <div style="font-size:10px;color:var(--muted);margin-top:6px">ID：${c.id}</div>
     </div>`;
   }).join('');
+}
+
+// ── Module 6-B: 集單分享工具 ──────────────────────────────────────
+const SHARE_BASE_URL = 'https://angel0973180707.github.io/Angel-Heart-health-kitchen/shop.html';
+
+function getCampaignShareUrl(id) {
+  return SHARE_BASE_URL + '?campaign_id=' + encodeURIComponent(id);
+}
+
+function openCampaignShareUrl(id) {
+  window.open(getCampaignShareUrl(id), '_blank');
+}
+
+async function copyCampaignShareUrl(id) {
+  await copyText(getCampaignShareUrl(id), '集單連結已複製！');
+}
+
+function buildCampaignShareText(cid) {
+  const c = (cache.groupCampaigns || []).find(x => x.id === cid);
+  if (!c) return '';
+  const prod     = (cache.products || []).find(p => p.product_id === c.product_id);
+  const prodName = (prod ? prod.name : '') || c.campaign_name || '';
+  const price    = (c.group_price && Number(c.group_price) > 0)
+                   ? 'NT$ ' + Number(c.group_price).toLocaleString() : '洽詢';
+  const deadline = c.deadline ? String(c.deadline).slice(0, 10) : '—';
+  return [
+    '🌸 幸福緣好物市集｜開團中',
+    '',
+    '【商品】' + prodName,
+    '【團購價】' + price,
+    '【目標】' + (c.threshold_qty || 0) + ' 件成團',
+    '【目前】已登記 ' + (c.current_qty || 0) + ' 件',
+    '【截止】' + deadline,
+    '【取貨】' + (c.pickup_note || '—'),
+    '',
+    '點這裡登記：',
+    getCampaignShareUrl(cid)
+  ].join('\n');
+}
+
+async function copyCampaignShareText(id) {
+  const text = buildCampaignShareText(id);
+  if (!text) { showToast('找不到活動資料', 'error'); return; }
+  await copyText(text, '分享文已複製！');
+}
+
+async function copyText(text, successMsg) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    showToast(successMsg || '已複製！');
+  } catch (e) {
+    showToast('複製失敗，請手動複製', 'error');
+  }
 }
 </script>
 </body>

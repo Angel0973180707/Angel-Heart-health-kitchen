@@ -213,6 +213,15 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-hei
   font-size:13px;color:#8B6914;
 }
 .pledge-error{margin-top:10px;font-size:13px;color:#C94A3A;text-align:center;display:none}
+/* ── Module 6-B: Hero + 導流按鈕 ── */
+.campaign-hero{position:relative;overflow:hidden;min-height:120px;background:var(--green-pale)}
+.campaign-hero img{width:100%;max-height:260px;object-fit:cover;display:block}
+.campaign-hero-overlay{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.65));padding:20px 18px 16px}
+.hero-name{font-size:17px;font-weight:800;color:#fff;margin-bottom:4px}
+.hero-price{font-size:28px;font-weight:800;color:#fff;margin-bottom:2px}
+.hero-deadline{font-size:12px;color:rgba(255,255,255,.8)}
+.campaign-shop-nav{padding:18px 18px 8px;text-align:center}
+.campaign-shop-nav a{font-size:14px;color:var(--green-soft);text-decoration:none;padding:10px 24px;border:1.5px solid var(--green-soft);border-radius:99px;display:inline-block}
 </style>
 </head>
 <body>
@@ -482,6 +491,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-hei
         </div>
       </div>
 
+      <div class="campaign-shop-nav">
+        <a id="campaign-shop-link" href="#">🛍️ 也想逛幸福緣其他好物</a>
+      </div>
+
     </div>
   </div>
 </div>
@@ -732,6 +745,11 @@ async function submitOrder(){
   const btn=document.getElementById('submit-btn');
   btn.disabled=true;btn.textContent='送出中...';
 
+  const rawNote=document.getElementById('f-note').value.trim();
+  const finalNote=SOURCE_CAMPAIGN_ID
+    ?(rawNote?rawNote+'\n[GROUP_SOURCE:'+SOURCE_CAMPAIGN_ID+']':'[GROUP_SOURCE:'+SOURCE_CAMPAIGN_ID+']')
+    :rawNote;
+
   try{
     const r=await fetch(GAS_URL,{
       method:'POST',
@@ -744,7 +762,7 @@ async function submitOrder(){
         address:document.getElementById('f-address').value.trim(),
         items:itemsJson,
         payment:selectedPayment,
-        note:document.getElementById('f-note').value.trim()
+        note:finalNote
       })
     });
     const data=await r.json();
@@ -898,6 +916,12 @@ function isSafeImageUrl(u){
 
 const CAMPAIGN_ID=new URLSearchParams(window.location.search).get('campaign_id')||'';
 
+function normalizeCampaignSourceId(v){
+  v=String(v||'').trim();
+  return /^GC[0-9A-Za-z_-]+$/.test(v)?v:'';
+}
+const SOURCE_CAMPAIGN_ID=normalizeCampaignSourceId(new URLSearchParams(window.location.search).get('source_campaign_id'));
+
 function initCampaignMode(){
   if(!CAMPAIGN_ID)return;
   document.querySelector('.search-bar').style.display='none';
@@ -905,6 +929,8 @@ function initCampaignMode(){
   document.querySelector('.products').style.display='none';
   document.querySelectorAll('.cart-btn').forEach(function(b){b.style.display='none';});
   document.getElementById('campaign-section').style.display='block';
+  var shopLinkEl=document.getElementById('campaign-shop-link');
+  if(shopLinkEl)shopLinkEl.setAttribute('href','shop.html?source_campaign_id='+encodeURIComponent(CAMPAIGN_ID)+'&source=group');
   loadCampaign();
 }
 
@@ -932,15 +958,29 @@ function renderCampaign(d){
   campaignCache=d;
 
   // 商品圖片：isSafeImageUrl 檢查，DOM setAttribute，不走 innerHTML
+  // 有圖片時切換為 Hero 模式（gradient overlay 顯示名稱/價格/截止）
   var imgWrap=document.getElementById('campaign-img');
+  var heroPriceEl=null;
   imgWrap.innerHTML='';
   if(d.image_url&&isSafeImageUrl(d.image_url)){
+    imgWrap.className='campaign-hero';
     var img=document.createElement('img');
     img.setAttribute('src',d.image_url);
     img.setAttribute('alt',d.campaign_name||'');
-    img.style.cssText='width:100%;max-height:240px;object-fit:cover';
     imgWrap.appendChild(img);
+    var overlay=document.createElement('div');
+    overlay.className='campaign-hero-overlay';
+    var nameEl=document.createElement('div');
+    nameEl.className='hero-name';nameEl.textContent=d.campaign_name||'';
+    heroPriceEl=document.createElement('div');
+    heroPriceEl.className='hero-price';
+    var deadlineEl=document.createElement('div');
+    deadlineEl.className='hero-deadline';
+    deadlineEl.textContent='截止：'+(d.deadline?String(d.deadline).slice(0,10):'—');
+    overlay.appendChild(nameEl);overlay.appendChild(heroPriceEl);overlay.appendChild(deadlineEl);
+    imgWrap.appendChild(overlay);
   }else{
+    imgWrap.className='campaign-img';
     imgWrap.innerHTML='<div class="campaign-img-placeholder">🛒</div>';
   }
 
@@ -949,6 +989,7 @@ function renderCampaign(d){
   var priceDisp=(d.group_price&&Number(d.group_price)>0)
     ?'NT$ '+Number(d.group_price).toLocaleString()
     :'洽詢';
+  if(heroPriceEl)heroPriceEl.textContent=priceDisp;
   document.getElementById('campaign-meta').innerHTML=
     '<div style="font-size:20px;font-weight:800;color:var(--green-dark);margin-bottom:6px">'+escapeHtml(d.campaign_name)+'</div>'+
     (d.product_name?'<div style="font-size:14px;color:var(--text-mid);margin-bottom:4px">🛍️ '+escapeHtml(d.product_name)+'</div>':'')+
