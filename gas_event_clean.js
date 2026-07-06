@@ -3758,7 +3758,9 @@ function updateGroupPledgePickupInfo(p) {
         var phone = normalizePhone_(row[pc.PHONE]);
         newCode   = genPickupCode_(newDate, phone);
         if (!newCode) return { ok: false, error: '取貨號碼產生失敗，請確認 pickup_date 格式正確' };
-        sheet.getRange(rn, pc.PICKUP_DATE + 1).setValue(newDate);
+        var pdCell = sheet.getRange(rn, pc.PICKUP_DATE + 1);
+        pdCell.setNumberFormat('@');
+        pdCell.setValue(newDate);
         sheet.getRange(rn, pc.PICKUP_CODE + 1).setValue(newCode);
         changes.push('pickup_date「' + (oldDate || '空白') + '」→「' + newDate + '」；pickup_code「' + (oldCode || '空白') + '」→「' + newCode + '」');
         if (oldPS === '待安排' || oldPS === '') {
