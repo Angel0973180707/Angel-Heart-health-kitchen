@@ -101,4 +101,34 @@
 
 ---
 
+## 7. 追加紀錄（2026-07-07）：Phase 1-B `getSystemConfig()` 通路實作
+
+**跨專案詞彙污染攔截：** 出草案階段，指令中出現「心腦展廳、生命劇場、心靈會所、中控臺」等白名單詞彙，經全專案掃描確認**這些詞完全不存在於本 repo**。後續確認這些詞屬於另一個完全不同的專案（「幸福教養概念館」PWA），跟幸福緣好物市集（本 repo）無關。**已在實作前攔截，這次的 `getSystemConfig()` 白名單只包含市集業務真實會用到的欄位（品牌名稱、網址、LINE、功能開關），沒有寫入任何跨專案的污染內容。**
+
+**實作內容：**
+- `gas_event_clean.js` 新增 `getSystemConfig(p)`（唯讀，回傳 `BRAND_NAME` / `SITE_BASE_URL` / `LINE_OA_URL` / `ENABLE_GROUP_BUY` / `ENABLE_POS` / `ENABLE_EVENTS`，值先寫死在函式內，**尚未讀取任何 Google Sheet**，`System_Config` 表本身還沒建立）；router 新增 `case 'getSystemConfig'`，不在 `adminActions` 白名單內（免登入即可呼叫，因為回傳內容全部是 public 等級）
+- 新增 `config.js`（repo 根目錄，跟 `leader.html` 同層）：一支獨立探針，載入時自動 fetch `getSystemConfig`，結果存到 `window.HappinessSystemConfig`；**Content-Type 固定為 `text/plain;charset=utf-8`**，沒有任何 `application/json` 殘留
+- **`config.js` 尚未被任何現有頁面 `<script src>` 引用**——刻意隔離，不影響 `leader.html` / `shop.html` / `index.html` 等既有頁面的任何行為
+
+**影響範圍確認：**
+- 只改 `gas_event_clean.js`（+22 行）、新增 `config.js`（+27 行），其餘檔案零異動
+- `getSystemConfig()` 函式內完全沒有引用 `SPREADSHEET_ID`／`LINE_TOKEN`／任何 `PropertiesService` 呼叫，物理上不可能外洩機密
+- 不涉及任何 Google Sheet 讀寫，24 張表零異動
+- 無 LockService（唯讀無並發風險）、無 Audit Trail 寫入（沒有狀態變更可記錄）
+
+**Commit：** `da4f55d feat: (Phase 1-B) 實作前端 config.js 探針與 GAS getSystemConfig 唯讀通路`（已 push 到 `origin/security/admin-auth`）
+
+**✅ 2026-07-07 GAS v74 已部署，通路驗收已通過：**
+- Angel 在無痕視窗 `leader.html` 按 F12 開 Console，貼上驗收 fetch 指令，實際回傳 `{ok: true, version: 'Phase 1-B', data: {…}}` ✅
+- Console 同時出現的「Password field is not contained in a form」與 `sw.js` 的 `Failed to fetch` 訊息，經確認皆為既有無關訊息（前者是瀏覽器對表單結構的提示、後者是 Service Worker 處理頁面載入本身的訊息，都跟這次 `getSystemConfig` 的 fetch 呼叫無關），**不影響驗收結果**
+- `getSystemConfig()` 前後端通路正式打通，**Phase 1-B 通路測試結案**
+
+**⚠️ 仍待辦：**
+1. `origin/main` 目前落後 `security/admin-auth` 3 個 commit（`24da88a`、`63b947f`、`da4f55d`），這次的改動有動到 GAS 邏輯但沒動任何前端頁面，GitHub Pages 顯示的網頁行為不受影響，可以之後有前端修正時再一併 fast-forward
+2. `config.js` 目前仍是**獨立探針，尚未被任何頁面引用**，這是刻意設計，等 Phase 1-C 才會讓某個頁面實際載入它
+
+**接棒提示更新：** Phase 1-B（通路骨架 + 部署 v74 + 驗收）已完整結案。下一步進入 **Phase 1-C**：把 `leader.html`／`shop.html`／`index.html`／`event.html`／`event_admin.html` 裡寫死的 `GAS_URL`／`SITE_BASE_URL`／`LINE_OA_URL` 常數，改成讀取 `config.js` 載入的 `window.HappinessSystemConfig.data`。這批風險偏低（值目前只有一組，換值前後渲染結果應該逐字一致），但涉及 5 個前端檔案，動手前務必先出 diff 草案審核。
+
+---
+
 *本檔案為交接用黑盒子紀錄，內容會隨每輪重要進度持續追加，不會覆蓋歷史段落。*
