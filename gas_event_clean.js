@@ -4780,7 +4780,8 @@ function validateLeaderToken_(phone, token) {
   }
 
   // ⑧ hash 正確後才檢查暫停狀態（避免狀態枚舉攻擊）
-  if (String(leaderRow[lc.BUY_STATUS] || '') === '暫停') {
+  var buyStatus = String(leaderRow[lc.BUY_STATUS] || '');
+  if (buyStatus === '暫停' || buyStatus === '取消') {
     return { ok: false, reason: 'suspended' };
   }
 
