@@ -55,6 +55,7 @@ SHEET.GROUP_CAMPAIGNS        = '團購活動表';
 SHEET.GROUP_PLEDGES          = '團購明細表';
 SHEET.GROUP_LEADERS          = '團主來源表';
 SHEET.GROUP_LEDGER           = '團購帳務表';
+SHEET.SYSTEM_CONFIG          = 'System_Config';
 
 // 欄位索引（0起算）
 const COL = {
@@ -5466,18 +5467,83 @@ function adminCreateGroupLeader(p) {
 // ================================================================
 
 function getSystemConfig(p) {
-  // 唯讀，不查表、不寫入、不需要 LockService、不需要 session_token
+  // 唯讀，不需要 LockService、不需要 session_token
   // ❌ 嚴禁在此函式引用 SPREADSHEET_ID / LINE_TOKEN / 任何 Script Property
-  return {
-    ok:      true,
-    version: 'Phase 1-B',
-    data: {
+  var cacheKey = 'sysconfig:public_v1';
+  var cache    = CacheService.getScriptCache();
+  var cached   = cache.get(cacheKey);
+  if (cached) {
+    return { ok: true, version: 'Phase 1-C', data: JSON.parse(cached) };
+  }
+
+  var data;
+  try {
+    var sheet = getSheet(SHEET.SYSTEM_CONFIG);
+    if (!sheet) throw new Error('sheet_missing');
+    var rows = getRows(SHEET.SYSTEM_CONFIG);
+    data = {};
+    rows.forEach(function(r) {
+      var key      = String(r[0] || '').trim();
+      var value    = r[1];
+      var scope    = String(r[3] || '').trim();
+      var security = String(r[8] || '').trim();
+      // 白名單：只有 public 且 frontend/both 才會出現在回傳結果
+      if (!key) return;
+      if (security !== 'public') return;
+      if (scope !== 'frontend' && scope !== 'both') return;
+      data[key] = value;
+    });
+  } catch (e) {
+    // 表還沒建立或讀取失敗 → 安全 fallback，維持 Phase 1-B 既有行為，不讓前端斷線
+    data = {
       BRAND_NAME:       '幸福緣好物市集',
       SITE_BASE_URL:    'https://angel0973180707.github.io/Angel-Heart-health-kitchen',
       LINE_OA_URL:      'https://lin.ee/tMag2XG',
       ENABLE_GROUP_BUY: true,
       ENABLE_POS:       true,
       ENABLE_EVENTS:    true
-    }
-  };
+    };
+  }
+
+  cache.put(cacheKey, JSON.stringify(data), 300);
+  return { ok: true, version: 'Phase 1-C', data: data };
+}
+
+// 一次性防呆初始化腳本 —— 不進 router，不進 adminActions，供 Angel 手動執行一次
+function adminInitSystemConfigTable_() {
+  var ss    = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(SHEET.SYSTEM_CONFIG);
+
+  // ① 表不存在才建立，已存在則直接沿用（不重建、不動既有內容）
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET.SYSTEM_CONFIG);
+    var headersEn = ['key','value','description','scope','type','required','default_value','example','security_level','notes'];
+    var headersZh = ['設定鍵值','設定值','說明','讀取範圍','型態','必填','預設值','範例','安全等級','備註'];
+    sheet.getRange(1, 1, 1, headersEn.length).setValues([headersEn]);
+    sheet.getRange(2, 1, 1, headersZh.length).setValues([headersZh]);
+  }
+
+  // ② Phase 1-C 預設值清單
+  var defaults = [
+    ['BRAND_NAME',       '幸福緣好物市集', '品牌全名',           'frontend', 'string', 'TRUE', '幸福緣好物市集', '幸福緣好物市集', 'public', ''],
+    ['SITE_BASE_URL',    'https://angel0973180707.github.io/Angel-Heart-health-kitchen', 'GitHub Pages 根網址', 'both', 'url', 'TRUE', '', '', 'public', ''],
+    ['LINE_OA_URL',      'https://lin.ee/tMag2XG', 'LINE 官方帳號連結', 'frontend', 'url', 'TRUE', '', '', 'public', ''],
+    ['ENABLE_GROUP_BUY', 'TRUE', '是否開放團購功能', 'both', 'boolean', 'TRUE', 'TRUE', 'TRUE', 'public', ''],
+    ['ENABLE_POS',       'TRUE', '是否開放 POS 功能', 'both', 'boolean', 'TRUE', 'TRUE', 'TRUE', 'public', ''],
+    ['ENABLE_EVENTS',    'TRUE', '是否開放活動報名功能', 'both', 'boolean', 'TRUE', 'TRUE', 'TRUE', 'public', '']
+  ];
+
+  // ③ 逐筆檢查，key 已存在就跳過（絕不覆蓋既有值 —— 等冪性核心）
+  var existingRows = getRows(SHEET.SYSTEM_CONFIG);
+  var existingKeys = {};
+  existingRows.forEach(function(r) { existingKeys[String(r[0] || '').trim()] = true; });
+
+  var toAppend = defaults.filter(function(row) { return !existingKeys[row[0]]; });
+  if (toAppend.length > 0) {
+    var startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 1, toAppend.length, 10).setValues(toAppend);
+  }
+
+  SpreadsheetApp.flush();
+  Logger.log('新增 ' + toAppend.length + ' 筆，已存在略過 ' + (defaults.length - toAppend.length) + ' 筆');
 }
