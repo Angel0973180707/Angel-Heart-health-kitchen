@@ -10,6 +10,8 @@
    這代表如果之後有人在這條 branch 上執行「沒有明確指定目標」的 `git push`（不加 `origin HEAD:security/admin-auth`），**預設行為會嘗試推去 `origin/main`**，等於在無意間把 main 更新掉。
    本文件先明確記錄這個風險，**不在本輪修正**（修正 upstream tracking 不屬於 Phase 1-A 文件草案範圍），後續需要獨立整理（例如執行 `git branch --set-upstream-to=origin/security/admin-auth`），且應在 Angel 明確授權後才動手。目前的應對方式是：所有 push 動作都手動明確指定 `git push origin HEAD:security/admin-auth`，不依賴預設 push 行為。
 
+   **✅ 2026-07-07 已修正 upstream tracking，誤推風險已排除。**
+
 2. **`main` 分支暫時凍結**：不刪除、不修改、不合併（no merge / no rebase / no reset / no force push）。main 目前落後 `security/admin-auth` 114 個 commit，且 GitHub Pages 實際發布來源推測為 `security/admin-auth`（詳見 Phase 0-A 盤點），在沒有 Angel 明確重新規劃分支策略之前，main 維持原樣不動。
 
 3. **Phase 1 不直接大改 UI / GAS**：本階段（Phase 1-B 起）只先定義 config key 清單與讀取策略骨架，不會一次性替換大量 HTML 顯示文字或 GAS 邏輯。實際替換 UI 字串、串接 `getSystemConfig()` 等動作都排在後面的 Phase（1-C 之後），且每個 Phase 都要先出 diff 草案給 Angel 審核，才能動手實作。
