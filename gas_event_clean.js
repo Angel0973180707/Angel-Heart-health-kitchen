@@ -5398,12 +5398,14 @@ function adminRestoreGroupLeader(p) {
 function adminCreateGroupLeader(p) {
   if (!validateSession_(p.session_token)) return { ok: false, error: '未授權' };
 
-  var name  = String(p.name  || '').trim();
-  var phone = normalizePhone_(String(p.phone || '').trim());
-  var note  = String(p.note  || '').trim();
+  var name       = String(p.name       || '').trim();
+  var group_name = String(p.group_name || '').trim();
+  var phone      = normalizePhone_(String(p.phone || '').trim());
+  var note       = String(p.note       || '').trim();
 
-  if (!name)  return { ok: false, error: '姓名必填' };
-  if (!phone) return { ok: false, error: '電話格式錯誤' };
+  if (!name)       return { ok: false, error: '姓名必填' };
+  if (!group_name) return { ok: false, error: '團名必填' };
+  if (!phone)      return { ok: false, error: '電話格式錯誤' };
 
   // 鎖外預檢（加速常見衝突拒絕）
   var lc   = COL.GROUP_LEADERS;
@@ -5438,7 +5440,7 @@ function adminCreateGroupLeader(p) {
       nowStr,       //  5  APPROVE_DATE
       0,            //  6  NO_SHOW_COUNT
       '正常',       //  7  BUY_STATUS
-      '',           //  8  SOURCE_LEADER
+      group_name,   //  8  SOURCE_LEADER
       '',           //  9  FIRST_LED_AT
       '',           // 10  LINE_UID
       note,         // 11  NOTE
@@ -5451,7 +5453,7 @@ function adminCreateGroupLeader(p) {
     SpreadsheetApp.flush();
 
     // ❌ 不碰 GROUP_LEDGER / GROUP_CAMPAIGNS / GROUP_PLEDGES
-    return { ok: true, id: id, masked_phone: maskPhone_(phone), name: name };
+    return { ok: true, id: id, masked_phone: maskPhone_(phone), name: name, group_name: group_name };
   } finally {
     lock.releaseLock();
   }

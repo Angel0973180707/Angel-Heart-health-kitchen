@@ -727,6 +727,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       <div class="field"><label>團長姓名 *</label>
         <input type="text" id="cl-name" placeholder="王小明" maxlength="30" autocomplete="off">
       </div>
+      <div class="field"><label>團名 / 對外顯示名稱 *</label>
+        <input type="text" id="cl-group-name" placeholder="例如：Angel 幸福緣開團" maxlength="50" autocomplete="off">
+      </div>
       <div class="field"><label>團長手機 *</label>
         <input type="tel" id="cl-phone" placeholder="0912345678" maxlength="15" autocomplete="off">
       </div>
@@ -1139,23 +1142,26 @@ async function setLeaderTokenFromAdmin(){
 }
 
 async function createGroupLeaderFromAdmin(){
-  const name  = (document.getElementById('cl-name').value  || '').trim();
-  const phone = (document.getElementById('cl-phone').value || '').trim();
-  const note  = (document.getElementById('cl-note').value  || '').trim();
+  const name      = (document.getElementById('cl-name').value       || '').trim();
+  const groupName = (document.getElementById('cl-group-name').value || '').trim();
+  const phone     = (document.getElementById('cl-phone').value      || '').trim();
+  const note      = (document.getElementById('cl-note').value       || '').trim();
   const btn   = document.getElementById('cl-submit-btn');
   const hint  = document.getElementById('cl-hint');
   hint.style.display = 'none';
-  if (!name)  return showToast('請輸入姓名', 'error');
-  if (!phone) return showToast('請輸入手機', 'error');
+  if (!name)      return showToast('請輸入姓名', 'error');
+  if (!groupName) return showToast('請輸入團名', 'error');
+  if (!phone)     return showToast('請輸入手機', 'error');
   btn.disabled = true; btn.textContent = '新增中…';
   try {
-    const d = await apiJsonPost({ action:'adminCreateGroupLeader', session_token:SESSION_TOKEN, name, phone, note });
+    const d = await apiJsonPost({ action:'adminCreateGroupLeader', session_token:SESSION_TOKEN, name, group_name:groupName, phone, note });
     if (!d.ok) { showToast('失敗：' + (d.error || ''), 'error'); return; }
-    showToast('團長已新增：' + d.name, 'success');
-    document.getElementById('cl-name').value  = '';
-    document.getElementById('cl-phone').value = '';
-    document.getElementById('cl-note').value  = '';
-    hint.textContent = '下一步：在「產生啟用連結」輸入 ' + phone + '，發送連結給團長設定密碼。';
+    showToast('團長已新增：' + d.group_name + ' / ' + d.name, 'success');
+    document.getElementById('cl-name').value       = '';
+    document.getElementById('cl-group-name').value = '';
+    document.getElementById('cl-phone').value      = '';
+    document.getElementById('cl-note').value       = '';
+    hint.textContent = '下一步：在「產生啟用連結」輸入 ' + phone + '，發送連結給 ' + d.group_name + ' 設定密碼。';
     hint.style.display = 'block';
   } catch(e) { showToast('連線失敗，請稍後再試', 'error'); }
   finally { btn.disabled = false; btn.textContent = '新增團長'; }
