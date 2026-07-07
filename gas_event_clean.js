@@ -253,7 +253,8 @@ function handleRequest(e) {
       'adminSetLeaderToken',
       'adminCreateLeaderSetupLink',
       'adminSuspendGroupLeader',
-      'adminRestoreGroupLeader'
+      'adminRestoreGroupLeader',
+      'adminCreateGroupLeader'
     ];
 
     if (adminActions.includes(action) && !validateSession_(p.session_token)) {
@@ -353,6 +354,7 @@ function handleRequest(e) {
       case 'adminCreateLeaderSetupLink':    return res(adminCreateLeaderSetupLink(p));
       case 'adminSuspendGroupLeader':       return res(adminSuspendGroupLeader(p));
       case 'adminRestoreGroupLeader':       return res(adminRestoreGroupLeader(p));
+      case 'adminCreateGroupLeader':        return res(adminCreateGroupLeader(p));
 
       case 'loginAdmin':             return res(loginAdmin(p));
       case 'loginEventAdmin':        return res(loginEventAdmin(p));
@@ -5384,6 +5386,72 @@ function adminRestoreGroupLeader(p) {
     // ❌ 不碰 GROUP_CAMPAIGNS / GROUP_PLEDGES / GROUP_LEDGER
 
     return { ok: true, name: String(found2[lc.NAME] || '') };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ================================================================
+// Module 7-E — 後台新增團長
+// ================================================================
+
+function adminCreateGroupLeader(p) {
+  if (!validateSession_(p.session_token)) return { ok: false, error: '未授權' };
+
+  var name  = String(p.name  || '').trim();
+  var phone = normalizePhone_(String(p.phone || '').trim());
+  var note  = String(p.note  || '').trim();
+
+  if (!name)  return { ok: false, error: '姓名必填' };
+  if (!phone) return { ok: false, error: '電話格式錯誤' };
+
+  // 鎖外預檢（加速常見衝突拒絕）
+  var lc   = COL.GROUP_LEADERS;
+  var rows = getRows(SHEET.GROUP_LEADERS);
+  for (var i = 0; i < rows.length; i++) {
+    if (normalizePhone_(String(rows[i][lc.PHONE] || '')) === phone)
+      return { ok: false, error: '此手機已存在' };
+  }
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(8000); }
+  catch(e) { return { ok: false, error: '系統忙碌，請稍後再試' }; }
+
+  try {
+    // 鎖內再查一次，防並發重複
+    var rows2 = getRows(SHEET.GROUP_LEADERS);
+    for (var j = 0; j < rows2.length; j++) {
+      if (normalizePhone_(String(rows2[j][lc.PHONE] || '')) === phone)
+        return { ok: false, error: '此手機已存在' };
+    }
+
+    var nowStr = now();
+    var id     = genId('GL');
+    var sheet  = getSheet(SHEET.GROUP_LEADERS);
+
+    sheet.appendRow([
+      id,           //  0  ID
+      "'" + phone,  //  1  PHONE（前導 ' 強制 Sheets 存文字，保留前導 0）
+      name,         //  2  NAME
+      '團長',       //  3  LEVEL
+      '後台新增',   //  4  APPROVE_METHOD
+      nowStr,       //  5  APPROVE_DATE
+      0,            //  6  NO_SHOW_COUNT
+      '正常',       //  7  BUY_STATUS
+      '',           //  8  SOURCE_LEADER
+      '',           //  9  FIRST_LED_AT
+      '',           // 10  LINE_UID
+      note,         // 11  NOTE
+      '',           // 12  SUSPENDED_AT
+      '',           // 13  SUSPENDED_REASON
+      '',           // 14  OVERRIDE_UNTIL
+      '',           // 15  OVERRIDE_NOTE
+      '[' + nowStr + '] admin_create_leader'  // 16  SYSTEM_NOTE
+    ]);
+    SpreadsheetApp.flush();
+
+    // ❌ 不碰 GROUP_LEDGER / GROUP_CAMPAIGNS / GROUP_PLEDGES
+    return { ok: true, id: id, masked_phone: maskPhone_(phone), name: name };
   } finally {
     lock.releaseLock();
   }

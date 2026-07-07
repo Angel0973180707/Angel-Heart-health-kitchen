@@ -720,7 +720,24 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div style="margin-top:24px">
     <div class="section-title" style="margin-bottom:10px">👥 團長管理工具</div>
 
-    <!-- ① 主要：產生啟用連結 -->
+    <!-- ① 新增團長 -->
+    <div style="background:var(--white);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:12px">
+      <div style="font-weight:700;font-size:14px;margin-bottom:6px">新增團長</div>
+      <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px">建立後請接著「產生啟用連結」發給團長設定密碼。</p>
+      <div class="field"><label>團長姓名 *</label>
+        <input type="text" id="cl-name" placeholder="王小明" maxlength="30" autocomplete="off">
+      </div>
+      <div class="field"><label>團長手機 *</label>
+        <input type="tel" id="cl-phone" placeholder="0912345678" maxlength="15" autocomplete="off">
+      </div>
+      <div class="field"><label>備註（選填）</label>
+        <input type="text" id="cl-note" placeholder="例如：北區負責人" maxlength="100" autocomplete="off">
+      </div>
+      <button class="btn btn-gold" id="cl-submit-btn" onclick="createGroupLeaderFromAdmin()">新增團長</button>
+      <div id="cl-hint" style="display:none;font-size:12px;color:var(--green-dark);margin-top:10px"></div>
+    </div>
+
+    <!-- ② 主要：產生啟用連結 -->
     <div style="background:var(--white);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:12px">
       <div style="font-weight:700;font-size:14px;margin-bottom:6px">產生啟用連結（讓團長自行設定密碼）</div>
       <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px">輸入團長手機，產生一次性啟用連結（7 天有效、只能用一次）。重新產生會使舊連結立即失效。</p>
@@ -1119,6 +1136,29 @@ async function setLeaderTokenFromAdmin(){
     }
   }catch(e){showToast('連線失敗，請稍後再試','error');}
   finally{btn.disabled=false;btn.textContent='設定通行碼';}
+}
+
+async function createGroupLeaderFromAdmin(){
+  const name  = (document.getElementById('cl-name').value  || '').trim();
+  const phone = (document.getElementById('cl-phone').value || '').trim();
+  const note  = (document.getElementById('cl-note').value  || '').trim();
+  const btn   = document.getElementById('cl-submit-btn');
+  const hint  = document.getElementById('cl-hint');
+  hint.style.display = 'none';
+  if (!name)  return showToast('請輸入姓名', 'error');
+  if (!phone) return showToast('請輸入手機', 'error');
+  btn.disabled = true; btn.textContent = '新增中…';
+  try {
+    const d = await apiJsonPost({ action:'adminCreateGroupLeader', session_token:SESSION_TOKEN, name, phone, note });
+    if (!d.ok) { showToast('失敗：' + (d.error || ''), 'error'); return; }
+    showToast('團長已新增：' + d.name, 'success');
+    document.getElementById('cl-name').value  = '';
+    document.getElementById('cl-phone').value = '';
+    document.getElementById('cl-note').value  = '';
+    hint.textContent = '下一步：在「產生啟用連結」輸入 ' + phone + '，發送連結給團長設定密碼。';
+    hint.style.display = 'block';
+  } catch(e) { showToast('連線失敗，請稍後再試', 'error'); }
+  finally { btn.disabled = false; btn.textContent = '新增團長'; }
 }
 
 async function genLeaderSetupLink(){
