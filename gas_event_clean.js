@@ -349,6 +349,7 @@ function handleRequest(e) {
       case 'getLeaderCampaignPledges': return res(getLeaderCampaignPledges(p));
       case 'adminSetLeaderToken':           return res(adminSetLeaderToken(p));
 
+      case 'getSystemConfig':               return res(getSystemConfig(p));
       case 'validateLeaderSetupToken':      return res(validateLeaderSetupToken(p));
       case 'completeLeaderSetup':           return res(completeLeaderSetup(p));
       case 'adminCreateLeaderSetupLink':    return res(adminCreateLeaderSetupLink(p));
@@ -5458,4 +5459,25 @@ function adminCreateGroupLeader(p) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// ================================================================
+// Phase 1-B — 母模化 System_Config 通路測試（唯讀）
+// ================================================================
+
+function getSystemConfig(p) {
+  // 唯讀，不查表、不寫入、不需要 LockService、不需要 session_token
+  // ❌ 嚴禁在此函式引用 SPREADSHEET_ID / LINE_TOKEN / 任何 Script Property
+  return {
+    ok:      true,
+    version: 'Phase 1-B',
+    data: {
+      BRAND_NAME:       '幸福緣好物市集',
+      SITE_BASE_URL:    'https://angel0973180707.github.io/Angel-Heart-health-kitchen',
+      LINE_OA_URL:      'https://lin.ee/tMag2XG',
+      ENABLE_GROUP_BUY: true,
+      ENABLE_POS:       true,
+      ENABLE_EVENTS:    true
+    }
+  };
 }
