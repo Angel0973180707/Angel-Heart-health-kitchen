@@ -62,4 +62,43 @@
 
 ---
 
+## 6. 追加紀錄（2026-07-07）：Module 7-F 登入狀態防呆漏洞修復
+
+**背景：** Phase 1-B 尚未動工前，針對「團長流程核心死角」做了一輪盤點（登入狀態防呆／Token 銷毀+Lock／CORS／Audit Trail 四項），發現三項已符合規範（Token 銷毀已在 LockService 鎖內、CORS 全專案零殘留 `application/json`、Audit Trail 已用 `system_note` 記錄不做 silent update），**只有一項是實際漏洞**。
+
+**漏洞內容：** `validateLeaderToken_`（`gas_event_clean.js`，這是 `leaderLogin` / `getLeaderCampaigns` / `getLeaderCampaignPledges` 共用的唯一驗證入口）原本只擋 `BUY_STATUS === '暫停'`，沒有擋 `'取消'`。跟同專案裡的 `validateLeaderSetupToken`、`adminSuspendGroupLeader` 對照，兩個狀態都應該擋，這裡漏了一個，導致**已被取消資格的團長依然能用密碼登入、看到自己的團購活動**。
+
+**修復內容：**
+```diff
+- if (String(leaderRow[lc.BUY_STATUS] || '') === '暫停') {
++ var buyStatus = String(leaderRow[lc.BUY_STATUS] || '');
++ if (buyStatus === '暫停' || buyStatus === '取消') {
+    return { ok: false, reason: 'suspended' };
+  }
+```
+沿用既有 `'suspended'` 錯誤代碼（前端已對應「您的開團資格已暫停，請聯繫幸福緣」），不需要改任何前端檔案、不需要新增錯誤訊息分支。
+
+**影響範圍確認：**
+- 只改 `gas_event_clean.js` 一個檔案，1 個 if 判斷（1 行變 2 行）
+- 只讀既有 `GROUP_LEADERS.BUY_STATUS` 欄位，不寫入、不新增欄位，24 張表零異動
+- 前端不需要改，`sw.js` 不需要升版
+
+**Commit：** `24da88a fix: (Module 7-F) 修正 validateLeaderToken_ 漏擋取消狀態之漏洞`（已 push 到 `origin/security/admin-auth`，**尚未 fast-forward 到 `origin/main`**，GitHub Pages 還看不到這個修正）
+
+**✅ 2026-07-07 已完成：** GAS 部署為新版本 **v73**（整份 `gas_event_clean.js` 覆蓋貼上後部署，Angel 已確認完成）。
+
+**✅ 2026-07-07 驗收測試已執行並通過：** Angel 用自己既有的真實團長帳號測試（過程中一度誤以為「團主來源表沒有紀錄」，後確認是找錯位置，虛驚一場，資料原本就在）：
+- 把自己的 `buy_status` 從「正常」改成「取消」→ 重新登入 `leader.html` → **實際看到「您的開團資格已暫停，請聯繫幸福緣」**，登入被正確擋下 ✅
+- 測試後已把 `buy_status` 改回「正常」，確認可正常登入 ✅
+
+回歸測試（原本「暫停」狀態的行為）與直接呼叫 `getLeaderCampaigns` 的測試，本輪未逐一執行（用真實帳號測試已足以證明核心修復邏輯生效，且共用同一個 `validateLeaderToken_` 函式，三個 API 理論上必定同步生效）。**Module 7-F 登入狀態防呆漏洞修復，正式結案。**
+
+**⚠️ 仍待辦（不影響本次修復結案，屬於順手處理項目）：**
+1. **`origin/main` 需要 fast-forward**（跟這次 GAS 部署無關——GAS 部署是獨立於 git branch 的動作，這條只影響 GitHub Pages 顯示的前端頁面）。目前 `origin/main` 落後 `security/admin-auth` 2 個 commit（`24da88a` 這次修復 + 前一輪的 Phase 1-B 交接文件），但這兩個 commit 都沒有動到任何前端檔案（`leader.html` 等），所以**即使不 fast-forward，GitHub Pages 上顯示的網頁行為也不受影響**。之後有前端修正要上線時再一併處理即可，不急。
+2. 這個專案目前**沒有專用的「測試團長」帳號**（不像 HSC 專案有 `TESTADMIN001`），這次驗收借用了 Angel 自己的真實帳號。未來如果要重複驗收類似功能，建議在後台新增一個明顯是測試用的團長（例如手機 `0900000000`），避免每次都要動用真實帳號、事後還要記得改回來。
+
+**接棒提示更新：** Module 7-F 已完整結案（診斷 → 修復 → GAS v73 部署 → 驗收通過）。下一位協作者（不論是 Gemini 還是接續的 Claude）可以直接開始 **Phase 1-B**（`getSystemConfig()` 讀取骨架），先讀 [docs/母模化_System_Config_規格_v1.md](./母模化_System_Config_規格_v1.md) 第五節。
+
+---
+
 *本檔案為交接用黑盒子紀錄，內容會隨每輪重要進度持續追加，不會覆蓋歷史段落。*
