@@ -5547,3 +5547,8 @@ function adminInitSystemConfigTable_() {
   SpreadsheetApp.flush();
   Logger.log('新增 ' + toAppend.length + ' 筆，已存在略過 ' + (defaults.length - toAppend.length) + ' 筆');
 }
+
+// 無底線包裝函式，方便在 GAS 編輯器函式選單直接選取執行（不進 router，不進 adminActions）
+function runInitSystemConfig() {
+  adminInitSystemConfigTable_();
+}
