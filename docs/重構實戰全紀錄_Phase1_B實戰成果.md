@@ -131,4 +131,34 @@
 
 ---
 
+## 8. 追加紀錄（2026-07-08）：Phase 1-C `System_Config` 表動態化重構
+
+**背景：** Phase 1-B 通路測試通過後，`getSystemConfig()` 從「寫死常數」升級為「真正查 Google Sheet」，並補上快取防禦，避免公開唯讀 API 被高併發打爆 Sheet 讀取配額。
+
+**實作內容：**
+- `gas_event_clean.js` 新增 `SHEET.SYSTEM_CONFIG = 'System_Config';`（新增一行，不動任何既有 `SHEET.*` 定義）
+- `getSystemConfig()` 重構為：先查 `CacheService.getScriptCache()`（key: `sysconfig:public_v1`，TTL 300 秒）→ cache miss 才真的讀 `System_Config` 表 → 白名單過濾（只有 `security_level==='public'` 且 `scope` 為 `frontend`/`both` 的列才會出現在回傳結果）→ 寫回快取。讀表失敗（例如表還沒建立）會 fallback 回 Phase 1-B 的寫死值，不讓前端斷線
+- 新增一次性 Migration 函式 `adminInitSystemConfigTable_()`：表不存在才建立（row1 英文表頭／row2 中文表頭，沿用既有 `DATA_ROW=3` 慣例）；6 個預設 key 逐筆檢查存在與否，只 append 缺少的，**絕不覆蓋已存在的值**（等冪性）；只操作 `System_Config` 這一個分頁，不碰任何其他表
+- 追加 `runInitSystemConfig()`（無底線包裝函式，純粹方便在 GAS 編輯器函式選單裡選取執行——Angel 反映底線結尾的函式在選單裡不好選，依過往實際經驗直接加包裝函式解決，不糾結於是否為 GAS 本身限制）
+
+**影響範圍確認：**
+- 新增 `System_Config` 分頁（全新表），既有 14+5 張表零異動
+- `gas_event_clean.js` 三次 commit：`2fd6cb4`（主體重構）、`5c6c5c4`（無底線包裝函式），皆已 push 到 `origin/security/admin-auth`
+- 前端檔案（`leader.html` 等）與 `sw.js` 全部零異動
+
+**部署與驗收（Angel 實際執行結果）：**
+- GAS 部署至 **v76**（v75 主體重構 + v76 補上包裝函式）
+- 執行 `runInitSystemConfig()`，Logger 輸出：`新增 6 筆，已存在略過 0 筆` ✅（首次執行，6 個預設值全部成功寫入，符合預期）
+- Console 驗收 fetch `getSystemConfig`，回傳 `{ok: true, version: 'Phase 1-C', data: {…}}` ✅——`version` 確認為 `"Phase 1-C"`（不是 Phase 1-B 的 fallback 值），證實資料真的來自 `System_Config` 表格，快取與白名單邏輯正常運作
+
+**Module/Phase 狀態：Phase 1-C 正式結案。**
+
+**⚠️ 仍待辦：**
+1. `origin/main` 目前落後 `security/admin-auth` 5 個 commit（`24da88a`、`63b947f`、`da4f55d`、`2fd6cb4`、`5c6c5c4`），皆為後端邏輯與文件異動，未動任何前端頁面，GitHub Pages 網頁行為不受影響
+2. `config.js` 仍未被任何頁面引用，前端尚未實際改用 `System_Config` 資料
+
+**接棒提示更新：** Phase 1-C（表格化 + 快取 + Migration + 部署 v76 + 驗收）已完整結案。下一步是 **Phase 1-D**：讓某個前端頁面實際載入 `config.js`，並開始把寫死的常數換成讀取 `window.HappinessSystemConfig.data`，需要先出 diff 草案審核，範圍建議先挑單一頁面（例如 `leader.html`）試點，不要 5 個頁面一次全改。
+
+---
+
 *本檔案為交接用黑盒子紀錄，內容會隨每輪重要進度持續追加，不會覆蓋歷史段落。*
